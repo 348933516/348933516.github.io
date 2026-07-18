@@ -24,9 +24,7 @@ jobs:
       - name: Link project
         run: pnpm dlx supabase@latest link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
       - name: Apply migrations
-        run: |
-          pnpm dlx supabase@latest config push --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
+        run: pnpm dlx supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
       - name: Deploy functions
         run: |
           pnpm dlx supabase@latest secrets set PUBLIC_SITE_URL=https://348933516.github.io --project-ref "$PROJECT_REF"

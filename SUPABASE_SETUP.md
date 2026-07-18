@@ -22,6 +22,13 @@ pnpm backup:legacy
 
 打开 `Authentication -> Sign In / Providers -> Email`，关闭允许访客自行注册。后台新增账号统一通过“邀请管理员”。
 
+再打开 `Authentication -> URL Configuration`：
+
+- `Site URL` 设置为 `https://348933516.github.io/preview/`
+- `Redirect URLs` 添加 `https://348933516.github.io/preview/`
+
+部署工作流不会推送整份 `config.toml`，避免免费项目误启用 Vector Storage 或覆盖现有邮件/MFA 设置。
+
 ## 4. 部署 Edge Functions
 
 需要部署：
