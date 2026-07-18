@@ -1149,6 +1149,10 @@
         grid-column: 1 / -1;
       }
 
+      .form-grid > .full {
+        grid-column: 1 / -1;
+      }
+
       .checkbox-line {
         min-height: 40px;
         display: inline-flex;
@@ -1682,7 +1686,7 @@
               <input id="rememberLogin" type="checkbox">
               <span>保存账号密码</span>
             </label>
-            <button class="text-button primary" type="submit"><i data-lucide="log-in"></i>登陆</button>
+            <button class="text-button primary full" type="submit"><i data-lucide="log-in"></i>登陆</button>
             <div class="auth-help full">
               <button class="text-button" type="button" id="resetPasswordButton"><i data-lucide="key-round"></i>发送重置密码邮件</button>
               <button class="text-button" type="button" id="magicLinkButton"><i data-lucide="mail"></i>发送邮箱登录链接</button>
@@ -2188,6 +2192,9 @@
 
       function supabaseErrorText(error) {
         if (!error) return "未知错误";
+        if ((error.message || "").toLowerCase().includes("failed to fetch")) {
+          return "无法连接 Supabase 项目地址。请检查 Project URL 是否正确，或当前网络是否能访问 Supabase。";
+        }
         const status = error.status ? ` (${error.status})` : "";
         return `${error.message || "未知错误"}${status}`;
       }
