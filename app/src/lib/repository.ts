@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { publicMediaBucket } from "./config";
+import { isOfficialAssetPath, officialAssetUrl } from "./official-assets";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
 import type { Attachment, Category, ContentDraft, ContentItem, ContentMedia, Profile, PublicData, SiteSettings } from "../types";
@@ -19,6 +20,7 @@ function isMissingSchema(error: { code?: string; message?: string } | null) {
 
 function storageUrl(bucket?: string | null, path?: string | null, external?: string | null) {
   if (external) return safeUrl(external);
+  if (path && isOfficialAssetPath(path)) return officialAssetUrl(path);
   if (!bucket || !path || bucket !== publicMediaBucket) return "";
   return safeUrl(supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl);
 }

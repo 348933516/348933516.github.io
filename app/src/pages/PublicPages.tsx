@@ -36,6 +36,7 @@ export function HomePage() {
     <>
       <section className="hero-band" style={settings.heroBackgroundUrl ? { backgroundImage: `linear-gradient(90deg, rgba(8,13,16,.9), rgba(8,13,16,.58)), url(${settings.heroBackgroundUrl})` } : undefined}>
         <div className="page-width hero-content">
+          {settings.heroLogoUrl && <img className="hero-logo" src={settings.heroLogoUrl} alt="" />}
           <span className="eyebrow">MapleStoryNK Knowledge Base</span>
           <h1>{settings.heroTitle}</h1>
           <p>{settings.heroSubtitle}</p>

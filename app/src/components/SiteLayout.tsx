@@ -35,7 +35,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
       <header className="site-header">
         <div className="header-inner">
           <Link className="brand-link" to="/">
-            <span className="brand-logo">{settings.topLogoUrl ? <img src={settings.topLogoUrl} alt="" /> : "NK"}</span>
+            <span className={`brand-logo${settings.topLogoUrl ? " with-image" : ""}`}>{settings.topLogoUrl ? <img src={settings.topLogoUrl} alt="" /> : "NK"}</span>
             <span><strong>{settings.brandTitle}</strong><small>{settings.brandSubtitle}</small></span>
           </Link>
           <form className="header-search" onSubmit={submitSearch}>
@@ -62,7 +62,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
       </header>
       {backendMode === "legacy" && <div className="preview-banner"><BookOpen />新版预览正在读取旧站数据；执行数据库迁移后会自动启用正式后台。</div>}
       <main>{children}</main>
-      <footer className="site-footer"><span>{settings.brandTitle}</span><span>资料百科 · 内容由管理员维护</span></footer>
+      <footer className="site-footer"><span>{settings.brandTitle}</span><span>非官方资料站 · 素材版权归原权利人所有</span></footer>
     </div>
   );
 }
