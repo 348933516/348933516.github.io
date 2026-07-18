@@ -336,7 +336,9 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         overflow: hidden;
-        background: rgba(16, 24, 32, 0.76);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 210px),
+          rgba(16, 24, 32, 0.76);
         box-shadow: var(--shadow);
       }
 
@@ -356,8 +358,8 @@
       }
 
       .detail-content {
-        max-width: 920px;
-        padding: 32px;
+        max-width: none;
+        padding: 34px;
       }
 
       .detail-kicker {
@@ -457,7 +459,7 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         overflow: hidden;
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba(255, 255, 255, 0.035);
       }
 
       .media-entry img,
@@ -469,8 +471,13 @@
         background: #05080a;
       }
 
+      .media-entry img {
+        cursor: zoom-in;
+      }
+
       .media-entry-body {
-        padding: 14px;
+        border-top: 1px solid var(--line);
+        padding: 16px;
         display: grid;
         gap: 8px;
       }
@@ -486,10 +493,21 @@
       }
 
       .annotation {
+        border: 1px solid rgba(69, 217, 179, 0.18);
         border-left: 3px solid var(--teal);
-        padding: 8px 0 8px 12px;
+        border-radius: 8px;
+        padding: 10px 12px;
         color: var(--soft);
+        background: rgba(69, 217, 179, 0.055);
         line-height: 1.7;
+      }
+
+      .lightbox-button {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.46);
+        backdrop-filter: blur(10px);
       }
 
       .lightbox-image {
@@ -743,6 +761,122 @@
         line-height: 1.74;
       }
 
+      .import-note {
+        margin: 0 0 12px;
+        border: 1px solid rgba(239, 189, 85, 0.34);
+        border-radius: 8px;
+        padding: 12px;
+        color: #ffe8b5;
+        background: rgba(239, 189, 85, 0.09);
+        line-height: 1.72;
+      }
+
+      .media-editor-list {
+        max-height: 420px;
+        overflow: auto;
+        display: grid;
+        gap: 12px;
+      }
+
+      .media-editor-item {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr) auto;
+        gap: 12px;
+        padding: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.028));
+      }
+
+      .media-editor-item img {
+        width: 132px;
+        height: 104px;
+        border-radius: 8px;
+        object-fit: cover;
+        background: #05080a;
+      }
+
+      .media-editor-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .media-editor-fields .wide {
+        grid-column: 1 / -1;
+      }
+
+      .media-editor-item textarea {
+        min-height: 70px;
+      }
+
+      .media-editor-actions {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+      }
+
+      .editor-toolbar {
+        border: 1px solid var(--line);
+        border-radius: 8px 8px 0 0;
+        padding: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035));
+      }
+
+      .editor-toolbar select,
+      .editor-toolbar input[type="color"] {
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .editor-toolbar select {
+        min-width: 104px;
+        padding: 0 10px;
+      }
+
+      .editor-toolbar input[type="color"] {
+        width: 40px;
+        padding: 4px;
+      }
+
+      .rich-editor {
+        min-height: 300px;
+        border: 1px solid var(--line);
+        border-top: 0;
+        border-radius: 0 0 8px 8px;
+        padding: 18px;
+        color: var(--soft);
+        background: rgba(255, 255, 255, 0.07);
+        outline: none;
+        line-height: 1.8;
+      }
+
+      .rich-editor h1,
+      .rich-editor h2,
+      .rich-editor h3 {
+        color: var(--text);
+        line-height: 1.25;
+      }
+
+      .rich-editor blockquote {
+        margin: 12px 0;
+        border-left: 3px solid var(--teal);
+        padding: 8px 0 8px 14px;
+        color: #dffbf1;
+        background: rgba(69, 217, 179, 0.06);
+      }
+
+      .rich-editor:focus {
+        border-color: rgba(69, 217, 179, 0.4);
+      }
+
       .modal {
         position: fixed;
         inset: 0;
@@ -886,6 +1020,16 @@
 
         .content-card img {
           width: 112px;
+        }
+
+        .media-editor-item,
+        .media-editor-fields {
+          grid-template-columns: 1fr;
+        }
+
+        .media-editor-item img {
+          width: 100%;
+          height: 160px;
         }
 
         .detail-content {
@@ -1171,8 +1315,11 @@
               <input class="input" id="contentOrder" type="number" value="100">
             </div>
             <div class="form-field full">
-              <label for="contentImages">图片结构</label>
-              <textarea class="textarea" id="contentImages" placeholder="每行一张图：层级路径 | 图片名称 | 标注说明 | 图片地址&#10;例：多种主题小地图展示/可爱风 | 入口展示 | 这里标注入口位置 | https://..."></textarea>
+              <label>图片管理</label>
+              <input type="hidden" id="contentImages">
+              <div class="preview-body">
+                <div class="media-editor-list" id="mediaEditorPreview">暂无图片。</div>
+              </div>
             </div>
             <div class="form-field full">
               <label for="contentVideos">视频列表</label>
@@ -1187,16 +1334,36 @@
               <input class="input" id="contentVideoFile" type="file" accept="video/*" multiple>
             </div>
             <div class="form-field full">
-              <label>图片结构预览</label>
-              <div class="preview-body" id="mediaEditorPreview">暂无图片。</div>
-            </div>
-            <div class="form-field full">
               <label for="contentAttachments">附件</label>
               <textarea class="textarea" id="contentAttachments" placeholder="每行一个附件，可写：名称 | 链接"></textarea>
             </div>
             <div class="form-field full">
               <label for="contentBody">正文内容</label>
-              <textarea class="textarea" id="contentBody" required></textarea>
+              <textarea class="hidden" id="contentBody" required></textarea>
+              <div class="editor-toolbar" id="editorToolbar">
+                <button class="icon-button" type="button" data-editor-command="undo" aria-label="撤销"><i data-lucide="undo-2"></i></button>
+                <button class="icon-button" type="button" data-editor-command="redo" aria-label="重做"><i data-lucide="redo-2"></i></button>
+                <select id="editorBlock" aria-label="段落格式">
+                  <option value="p">正文</option>
+                  <option value="h1">一级标题</option>
+                  <option value="h2">二级标题</option>
+                  <option value="h3">三级标题</option>
+                </select>
+                <button class="icon-button" type="button" data-editor-command="bold" aria-label="加粗"><i data-lucide="bold"></i></button>
+                <button class="icon-button" type="button" data-editor-command="italic" aria-label="斜体"><i data-lucide="italic"></i></button>
+                <button class="icon-button" type="button" data-editor-command="underline" aria-label="下划线"><i data-lucide="underline"></i></button>
+                <button class="icon-button" type="button" data-editor-command="insertUnorderedList" aria-label="列表"><i data-lucide="list"></i></button>
+                <button class="icon-button" type="button" data-editor-command="insertOrderedList" aria-label="编号列表"><i data-lucide="list-ordered"></i></button>
+                <button class="icon-button" type="button" data-editor-command="justifyLeft" aria-label="左对齐"><i data-lucide="align-left"></i></button>
+                <button class="icon-button" type="button" data-editor-command="justifyCenter" aria-label="居中"><i data-lucide="align-center"></i></button>
+                <button class="icon-button" type="button" data-editor-command="justifyRight" aria-label="右对齐"><i data-lucide="align-right"></i></button>
+                <button class="icon-button" type="button" data-editor-command="formatBlock" data-editor-value="blockquote" aria-label="引用"><i data-lucide="quote"></i></button>
+                <input type="color" id="editorColor" value="#f7faf7" aria-label="文字颜色">
+                <input type="color" id="editorBackColor" value="#26372f" aria-label="背景高亮">
+                <button class="icon-button" type="button" data-editor-link aria-label="插入链接"><i data-lucide="link"></i></button>
+                <button class="icon-button" type="button" data-editor-command="removeFormat" aria-label="清除格式"><i data-lucide="eraser"></i></button>
+              </div>
+              <div class="rich-editor" id="richEditor" contenteditable="true"></div>
             </div>
             <div class="form-field">
               <label for="contentSource">后台来源记录</label>
@@ -1361,6 +1528,7 @@
       let selectedContentId = null;
       let catalogScrollY = 0;
       let pendingImport = null;
+      let mediaEditorItems = [];
 
       function loadCollection(key, legacyKeys, fallback) {
         for (const storageKey of [key, ...legacyKeys]) {
@@ -1539,6 +1707,10 @@
         }).join("\n");
       }
 
+      function syncMediaInputValue() {
+        $("#contentImages").value = mediaEditorItems.length ? `已管理 ${mediaEditorItems.length} 张图片` : "";
+      }
+
       function buildOutline(items) {
         const paths = [];
         (items || []).forEach((media, index) => {
@@ -1560,21 +1732,45 @@
       }
 
       function renderMediaEditorPreview() {
-        const items = parseMediaItems($("#contentImages")?.value || "");
-        const html = items.map((media, index) => `
-          <div class="content-card" style="grid-template-columns:96px 1fr;min-height:112px;margin-bottom:10px">
-            <img src="${media.src}" alt="${escapeHtml(media.title)}" style="width:96px">
-            <div class="card-body">
-              <div>
-                <span class="media-path">${escapeHtml(media.path)}</span>
-                <h3>${escapeHtml(media.title)}</h3>
-                <p>${escapeHtml(media.note || "暂无标注")}</p>
+        const html = mediaEditorItems.map((media, index) => `
+          <div class="media-editor-item" data-media-editor="${index}">
+            <img src="${escapeHtml(media.src)}" alt="${escapeHtml(media.title)}">
+            <div class="media-editor-fields">
+              <div class="form-field">
+                <label>多级分类</label>
+                <input class="input" data-media-field="path" data-media-index="${index}" value="${escapeHtml(media.path)}" title="双击选中修改">
               </div>
+              <div class="form-field">
+                <label>图片名称</label>
+                <input class="input" data-media-field="title" data-media-index="${index}" value="${escapeHtml(media.title)}" title="双击选中修改">
+              </div>
+              <div class="form-field wide">
+                <label>标注说明</label>
+                <textarea class="textarea" data-media-field="note" data-media-index="${index}" title="双击选中修改">${escapeHtml(media.note)}</textarea>
+              </div>
+            </div>
+            <div class="media-editor-actions">
+              <button class="icon-button" type="button" data-focus-media="${index}" aria-label="编辑图片信息"><i data-lucide="pencil"></i></button>
+              <button class="icon-button danger" type="button" data-remove-media="${index}" aria-label="删除图片"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
         `).join("");
         $("#mediaEditorPreview").innerHTML = html || "暂无图片。";
+        syncMediaInputValue();
         icon();
+      }
+
+      function refreshMediaEditorIndexes() {
+        $$("#mediaEditorPreview [data-media-editor]").forEach((item, index) => {
+          item.dataset.mediaEditor = String(index);
+          item.querySelectorAll("[data-media-index]").forEach((input) => input.dataset.mediaIndex = String(index));
+          item.querySelectorAll("[data-remove-media], [data-focus-media]").forEach((button) => {
+            if (button.dataset.removeMedia !== undefined) button.dataset.removeMedia = String(index);
+            if (button.dataset.focusMedia !== undefined) button.dataset.focusMedia = String(index);
+          });
+        });
+        if (!mediaEditorItems.length) $("#mediaEditorPreview").innerHTML = "暂无图片。";
+        syncMediaInputValue();
       }
 
       function categoryIcon(category) {
@@ -1664,15 +1860,11 @@
         const mediaItems = item.mediaItems?.length
           ? item.mediaItems.map((media, index) => normalizeMediaItem(media, index))
           : (item.images?.length ? item.images : [item.image || fallbackImage]).map((src, index) => normalizeMediaItem({ src, title: `图片 ${index + 1}`, path: item.category }, index));
-        const images = uniqueList(mediaItems.map((media) => media.src));
         const videos = uniqueList(item.videos?.length ? item.videos : [item.video].filter(Boolean));
-        const media = videos[0]
-          ? `<video controls src="${videos[0]}"></video>`
-          : `<img src="${images[0] || fallbackImage}" alt="${escapeHtml(item.title)}">`;
         const outline = buildOutline(mediaItems);
         const mediaStack = mediaItems.map((media, index) => `
           <section class="media-entry" id="media-${index + 1}">
-            <button class="icon-button" data-lightbox="${index}" style="position:absolute;margin:12px" aria-label="放大图片"><i data-lucide="maximize-2"></i></button>
+            <button class="icon-button lightbox-button" data-lightbox="${index}" aria-label="放大图片"><i data-lucide="maximize-2"></i></button>
             <img src="${media.src}" alt="${escapeHtml(media.title)}" data-lightbox="${index}">
             <div class="media-entry-body">
               <span class="media-path">${escapeHtml(media.path)}</span>
@@ -1693,9 +1885,9 @@
           <div class="detail-shell">
             <div class="detail-top">
               <button class="text-button" id="returnCatalogButton"><i data-lucide="arrow-left"></i>返回目录</button>
+              ${currentAdmin ? `<button class="text-button" data-edit-content="${item.id}"><i data-lucide="pencil"></i>编辑本页</button>` : ""}
             </div>
             <article class="detail-article">
-              <div class="detail-cover">${media}</div>
               <div class="detail-content">
                 <span class="detail-kicker"><i data-lucide="${categoryIcon(item.category)}"></i>${item.category}</span>
                 <h1>${escapeHtml(item.title)}</h1>
@@ -1760,7 +1952,7 @@
           `).join("");
 
         $("#contentRows").innerHTML = contents.map((item) => `
-          <tr>
+          <tr data-content-row="${item.id}">
             <td>${escapeHtml(item.title)}</td>
             <td>${item.category}</td>
             <td>${escapeHtml(item.source || "手动录入")}</td>
@@ -1802,10 +1994,13 @@
         $("#contentCategory").value = item?.category || categories[0];
         $("#contentSummary").value = item?.summary || "";
         $("#contentOrder").value = item?.order || 100;
-        $("#contentImages").value = mediaItemsToText(item?.mediaItems || (item?.images || [item?.image].filter(Boolean)).map((src, index) => ({ src, title: `图片 ${index + 1}`, path: item?.category || categories[0] })));
+        mediaEditorItems = (item?.mediaItems || (item?.images || [item?.image].filter(Boolean)).map((src, index) => ({ src, title: `图片 ${index + 1}`, path: item?.category || categories[0] })))
+          .map((media, index) => normalizeMediaItem(media, index));
+        syncMediaInputValue();
         $("#contentVideos").value = listToLines(item?.videos || [item?.video].filter(Boolean));
         $("#contentAttachments").value = attachmentsToText(item?.attachments || []);
         $("#contentBody").value = htmlToText(item?.bodyHtml || "");
+        $("#richEditor").innerHTML = item?.bodyHtml || textToHtml(item?.summary || "");
         $("#contentSource").value = item?.source || "";
         $("#contentStatus").value = item?.status || "published";
         $("#contentImageFile").value = "";
@@ -1850,8 +2045,10 @@
         $("#previewSource").value = data.source || "";
         $("#manualBody").value = htmlToText(data.bodyHtml || "");
         const previewImages = (data.images || []).map((image, index) => `<img src="${image}" alt="导入图片 ${index + 1}">`).join("");
+        const notice = data.warning ? `<p class="import-note">${escapeHtml(data.warning)}</p>` : "";
         $("#previewBody").innerHTML = `
-          ${data.bodyHtml || "未读取到正文，请手动粘贴内容。"}
+          ${notice}
+          ${data.bodyHtml || "<p>未读取到正文，请在上方手动粘贴内容，或把腾讯文档导出为 Word 后上传。</p>"}
           ${previewImages ? `<h3>读取到的图片</h3><div class="gallery-grid">${previewImages}</div>` : ""}
         `;
       }
@@ -1882,40 +2079,73 @@
       }
 
       async function readUrlContent(url) {
-        const targets = [url, `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`];
+        const isTencentDoc = (() => {
+          try {
+            return new URL(url).hostname.includes("docs.qq.com");
+          } catch {
+            return false;
+          }
+        })();
+        const targets = [`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, url];
+        let lastTitle = "";
         for (const target of targets) {
           try {
             const response = await fetch(target);
             if (!response.ok) continue;
-            const html = await response.text();
+            const raw = await response.text();
+            const html = raw.trim().startsWith("<") ? raw : textToHtml(raw);
             const doc = new DOMParser().parseFromString(html, "text/html");
-            doc.querySelectorAll("script, style, iframe, nav, footer").forEach((node) => node.remove());
-            const title = doc.querySelector("title")?.textContent?.trim() || "";
-            const nodes = Array.from(doc.querySelectorAll("h1, h2, h3, p, li")).slice(0, 80);
-            const images = Array.from(doc.querySelectorAll("img"))
-              .map((image) => image.getAttribute("src"))
-              .filter(Boolean)
-              .map((src) => {
-                try {
-                  return new URL(src, url).href;
-                } catch {
-                  return "";
-                }
-              })
-              .filter(Boolean)
-              .slice(0, 18);
-            const bodyHtml = nodes.map((node) => {
-              const text = node.textContent.trim();
-              if (!text) return "";
-              const tag = ["H1", "H2", "H3"].includes(node.tagName) ? node.tagName.toLowerCase() : "p";
-              return `<${tag}>${escapeHtml(text)}</${tag}>`;
-            }).join("");
-            if (bodyHtml || images.length) return { title, bodyHtml, images };
+            const result = extractReadableContent(doc, url);
+            lastTitle = result.title || lastTitle;
+            if (result.bodyHtml) return result;
           } catch {
             continue;
           }
         }
-        return { title: "", bodyHtml: "", images: [] };
+        return {
+          title: lastTitle,
+          bodyHtml: "",
+          images: [],
+          warning: isTencentDoc
+            ? "腾讯文档通常会限制浏览器直接读取正文。如果文档没有完全公开，或页面内容由脚本加载，这个静态网站无法直接抓取正文。请把腾讯文档导出为 Word 上传，或把正文复制到上方输入框后确认添加。"
+            : "网页正文读取受限，可能是跨域、安全策略或页面需要登录。请手动粘贴正文后再确认添加。"
+        };
+      }
+
+      function extractReadableContent(doc, baseUrl) {
+        doc.querySelectorAll("script, style, iframe, nav, footer, header, noscript, svg").forEach((node) => node.remove());
+        const title = doc.querySelector("h1")?.textContent?.trim() || doc.querySelector("title")?.textContent?.trim() || "";
+        const seen = new Set();
+        const nodes = Array.from(doc.querySelectorAll("h1, h2, h3, p, li, td"))
+          .map((node) => {
+            const text = node.textContent.replace(/\s+/g, " ").trim();
+            const tag = ["H1", "H2", "H3"].includes(node.tagName) ? node.tagName.toLowerCase() : "p";
+            return { text, tag };
+          })
+          .filter(({ text, tag }) => {
+            if (!text || seen.has(text)) return false;
+            seen.add(text);
+            if (tag === "p" && text.length < 12) return false;
+            return !/^(打开|下载|登录|注册|分享|复制|腾讯文档|QQ|微信|版权所有)$/i.test(text);
+          })
+          .slice(0, 120);
+        const plainText = nodes.map((node) => node.text).join("\n");
+        const bodyHtml = plainText.length >= 120 || nodes.length >= 4
+          ? nodes.map(({ text, tag }) => `<${tag}>${escapeHtml(text)}</${tag}>`).join("")
+          : "";
+        const images = Array.from(doc.querySelectorAll("img"))
+          .map((image) => image.getAttribute("src"))
+          .filter(Boolean)
+          .map((src) => {
+            try {
+              return new URL(src, baseUrl).href;
+            } catch {
+              return "";
+            }
+          })
+          .filter(Boolean)
+          .slice(0, 18);
+        return { title, bodyHtml, images };
       }
 
       function appendLines(fieldId, values) {
@@ -1924,12 +2154,46 @@
       }
 
       function filesToDataUrls(files) {
-        return Promise.all(Array.from(files || []).map((file) => new Promise((resolve, reject) => {
+        return Promise.all(Array.from(files || []).map((file) => {
+          if (file.type?.startsWith("image/")) return compressImageFile(file);
+          return fileToDataUrl(file);
+        }));
+      }
+
+      function fileToDataUrl(file) {
+        return new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.onerror = reject;
           reader.readAsDataURL(file);
-        })));
+        });
+      }
+
+      function compressImageFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              const maxSide = 1600;
+              const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+              const canvas = document.createElement("canvas");
+              canvas.width = Math.max(1, Math.round(img.width * scale));
+              canvas.height = Math.max(1, Math.round(img.height * scale));
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL("image/jpeg", 0.86));
+            };
+            img.onerror = reject;
+            img.src = reader.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function syncEditorToTextarea() {
+        $("#contentBody").value = htmlToText($("#richEditor").innerHTML);
       }
 
       document.addEventListener("click", (event) => {
@@ -1955,13 +2219,48 @@
           $("#media-" + target.dataset.scrollMedia)?.scrollIntoView({ behavior: "smooth", block: "start" });
         }
 
-        if (target.dataset.lightbox) {
+        if (target.dataset.lightbox !== undefined) {
           const item = contents.find((entry) => entry.id === selectedContentId);
           const media = item?.mediaItems?.[Number(target.dataset.lightbox)];
           if (media?.src) {
             $("#imageModalTitle").textContent = media.title || "图片预览";
             $("#imageModalImg").src = media.src;
             showModal("imageModal");
+          }
+        }
+
+        if (target.dataset.removeMedia !== undefined) {
+          const index = Number(target.dataset.removeMedia);
+          if (!mediaEditorItems[index]) return;
+          mediaEditorItems.splice(index, 1);
+          target.closest("[data-media-editor]")?.remove();
+          refreshMediaEditorIndexes();
+          toast("图片已删除");
+        }
+
+        if (target.dataset.focusMedia !== undefined) {
+          const row = target.closest("[data-media-editor]");
+          row?.querySelector("[data-media-field='title']")?.focus();
+        }
+
+        if (target.dataset.editorCommand) {
+          $("#richEditor").focus();
+          document.execCommand(target.dataset.editorCommand, false, target.dataset.editorValue || null);
+          syncEditorToTextarea();
+        }
+
+        if (target.dataset.editorBlock) {
+          $("#richEditor").focus();
+          document.execCommand("formatBlock", false, target.dataset.editorBlock);
+          syncEditorToTextarea();
+        }
+
+        if (target.dataset.editorLink !== undefined) {
+          const url = prompt("输入链接地址");
+          if (url) {
+            $("#richEditor").focus();
+            document.execCommand("createLink", false, url);
+            syncEditorToTextarea();
           }
         }
 
@@ -2022,9 +2321,15 @@
         }
 
         if (target.id === "confirmImportButton") {
+          if (!pendingImport) {
+            toast("请先读取文档或链接");
+            return;
+          }
           const manualText = $("#manualBody").value.trim();
           const importedText = htmlToText(pendingImport?.bodyHtml || "").trim();
-          const bodyHtml = manualText === importedText ? pendingImport?.bodyHtml : textToHtml(manualText);
+          const bodyHtml = manualText
+            ? (manualText === importedText ? pendingImport?.bodyHtml : textToHtml(manualText))
+            : (pendingImport?.bodyHtml || "");
           const importedMediaItems = (pendingImport?.images || []).map((src, index) => normalizeMediaItem({
             src,
             title: `导入图片 ${index + 1}`,
@@ -2041,9 +2346,9 @@
             category: $("#previewCategory").value,
             summary: htmlToText(bodyHtml).slice(0, 70) || "导入内容",
             bodyHtml,
-            images: importedMediaItems.length ? importedMediaItems.map((media) => media.src) : [fallbackImage],
+            images: importedMediaItems.map((media) => media.src),
             image: importedMediaItems[0]?.src || fallbackImage,
-            mediaItems: importedMediaItems.length ? importedMediaItems : [normalizeMediaItem({ src: fallbackImage, title: "默认图片", path: $("#previewCategory").value }, 0)],
+            mediaItems: importedMediaItems,
             video: "",
             videos: [],
             attachments: [],
@@ -2052,7 +2357,7 @@
             status: "published",
             updatedAt: today()
           }, ...contents];
-          save();
+          if (!save()) return;
           renderCatalog();
           renderAdmin();
           clearImport();
@@ -2105,7 +2410,8 @@
         event.preventDefault();
         const id = $("#contentId").value || `content-${Date.now()}`;
         const existing = contents.find((item) => item.id === id);
-        const mediaItems = parseMediaItems($("#contentImages").value);
+        syncEditorToTextarea();
+        const mediaItems = mediaEditorItems.map((media, index) => normalizeMediaItem(media, index)).filter((media) => media.src);
         const images = mediaItems.map((media) => media.src);
         const videos = linesToList($("#contentVideos").value);
         const next = {
@@ -2113,7 +2419,7 @@
           title: $("#contentTitle").value.trim(),
           category: $("#contentCategory").value,
           summary: $("#contentSummary").value.trim(),
-          bodyHtml: textToHtml($("#contentBody").value.trim()),
+          bodyHtml: $("#richEditor").innerHTML.trim() || textToHtml($("#contentBody").value.trim()),
           images,
           image: images[0] || fallbackImage,
           videos,
@@ -2126,7 +2432,7 @@
           updatedAt: today()
         };
         contents = existing ? contents.map((item) => item.id === id ? next : item) : [next, ...contents];
-        save();
+        if (!save()) return;
         closeModal("contentModal");
         renderCatalog();
         renderAdmin();
@@ -2151,7 +2457,7 @@
         };
         admins = existing ? admins.map((entry) => entry.id === id ? next : entry) : [...admins, next];
         if (currentAdmin?.id === next.id) currentAdmin = { id: next.id, name: next.name, role: next.role };
-        save();
+        if (!save()) return;
         $("#adminName").disabled = false;
         $("#adminForm").reset();
         closeModal("adminModal");
@@ -2175,10 +2481,19 @@
             category: $("#docCategory").value,
             order: Number($("#docOrder").value || 100),
             source: file.name,
-            bodyHtml
+            bodyHtml,
+            warning: bodyHtml ? "" : "文档没有读取到正文，请检查文件内容，或手动粘贴正文。"
           });
           setImportStatus("读取成功，请确认", 100);
         } catch {
+          updatePreview({
+            title: file.name.replace(/\.[^.]+$/, ""),
+            category: $("#docCategory").value,
+            order: Number($("#docOrder").value || 100),
+            source: file.name,
+            bodyHtml: "",
+            warning: "文档读取失败。当前静态版优先支持 .docx、.txt、.md、.html；旧版 .doc 建议另存为 .docx 后上传，或手动粘贴正文。"
+          });
           setImportStatus("读取失败，请手动粘贴正文", 100);
         }
       });
@@ -2199,7 +2514,8 @@
           order: Number($("#urlOrder").value || 100),
           source: parsed.url,
           bodyHtml: result.bodyHtml || "",
-          images: result.images || []
+          images: result.images || [],
+          warning: result.warning || ""
         });
         setImportStatus(result.bodyHtml ? "读取成功，请确认" : "等待手动补充正文", 100);
       });
@@ -2214,10 +2530,15 @@
         const files = event.target.files;
         if (!files?.length) return;
         filesToDataUrls(files).then((urls) => {
-          const existingCount = parseMediaItems($("#contentImages").value).length;
+          const existingCount = mediaEditorItems.length;
           const category = $("#contentCategory").value || categories[0];
-          const rows = urls.map((url, index) => `${category} | 图片 ${existingCount + index + 1} | 在这里填写标注说明 | ${url}`);
-          appendLines("contentImages", rows);
+          const rows = urls.map((url, index) => normalizeMediaItem({
+            src: url,
+            path: category,
+            title: `图片 ${existingCount + index + 1}`,
+            note: "在这里填写标注说明"
+          }, existingCount + index));
+          mediaEditorItems = [...mediaEditorItems, ...rows];
           renderMediaEditorPreview();
           toast(`已追加 ${urls.length} 张图片`);
         }).catch(() => toast("图片读取失败"));
@@ -2231,7 +2552,50 @@
         toast(`已追加 ${urls.length} 个视频预览`);
       });
 
-      $("#contentImages").addEventListener("input", renderMediaEditorPreview);
+      $("#mediaEditorPreview").addEventListener("input", (event) => {
+        const input = event.target.closest("[data-media-field]");
+        if (!input) return;
+        const index = Number(input.dataset.mediaIndex);
+        const field = input.dataset.mediaField;
+        if (!mediaEditorItems[index]) return;
+        mediaEditorItems[index][field] = input.value;
+        syncMediaInputValue();
+      });
+
+      $("#mediaEditorPreview").addEventListener("dblclick", (event) => {
+        const input = event.target.closest("[data-media-field]");
+        if (input) input.select();
+      });
+
+      $("#richEditor").addEventListener("input", syncEditorToTextarea);
+
+      $("#editorBlock").addEventListener("change", (event) => {
+        $("#richEditor").focus();
+        document.execCommand("formatBlock", false, event.target.value);
+        syncEditorToTextarea();
+      });
+
+      $("#editorColor").addEventListener("input", (event) => {
+        $("#richEditor").focus();
+        document.execCommand("foreColor", false, event.target.value);
+        syncEditorToTextarea();
+      });
+
+      $("#editorBackColor").addEventListener("input", (event) => {
+        $("#richEditor").focus();
+        document.execCommand("hiliteColor", false, event.target.value);
+        syncEditorToTextarea();
+      });
+
+      $("#detailView").addEventListener("dblclick", (event) => {
+        if (!currentAdmin || currentView !== "detail") return;
+        if (event.target.closest(".detail-article")) openContentEditor(selectedContentId);
+      });
+
+      document.addEventListener("dblclick", (event) => {
+        const row = event.target.closest("[data-content-row]");
+        if (row && currentAdmin) openContentEditor(row.dataset.contentRow);
+      });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
