@@ -106,6 +106,14 @@
         font-weight: 900;
       }
 
+      .brand-mark img,
+      .showcase-mark img {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        object-fit: cover;
+      }
+
       .brand-copy {
         display: grid;
         gap: 2px;
@@ -205,6 +213,31 @@
         font-weight: 950;
       }
 
+      .appearance-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .appearance-preview {
+        min-height: 148px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        background:
+          linear-gradient(135deg, rgba(69, 217, 179, 0.08), transparent),
+          rgba(255, 255, 255, 0.04);
+      }
+
+      .appearance-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
       .catalog-showcase h1 {
         margin: 0;
         font-size: clamp(34px, 6vw, 72px);
@@ -277,6 +310,13 @@
         background: rgba(69, 217, 179, 0.09);
       }
 
+      .category-tile-icon img {
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        object-fit: cover;
+      }
+
       .category-tile h3 {
         margin: 18px 0 8px;
         font-size: 20px;
@@ -299,6 +339,20 @@
         gap: 10px;
         color: var(--soft);
         font-size: 13px;
+      }
+
+      .category-image-cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .category-image-cell img {
+        width: 42px;
+        height: 42px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        object-fit: cover;
       }
 
       .catalog-tools {
@@ -401,13 +455,20 @@
         scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
       }
 
+      .content-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
       .content-card {
-        min-height: 168px;
+        min-width: 0;
+        min-height: 188px;
         border: 1px solid var(--line);
         border-radius: 8px;
         overflow: hidden;
         display: grid;
-        grid-template-columns: 136px 1fr;
+        grid-template-columns: 180px minmax(0, 1fr);
         background: var(--panel);
         box-shadow: var(--shadow);
         transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
@@ -420,7 +481,7 @@
       }
 
       .content-card img {
-        width: 136px;
+        width: 180px;
         height: 100%;
         object-fit: cover;
       }
@@ -452,6 +513,7 @@
         font-size: 18px;
         line-height: 1.35;
         letter-spacing: 0;
+        overflow-wrap: anywhere;
       }
 
       .card-body p {
@@ -459,6 +521,7 @@
         color: var(--muted);
         font-size: 13px;
         line-height: 1.62;
+        overflow-wrap: anywhere;
       }
 
       .empty-card {
@@ -1147,6 +1210,7 @@
         }
 
         .metric-grid,
+        .appearance-grid,
         .panel-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -1175,7 +1239,9 @@
 
         .catalog-tools,
         .category-browser-head,
+        .content-grid,
         .metric-grid,
+        .appearance-grid,
         .panel-grid,
         .form-grid,
         .gallery-grid {
@@ -1191,11 +1257,11 @@
         }
 
         .content-card {
-          grid-template-columns: 112px 1fr;
+          grid-template-columns: 120px minmax(0, 1fr);
         }
 
         .content-card img {
-          width: 112px;
+          width: 120px;
         }
 
         .media-editor-item,
@@ -1248,6 +1314,7 @@
             <button class="nav-button active" data-panel="dashboard"><i data-lucide="gauge"></i>仪表盘</button>
             <button class="nav-button" data-panel="contents"><i data-lucide="database"></i>内容管理</button>
             <button class="nav-button" data-panel="categories"><i data-lucide="folder-tree"></i>分类管理</button>
+            <button class="nav-button" data-panel="appearance"><i data-lucide="palette"></i>界面设置</button>
             <button class="nav-button" data-panel="import"><i data-lucide="file-input"></i>导入内容</button>
             <button class="nav-button" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
             <button class="nav-button" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
@@ -1328,12 +1395,76 @@
                 <thead>
                   <tr>
                     <th>分类名称</th>
+                    <th>分类图片</th>
                     <th>前台资料</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="categoryRows"></tbody>
               </table>
+            </div>
+          </section>
+
+          <section class="admin-panel" data-admin-panel="appearance">
+            <div class="section-head">
+              <div>
+                <h2>界面设置</h2>
+                <p>可替换首页 logo、页面背景、展示区背景和类目卡片背景。</p>
+              </div>
+            </div>
+            <div class="appearance-grid">
+              <div class="panel-card">
+                <h3>Logo 图片</h3>
+                <div class="appearance-preview" id="logoPreview">当前使用文字 Logo</div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="logoUrl">图片链接</label>
+                  <input class="input" id="logoUrl" placeholder="https://...">
+                </div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="logoFile">上传图片</label>
+                  <input class="input" id="logoFile" type="file" accept="image/*" data-appearance-file="logo">
+                </div>
+              </div>
+              <div class="panel-card">
+                <h3>页面背景图</h3>
+                <div class="appearance-preview" id="pageBgPreview">当前使用默认背景</div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="pageBgUrl">图片链接</label>
+                  <input class="input" id="pageBgUrl" placeholder="https://...">
+                </div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="pageBgFile">上传图片</label>
+                  <input class="input" id="pageBgFile" type="file" accept="image/*" data-appearance-file="pageBg">
+                </div>
+              </div>
+              <div class="panel-card">
+                <h3>首页展示区背景</h3>
+                <div class="appearance-preview" id="heroBgPreview">当前使用默认背景</div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="heroBgUrl">图片链接</label>
+                  <input class="input" id="heroBgUrl" placeholder="https://...">
+                </div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="heroBgFile">上传图片</label>
+                  <input class="input" id="heroBgFile" type="file" accept="image/*" data-appearance-file="heroBg">
+                </div>
+              </div>
+              <div class="panel-card">
+                <h3>类目卡片背景</h3>
+                <div class="appearance-preview" id="tileBgPreview">当前使用默认背景</div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="tileBgUrl">图片链接</label>
+                  <input class="input" id="tileBgUrl" placeholder="https://...">
+                </div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="tileBgFile">上传图片</label>
+                  <input class="input" id="tileBgFile" type="file" accept="image/*" data-appearance-file="tileBg">
+                </div>
+              </div>
+            </div>
+            <div class="actions" style="margin-top:16px">
+              <button class="text-button primary" id="saveAppearanceButton"><i data-lucide="save"></i>保存界面</button>
+              <button class="text-button" id="resetAppearanceButton"><i data-lucide="rotate-ccw"></i>恢复默认</button>
             </div>
           </section>
 
@@ -1652,9 +1783,12 @@
       const contentKey = "maplestorynk.contents.v4";
       const adminKey = "maplestorynk.admins.v4";
       const categoryKey = "maplestorynk.categories.v4";
+      const categoryImageKey = "maplestorynk.categoryImages.v1";
       const sessionKey = "maplestorynk.session.v4";
       const rememberKey = "maplestorynk.rememberLogin.v4";
+      const appearanceKey = "maplestorynk.appearance.v1";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
+      const defaultAppearance = { logo: "", pageBg: "", heroBg: "", tileBg: "" };
 
       const starterContents = [
         {
@@ -1731,9 +1865,13 @@
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
       let categories = normalizeCategories(loadCollection(categoryKey, [], defaultCategories));
+      let categoryImages = loadObject(categoryImageKey, {});
       let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map(normalizeContent);
       let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
-      let currentAdmin = JSON.parse(localStorage.getItem(sessionKey) || localStorage.getItem("maplestorynk.session.v3") || "null");
+      localStorage.removeItem(sessionKey);
+      localStorage.removeItem("maplestorynk.session.v3");
+      let appearance = loadObject(appearanceKey, defaultAppearance);
+      let currentAdmin = null;
       let currentView = "catalog";
       let selectedContentId = null;
       let selectedCategory = null;
@@ -1751,6 +1889,15 @@
           }
         }
         return fallback;
+      }
+
+      function loadObject(key, fallback) {
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          return data && typeof data === "object" ? { ...fallback, ...data } : { ...fallback };
+        } catch {
+          return { ...fallback };
+        }
       }
 
       function normalizeCategories(items) {
@@ -1801,12 +1948,34 @@
           localStorage.setItem(contentKey, JSON.stringify(contents));
           localStorage.setItem(adminKey, JSON.stringify(admins));
           localStorage.setItem(categoryKey, JSON.stringify(categories));
-          localStorage.setItem(sessionKey, JSON.stringify(currentAdmin));
+          localStorage.setItem(categoryImageKey, JSON.stringify(categoryImages));
+          localStorage.setItem(appearanceKey, JSON.stringify(appearance));
+          localStorage.removeItem(sessionKey);
           return true;
         } catch {
           toast("本地存储已满：请压缩图片，或下一步接入真实文件存储");
           return false;
         }
+      }
+
+      function imageStyle(src) {
+        return src ? `style="background-image:linear-gradient(180deg, rgba(7, 11, 14, 0.3), rgba(7, 11, 14, 0.72)), url('${escapeHtml(src)}');background-size:cover;background-position:center"` : "";
+      }
+
+      function logoMarkup(size = "small") {
+        const label = size === "large" ? "NK" : "NK";
+        return appearance.logo
+          ? `<img src="${escapeHtml(appearance.logo)}" alt="MapleStoryNK Logo">`
+          : label;
+      }
+
+      function applyAppearance() {
+        if (appearance.pageBg) {
+          document.body.style.background = `linear-gradient(180deg, rgba(7, 11, 14, 0.72), rgba(7, 11, 14, 0.9)), url("${appearance.pageBg}") center / cover fixed`;
+        } else {
+          document.body.style.background = "";
+        }
+        $(".brand-mark").innerHTML = logoMarkup();
       }
 
       function icon() {
@@ -1999,6 +2168,12 @@
         }[category] || "file-text";
       }
 
+      function categoryIconMarkup(category) {
+        return categoryImages[category]
+          ? `<img src="${escapeHtml(categoryImages[category])}" alt="${escapeHtml(category)}">`
+          : `<i data-lucide="${categoryIcon(category)}"></i>`;
+      }
+
       function categoryDescription(category) {
         return {
           "WZ业务目录": "WZ 修改、资源替换、素材整理与交付说明。",
@@ -2047,8 +2222,8 @@
           const categoryTiles = categories.map((category) => {
             const count = contents.filter((item) => item.status === "published" && item.category === category).length;
             return `
-              <button class="category-tile" data-category="${escapeHtml(category)}">
-                <span class="category-tile-icon"><i data-lucide="${categoryIcon(category)}"></i></span>
+              <button class="category-tile" data-category="${escapeHtml(category)}" ${imageStyle(appearance.tileBg)}>
+                <span class="category-tile-icon">${categoryIconMarkup(category)}</span>
                 <span>
                   <h3>${escapeHtml(category)}</h3>
                   <p>${escapeHtml(categoryDescription(category))}</p>
@@ -2062,9 +2237,9 @@
           }).join("");
 
           $("#directoryLanes").innerHTML = `
-            <section class="catalog-showcase">
+            <section class="catalog-showcase" ${imageStyle(appearance.heroBg)}>
               <div>
-                <div class="showcase-mark">NK</div>
+                <div class="showcase-mark">${logoMarkup("large")}</div>
                 <h1>MapleStoryNK</h1>
                 <p>资料展示、地图内容、WZ 业务与 BOSS 配套信息统一整理。</p>
               </div>
@@ -2115,12 +2290,12 @@
             <div class="lane">
               <div class="lane-head">
                 <div class="lane-title">
-                  <i data-lucide="${categoryIcon(selectedCategory)}"></i>
+                  ${categoryIconMarkup(selectedCategory)}
                   <h2>资料列表</h2>
                   <span class="lane-count">${items.length} 条</span>
                 </div>
               </div>
-              <div class="lane-scroll">${cards}</div>
+              <div class="content-grid">${cards}</div>
             </div>
           </section>
         `;
@@ -2196,6 +2371,7 @@
         renderMetrics();
         renderAdminTables();
         renderCategoryRows();
+        renderAppearanceSettings();
         icon();
       }
 
@@ -2222,16 +2398,39 @@
           return `
             <tr>
               <td>${escapeHtml(category)}</td>
+              <td>
+                <div class="category-image-cell">
+                  ${categoryImages[category] ? `<img src="${escapeHtml(categoryImages[category])}" alt="${escapeHtml(category)}">` : `<span class="badge">默认图标</span>`}
+                  <input class="input" type="file" accept="image/*" data-category-image="${escapeHtml(category)}">
+                </div>
+              </td>
               <td>${count} 条</td>
               <td>
                 <div class="actions">
                   <button class="icon-button" data-edit-category="${escapeHtml(category)}" aria-label="修改分类名称"><i data-lucide="pencil"></i></button>
+                  ${categoryImages[category] ? `<button class="icon-button" data-clear-category-image="${escapeHtml(category)}" aria-label="恢复默认图标"><i data-lucide="image-off"></i></button>` : ""}
                   <button class="icon-button danger" data-delete-category="${escapeHtml(category)}" aria-label="删除分类"><i data-lucide="trash-2"></i></button>
                 </div>
               </td>
             </tr>
           `;
         }).join("");
+      }
+
+      function previewImage(id, src, emptyText) {
+        const node = $("#" + id);
+        node.innerHTML = src ? `<img src="${escapeHtml(src)}" alt="界面预览">` : emptyText;
+      }
+
+      function renderAppearanceSettings() {
+        $("#logoUrl").value = appearance.logo || "";
+        $("#pageBgUrl").value = appearance.pageBg || "";
+        $("#heroBgUrl").value = appearance.heroBg || "";
+        $("#tileBgUrl").value = appearance.tileBg || "";
+        previewImage("logoPreview", appearance.logo, "当前使用文字 Logo");
+        previewImage("pageBgPreview", appearance.pageBg, "当前使用默认背景");
+        previewImage("heroBgPreview", appearance.heroBg, "当前使用默认背景");
+        previewImage("tileBgPreview", appearance.tileBg, "当前使用默认背景");
       }
 
       function renderAdminTables() {
@@ -2334,6 +2533,10 @@
 
       function renameCategory(oldName, nextName) {
         categories = categories.map((category) => category === oldName ? nextName : category);
+        if (categoryImages[oldName]) {
+          categoryImages[nextName] = categoryImages[oldName];
+          delete categoryImages[oldName];
+        }
         contents = contents.map((item) => {
           if (item.category !== oldName) return item;
           return {
@@ -2535,11 +2738,9 @@
         if (target.dataset.close) closeModal(target.dataset.close);
 
         if (target.id === "authButton") {
-          if (currentAdmin) setView("admin");
-          else {
-            loadRememberedLogin();
-            showModal("authModal");
-          }
+          currentAdmin = null;
+          loadRememberedLogin();
+          showModal("authModal");
         }
 
         if (target.id === "brandHome") {
@@ -2661,11 +2862,21 @@
           }
           if (!confirm(`删除分类「${name}」？`)) return;
           categories = categories.filter((category) => category !== name);
+          delete categoryImages[name];
           if (selectedCategory === name) selectedCategory = null;
           if (!save()) return;
           renderCatalog();
           renderAdmin();
           toast("分类已删除");
+        }
+
+        if (target.dataset.clearCategoryImage) {
+          if (!requireSuperAdmin()) return;
+          delete categoryImages[target.dataset.clearCategoryImage];
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("已恢复默认分类图标");
         }
 
         if (target.id === "addAdminButton") {
@@ -2699,6 +2910,7 @@
         }
 
         if (target.id === "backToSite") {
+          currentAdmin = null;
           selectedCategory = null;
           setView("catalog");
         }
@@ -2753,6 +2965,30 @@
         }
 
         if (target.id === "clearImportButton") clearImport();
+
+        if (target.id === "saveAppearanceButton") {
+          appearance = {
+            logo: $("#logoUrl").value.trim(),
+            pageBg: $("#pageBgUrl").value.trim(),
+            heroBg: $("#heroBgUrl").value.trim(),
+            tileBg: $("#tileBgUrl").value.trim()
+          };
+          if (!save()) return;
+          applyAppearance();
+          renderCatalog();
+          renderAppearanceSettings();
+          toast("界面图片已保存");
+        }
+
+        if (target.id === "resetAppearanceButton") {
+          if (!confirm("恢复默认界面图片？")) return;
+          appearance = { ...defaultAppearance };
+          if (!save()) return;
+          applyAppearance();
+          renderCatalog();
+          renderAppearanceSettings();
+          toast("已恢复默认界面");
+        }
       });
 
       $("#loginForm").addEventListener("submit", (event) => {
@@ -2957,6 +3193,37 @@
         toast(`已追加 ${urls.length} 个视频预览`);
       });
 
+      document.addEventListener("change", (event) => {
+        const categoryInput = event.target.closest("[data-category-image]");
+        if (categoryInput) {
+          if (!requireSuperAdmin()) return;
+          const category = categoryInput.dataset.categoryImage;
+          const file = categoryInput.files?.[0];
+          if (!file) return;
+          filesToDataUrls([file]).then(([url]) => {
+            categoryImages[category] = url;
+            if (!save()) return;
+            renderCatalog();
+            renderAdmin();
+            toast("分类图片已保存");
+          }).catch(() => toast("分类图片读取失败"));
+          return;
+        }
+
+        const input = event.target.closest("[data-appearance-file]");
+        if (!input) return;
+        const field = input.dataset.appearanceFile;
+        const file = input.files?.[0];
+        if (!file) return;
+        filesToDataUrls([file]).then(([url]) => {
+          appearance = { ...appearance, [field]: url };
+          const map = { logo: "logoUrl", pageBg: "pageBgUrl", heroBg: "heroBgUrl", tileBg: "tileBgUrl" };
+          $("#" + map[field]).value = url;
+          renderAppearanceSettings();
+          toast("图片已读取，请点击保存界面");
+        }).catch(() => toast("图片读取失败"));
+      });
+
       $("#mediaEditorPreview").addEventListener("input", (event) => {
         const input = event.target.closest("[data-media-field]");
         if (!input) return;
@@ -3009,6 +3276,7 @@
         }
       });
 
+      applyAppearance();
       renderSelects();
       renderCatalog();
       renderAdmin();
