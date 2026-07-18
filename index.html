@@ -276,6 +276,20 @@
         object-fit: cover;
       }
 
+      .media-count {
+        width: fit-content;
+        min-height: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 3px 7px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 12px;
+      }
+
       .card-body {
         min-width: 0;
         padding: 15px;
@@ -393,6 +407,27 @@
       .reader-body ul,
       .reader-body ol {
         padding-left: 22px;
+      }
+
+      .detail-section-title {
+        margin: 30px 0 14px;
+        font-size: 20px;
+      }
+
+      .gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .gallery-grid img,
+      .gallery-grid video {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        object-fit: cover;
+        background: rgba(255, 255, 255, 0.05);
       }
 
       .attachment-list {
@@ -741,7 +776,8 @@
         .catalog-tools,
         .metric-grid,
         .panel-grid,
-        .form-grid {
+        .form-grid,
+        .gallery-grid {
           grid-template-columns: 1fr;
         }
 
@@ -848,6 +884,7 @@
                     <th>标题</th>
                     <th>分类</th>
                     <th>来源</th>
+                    <th>媒体</th>
                     <th>状态</th>
                     <th>排序</th>
                     <th>操作</th>
@@ -1039,20 +1076,20 @@
               <input class="input" id="contentOrder" type="number" value="100">
             </div>
             <div class="form-field full">
-              <label for="contentImage">封面图片地址</label>
-              <input class="input" id="contentImage" placeholder="https://...">
+              <label for="contentImages">图片列表</label>
+              <textarea class="textarea" id="contentImages" placeholder="每行一张图片地址；上传多张图片后会自动追加到这里。"></textarea>
             </div>
             <div class="form-field full">
-              <label for="contentVideo">视频地址</label>
-              <input class="input" id="contentVideo" placeholder="https://...">
+              <label for="contentVideos">视频列表</label>
+              <textarea class="textarea" id="contentVideos" placeholder="每行一个视频地址；也可以上传多个视频预览。"></textarea>
             </div>
             <div class="form-field">
               <label for="contentImageFile">上传图片</label>
-              <input class="input" id="contentImageFile" type="file" accept="image/*">
+              <input class="input" id="contentImageFile" type="file" accept="image/*" multiple>
             </div>
             <div class="form-field">
               <label for="contentVideoFile">上传视频</label>
-              <input class="input" id="contentVideoFile" type="file" accept="video/*">
+              <input class="input" id="contentVideoFile" type="file" accept="video/*" multiple>
             </div>
             <div class="form-field full">
               <label for="contentAttachments">附件</label>
@@ -1140,7 +1177,9 @@
           summary: "WZ 修改、素材替换、资源整理与交付目录。",
           bodyHtml: "<p>这里用于展示 WZ 业务内容。可以放业务范围、处理流程、交付格式、注意事项和案例说明。</p><p>后续从 Word 或网页导入后，正文会直接出现在这个详情页，而不是跳转到外部网站。</p>",
           image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=82",
+          images: ["https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=82"],
           video: "",
+          videos: [],
           attachments: [],
           source: "腾讯文档 WZ业务目录",
           order: 100,
@@ -1154,7 +1193,9 @@
           summary: "地图层级、入口区域、怪物分布与视觉风格。",
           bodyHtml: "<p>这里用于展示定制地图内容。可以放地图全景图、局部截图、演示视频、地图编号和对应 WZ 文件说明。</p>",
           image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=82",
+          images: ["https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=82"],
           video: "",
+          videos: [],
           attachments: [],
           source: "腾讯文档 定制地图展示",
           order: 100,
@@ -1168,7 +1209,9 @@
           summary: "BOSS 区域、出生点、传送门、奖励点和背景资源。",
           bodyHtml: "<p>这里用于展示 BOSS 配套地图内容。可以补充 BOSS 参数、入口条件、战斗流程、地图资源和掉落展示。</p>",
           image: "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1200&q=82",
+          images: ["https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1200&q=82"],
           video: "",
+          videos: [],
           attachments: [],
           source: "腾讯文档 BOSS配套地图展示",
           order: 100,
@@ -1182,7 +1225,9 @@
           summary: "按主题组织多个连续地图，形成完整地图包。",
           bodyHtml: "<p>这里用于展示系列地图内容。可以按章节、等级、入口、任务线和地图包结构整理。</p>",
           image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=82",
+          images: ["https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=82"],
           video: "",
+          videos: [],
           attachments: [],
           source: "腾讯文档 系列地图",
           order: 100,
@@ -1220,14 +1265,18 @@
 
       function normalizeContent(item) {
         const status = item.status === "visible" ? "published" : item.status || "published";
+        const images = uniqueList([...(Array.isArray(item.images) ? item.images : []), item.image].filter(Boolean));
+        const videos = uniqueList([...(Array.isArray(item.videos) ? item.videos : []), item.video].filter(Boolean));
         return {
           id: item.id || `content-${Date.now()}-${Math.random()}`,
           title: item.title || "未命名内容",
           category: categories.includes(item.category) ? item.category : categories[0],
           summary: item.summary || item.detail || "暂无简介",
           bodyHtml: item.bodyHtml || textToHtml(item.detail || item.summary || ""),
-          image: item.image || fallbackImage,
-          video: item.video || "",
+          image: images[0] || item.image || fallbackImage,
+          images: images.length ? images : [item.image || fallbackImage],
+          video: videos[0] || item.video || "",
+          videos,
           attachments: Array.isArray(item.attachments) ? item.attachments : [],
           source: item.source || "",
           order: Number(item.order || item.hot || 100),
@@ -1249,9 +1298,15 @@
       }
 
       function save() {
-        localStorage.setItem(contentKey, JSON.stringify(contents));
-        localStorage.setItem(adminKey, JSON.stringify(admins));
-        localStorage.setItem(sessionKey, JSON.stringify(currentAdmin));
+        try {
+          localStorage.setItem(contentKey, JSON.stringify(contents));
+          localStorage.setItem(adminKey, JSON.stringify(admins));
+          localStorage.setItem(sessionKey, JSON.stringify(currentAdmin));
+          return true;
+        } catch {
+          toast("本地存储已满：请压缩图片，或下一步接入真实文件存储");
+          return false;
+        }
       }
 
       function icon() {
@@ -1321,6 +1376,22 @@
         return (attachments || []).map((item) => item.url ? `${item.name} | ${item.url}` : item.name).join("\n");
       }
 
+      function uniqueList(items) {
+        return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))];
+      }
+
+      function linesToList(value) {
+        return uniqueList(String(value || "").split("\n"));
+      }
+
+      function listToLines(items) {
+        return uniqueList(items).join("\n");
+      }
+
+      function coverImage(item) {
+        return item.images?.[0] || item.image || fallbackImage;
+      }
+
       function categoryIcon(category) {
         return {
           "WZ业务目录": "archive",
@@ -1369,13 +1440,16 @@
           const items = visibleItems(category);
           const cards = items.map((item) => `
             <article class="content-card">
-              <img src="${item.image || fallbackImage}" alt="${escapeHtml(item.title)}">
+              <img src="${coverImage(item)}" alt="${escapeHtml(item.title)}">
               <div class="card-body">
                 <div>
                   <h3>${escapeHtml(item.title)}</h3>
                   <p>${escapeHtml(item.summary)}</p>
                 </div>
-                <button class="text-button" data-detail="${item.id}"><i data-lucide="eye"></i>查看详情</button>
+                <div class="actions">
+                  <span class="media-count"><i data-lucide="images"></i>${item.images?.length || 0} 图</span>
+                  <button class="text-button" data-detail="${item.id}"><i data-lucide="eye"></i>查看详情</button>
+                </div>
               </div>
             </article>
           `).join("") || `<div class="empty-card">暂无内容</div>`;
@@ -1402,9 +1476,13 @@
           setView("catalog");
           return;
         }
-        const media = item.video
-          ? `<video controls src="${item.video}"></video>`
-          : `<img src="${item.image || fallbackImage}" alt="${escapeHtml(item.title)}">`;
+        const images = uniqueList(item.images?.length ? item.images : [item.image || fallbackImage]);
+        const videos = uniqueList(item.videos?.length ? item.videos : [item.video].filter(Boolean));
+        const media = videos[0]
+          ? `<video controls src="${videos[0]}"></video>`
+          : `<img src="${images[0] || fallbackImage}" alt="${escapeHtml(item.title)}">`;
+        const gallery = images.map((image, index) => `<img src="${image}" alt="${escapeHtml(item.title)} 图片 ${index + 1}">`).join("");
+        const videoGallery = videos.map((video) => `<video controls src="${video}"></video>`).join("");
         const attachments = (item.attachments || []).map((attachment) => {
           const label = escapeHtml(attachment.name || "附件");
           return attachment.url
@@ -1424,6 +1502,8 @@
                 <h1>${escapeHtml(item.title)}</h1>
                 <p class="detail-summary">${escapeHtml(item.summary)}</p>
                 <div class="reader-body">${item.bodyHtml || textToHtml(item.summary)}</div>
+                ${gallery ? `<h2 class="detail-section-title">图片内容</h2><div class="gallery-grid">${gallery}</div>` : ""}
+                ${videoGallery ? `<h2 class="detail-section-title">视频内容</h2><div class="gallery-grid">${videoGallery}</div>` : ""}
                 ${attachments ? `<div class="attachment-list">${attachments}</div>` : ""}
               </div>
             </article>
@@ -1477,6 +1557,7 @@
             <td>${escapeHtml(item.title)}</td>
             <td>${item.category}</td>
             <td>${escapeHtml(item.source || "手动录入")}</td>
+            <td>${item.images?.length || 0} 图 / ${item.videos?.length || 0} 视频</td>
             <td><span class="status ${item.status !== "published" ? "offline" : ""}">${statusText(item.status)}</span></td>
             <td>${item.order || 100}</td>
             <td>
@@ -1514,8 +1595,8 @@
         $("#contentCategory").value = item?.category || categories[0];
         $("#contentSummary").value = item?.summary || "";
         $("#contentOrder").value = item?.order || 100;
-        $("#contentImage").value = item?.image || "";
-        $("#contentVideo").value = item?.video || "";
+        $("#contentImages").value = listToLines(item?.images || [item?.image].filter(Boolean));
+        $("#contentVideos").value = listToLines(item?.videos || [item?.video].filter(Boolean));
         $("#contentAttachments").value = attachmentsToText(item?.attachments || []);
         $("#contentBody").value = htmlToText(item?.bodyHtml || "");
         $("#contentSource").value = item?.source || "";
@@ -1560,7 +1641,11 @@
         $("#previewOrder").value = data.order || 100;
         $("#previewSource").value = data.source || "";
         $("#manualBody").value = htmlToText(data.bodyHtml || "");
-        $("#previewBody").innerHTML = data.bodyHtml || "未读取到正文，请手动粘贴内容。";
+        const previewImages = (data.images || []).map((image, index) => `<img src="${image}" alt="导入图片 ${index + 1}">`).join("");
+        $("#previewBody").innerHTML = `
+          ${data.bodyHtml || "未读取到正文，请手动粘贴内容。"}
+          ${previewImages ? `<h3>读取到的图片</h3><div class="gallery-grid">${previewImages}</div>` : ""}
+        `;
       }
 
       function clearImport() {
@@ -1599,18 +1684,44 @@
             doc.querySelectorAll("script, style, iframe, nav, footer").forEach((node) => node.remove());
             const title = doc.querySelector("title")?.textContent?.trim() || "";
             const nodes = Array.from(doc.querySelectorAll("h1, h2, h3, p, li")).slice(0, 80);
+            const images = Array.from(doc.querySelectorAll("img"))
+              .map((image) => image.getAttribute("src"))
+              .filter(Boolean)
+              .map((src) => {
+                try {
+                  return new URL(src, url).href;
+                } catch {
+                  return "";
+                }
+              })
+              .filter(Boolean)
+              .slice(0, 18);
             const bodyHtml = nodes.map((node) => {
               const text = node.textContent.trim();
               if (!text) return "";
               const tag = ["H1", "H2", "H3"].includes(node.tagName) ? node.tagName.toLowerCase() : "p";
               return `<${tag}>${escapeHtml(text)}</${tag}>`;
             }).join("");
-            if (bodyHtml) return { title, bodyHtml };
+            if (bodyHtml || images.length) return { title, bodyHtml, images };
           } catch {
             continue;
           }
         }
-        return { title: "", bodyHtml: "" };
+        return { title: "", bodyHtml: "", images: [] };
+      }
+
+      function appendLines(fieldId, values) {
+        const field = $("#" + fieldId);
+        field.value = listToLines([...linesToList(field.value), ...values]);
+      }
+
+      function filesToDataUrls(files) {
+        return Promise.all(Array.from(files || []).map((file) => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        })));
       }
 
       document.addEventListener("click", (event) => {
@@ -1702,8 +1813,10 @@
             category: $("#previewCategory").value,
             summary: htmlToText(bodyHtml).slice(0, 70) || "导入内容",
             bodyHtml,
-            image: fallbackImage,
+            images: pendingImport?.images?.length ? pendingImport.images : [fallbackImage],
+            image: pendingImport?.images?.[0] || fallbackImage,
             video: "",
+            videos: [],
             attachments: [],
             source: $("#previewSource").value.trim(),
             order: Number($("#previewOrder").value || 100),
@@ -1769,8 +1882,10 @@
           category: $("#contentCategory").value,
           summary: $("#contentSummary").value.trim(),
           bodyHtml: textToHtml($("#contentBody").value.trim()),
-          image: $("#contentImage").value.trim() || fallbackImage,
-          video: $("#contentVideo").value.trim(),
+          images: linesToList($("#contentImages").value),
+          image: linesToList($("#contentImages").value)[0] || fallbackImage,
+          videos: linesToList($("#contentVideos").value),
+          video: linesToList($("#contentVideos").value)[0] || "",
           attachments: parseAttachments($("#contentAttachments").value),
           source: $("#contentSource").value.trim(),
           order: Number($("#contentOrder").value || 100),
@@ -1850,7 +1965,8 @@
           category: $("#urlCategory").value,
           order: Number($("#urlOrder").value || 100),
           source: parsed.url,
-          bodyHtml: result.bodyHtml || ""
+          bodyHtml: result.bodyHtml || "",
+          images: result.images || []
         });
         setImportStatus(result.bodyHtml ? "读取成功，请确认" : "等待手动补充正文", 100);
       });
@@ -1862,13 +1978,20 @@
       });
 
       $("#contentImageFile").addEventListener("change", (event) => {
-        const file = event.target.files?.[0];
-        if (file) $("#contentImage").value = URL.createObjectURL(file);
+        const files = event.target.files;
+        if (!files?.length) return;
+        filesToDataUrls(files).then((urls) => {
+          appendLines("contentImages", urls);
+          toast(`已追加 ${urls.length} 张图片`);
+        }).catch(() => toast("图片读取失败"));
       });
 
       $("#contentVideoFile").addEventListener("change", (event) => {
-        const file = event.target.files?.[0];
-        if (file) $("#contentVideo").value = URL.createObjectURL(file);
+        const files = event.target.files;
+        if (!files?.length) return;
+        const urls = Array.from(files).map((file) => URL.createObjectURL(file));
+        appendLines("contentVideos", urls);
+        toast(`已追加 ${urls.length} 个视频预览`);
       });
 
       document.addEventListener("keydown", (event) => {
