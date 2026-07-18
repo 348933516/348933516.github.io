@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MapleStoryNK</title>
+    <meta name="description" content="MapleStoryNK 官方网站">
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101820;
+        --panel: #172430;
+        --text: #f4f7fa;
+        --muted: #aebbc7;
+        --accent: #38d39f;
+        --accent-2: #ffcb47;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Arial, "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(circle at 20% 15%, rgba(56, 211, 159, 0.22), transparent 28%),
+          radial-gradient(circle at 78% 20%, rgba(255, 203, 71, 0.18), transparent 26%),
+          linear-gradient(135deg, #101820 0%, #132333 52%, #0f1720 100%);
+        color: var(--text);
+      }
+
+      main {
+        width: min(1080px, calc(100% - 32px));
+        min-height: 100vh;
+        margin: 0 auto;
+        display: grid;
+        align-content: center;
+        gap: 28px;
+        padding: 48px 0;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--accent);
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .mark {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: var(--accent);
+        color: #082017;
+        font-weight: 800;
+      }
+
+      h1 {
+        max-width: 780px;
+        margin: 0;
+        font-size: clamp(38px, 7vw, 76px);
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      p {
+        max-width: 680px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.8;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 8px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .button {
+        min-height: 46px;
+        padding: 0 18px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .primary {
+        background: var(--accent);
+        color: #082017;
+      }
+
+      .secondary {
+        border: 1px solid rgba(244, 247, 250, 0.24);
+        color: var(--text);
+      }
+
+      .notice {
+        max-width: 760px;
+        border-left: 4px solid var(--accent-2);
+        background: rgba(23, 36, 48, 0.76);
+        padding: 18px 20px;
+        border-radius: 8px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 640px) {
+        main {
+          align-content: start;
+          padding-top: 36px;
+        }
+
+        .button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="mark">M</span>
+        <span>maplestorynk.online</span>
+      </div>
+
+      <h1>MapleStoryNK 网站正在搭建中</h1>
+
+      <p>
+        这是你的 GitHub Pages 首页。发布成功后，别人就可以通过
+        maplestorynk.online 访问这个网站。
+      </p>
+
+      <div class="actions">
+        <a class="button primary" href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
+        <a class="button secondary" href="https://www.dnspod.cn/" target="_blank" rel="noreferrer">DNSPod</a>
+      </div>
+
+      <div class="notice">
+        后续可以把这里替换成服务器介绍、客户端下载、公告、联系方式或其他内容。
+      </div>
+    </main>
+  </body>
+</html>
