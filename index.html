@@ -6,23 +6,23 @@
     <title>MapleStoryNK 资料展示中心</title>
     <meta name="description" content="MapleStoryNK WZ业务、定制地图、BOSS配套地图与系列地图展示中心">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0b1014;
-        --surface: #111a21;
-        --surface-2: #17242d;
-        --line: rgba(236, 241, 245, 0.12);
-        --line-strong: rgba(236, 241, 245, 0.2);
-        --text: #f4f7f4;
-        --muted: #aab6bd;
-        --soft: #d6ded9;
+        --bg: #080d10;
+        --panel: #101820;
+        --panel-2: #15212b;
+        --panel-3: #1b2a34;
+        --line: rgba(236, 242, 245, 0.12);
+        --line-2: rgba(236, 242, 245, 0.22);
+        --text: #f6f8f6;
+        --muted: #aebbc2;
         --teal: #35d0aa;
-        --gold: #f2bd48;
-        --coral: #ff7765;
-        --blue: #6ea8ff;
-        --green: #82cc65;
-        --shadow: 0 20px 70px rgba(0, 0, 0, 0.34);
+        --gold: #f1bd4d;
+        --red: #ff6b5d;
+        --blue: #70a7ff;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
       }
 
       * {
@@ -36,11 +36,11 @@
       body {
         margin: 0;
         min-height: 100vh;
-        background:
-          linear-gradient(135deg, rgba(53, 208, 170, 0.15), transparent 24%),
-          linear-gradient(225deg, rgba(242, 189, 72, 0.11), transparent 30%),
-          linear-gradient(180deg, #10151a 0%, #0b1014 48%, #0e1312 100%);
         color: var(--text);
+        background:
+          linear-gradient(120deg, rgba(53, 208, 170, 0.16), transparent 24%),
+          linear-gradient(240deg, rgba(241, 189, 77, 0.12), transparent 24%),
+          linear-gradient(180deg, #10161b 0%, #080d10 52%, #0b100e 100%);
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
       }
 
@@ -66,21 +66,17 @@
         max-width: 100%;
       }
 
-      .site-shell {
-        min-height: 100vh;
-      }
-
       .topbar {
         position: sticky;
         top: 0;
-        z-index: 20;
+        z-index: 30;
         border-bottom: 1px solid var(--line);
-        background: rgba(11, 16, 20, 0.86);
+        background: rgba(8, 13, 16, 0.88);
         backdrop-filter: blur(18px);
       }
 
       .topbar-inner {
-        width: min(1240px, calc(100% - 32px));
+        width: min(1280px, calc(100% - 32px));
         min-height: 72px;
         margin: 0 auto;
         display: flex;
@@ -102,10 +98,9 @@
         border-radius: 8px;
         display: grid;
         place-items: center;
+        color: #06130f;
         background: linear-gradient(135deg, var(--teal), var(--gold));
-        color: #08110f;
         font-weight: 900;
-        box-shadow: 0 10px 28px rgba(53, 208, 170, 0.24);
       }
 
       .brand-text {
@@ -115,7 +110,6 @@
 
       .brand-text strong {
         font-size: 16px;
-        letter-spacing: 0;
       }
 
       .brand-text span {
@@ -126,7 +120,7 @@
       .nav {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
         overflow-x: auto;
         scrollbar-width: none;
       }
@@ -135,27 +129,10 @@
         display: none;
       }
 
-      .nav-link {
-        min-height: 38px;
-        border: 0;
-        border-radius: 8px;
-        padding: 0 12px;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--muted);
-        background: transparent;
-        white-space: nowrap;
-      }
-
-      .nav-link:hover,
-      .nav-link.active {
-        color: var(--text);
-        background: rgba(255, 255, 255, 0.08);
-      }
-
+      .nav-button,
       .icon-button,
-      .text-button {
+      .text-button,
+      .seg-button {
         min-height: 40px;
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -164,35 +141,59 @@
         justify-content: center;
         gap: 8px;
         color: var(--text);
-        background: rgba(255, 255, 255, 0.07);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .nav-button {
+        border-color: transparent;
+        padding: 0 12px;
+        color: var(--muted);
+        white-space: nowrap;
+        background: transparent;
+      }
+
+      .nav-button:hover,
+      .nav-button.active,
+      .seg-button.active {
+        color: #f8fffc;
+        background: rgba(255, 255, 255, 0.1);
       }
 
       .icon-button {
-        width: 42px;
+        width: 40px;
         padding: 0;
       }
 
-      .text-button {
+      .text-button,
+      .seg-button {
         padding: 0 14px;
         white-space: nowrap;
       }
 
-      .primary-button {
+      .primary {
         border-color: transparent;
-        background: linear-gradient(135deg, var(--teal), #75e7bd);
-        color: #071210;
+        color: #07130f;
+        background: linear-gradient(135deg, var(--teal), #91ecc7);
         font-weight: 800;
       }
 
-      .danger-button {
-        border-color: rgba(255, 119, 101, 0.34);
-        color: #ffd0c9;
-        background: rgba(255, 119, 101, 0.1);
+      .danger {
+        border-color: rgba(255, 107, 93, 0.4);
+        color: #ffd7d2;
+        background: rgba(255, 107, 93, 0.12);
+      }
+
+      .public-view {
+        display: block;
+      }
+
+      .view-admin .public-view {
+        display: none;
       }
 
       .hero {
         position: relative;
-        min-height: calc(100vh - 72px);
+        min-height: 86vh;
         overflow: hidden;
         border-bottom: 1px solid var(--line);
       }
@@ -202,7 +203,7 @@
         position: absolute;
         inset: 0;
         background:
-          linear-gradient(90deg, rgba(11, 16, 20, 0.94) 0%, rgba(11, 16, 20, 0.76) 46%, rgba(11, 16, 20, 0.36) 100%),
+          linear-gradient(90deg, rgba(8, 13, 16, 0.96), rgba(8, 13, 16, 0.72), rgba(8, 13, 16, 0.36)),
           url("https://images.unsplash.com/photo-1518709268805-4e9042af2176?auto=format&fit=crop&w=1800&q=82");
         background-size: cover;
         background-position: center;
@@ -211,26 +212,26 @@
 
       .hero-inner {
         position: relative;
-        width: min(1240px, calc(100% - 32px));
-        min-height: calc(100vh - 72px);
+        width: min(1280px, calc(100% - 32px));
+        min-height: 86vh;
         margin: 0 auto;
+        padding: 56px 0 74px;
         display: grid;
-        grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
-        gap: 38px;
+        grid-template-columns: minmax(0, 0.96fr) minmax(420px, 1.04fr);
+        gap: 42px;
         align-items: center;
-        padding: 64px 0 94px;
       }
 
       .eyebrow {
-        display: inline-flex;
         width: fit-content;
-        align-items: center;
-        gap: 8px;
         min-height: 30px;
-        border: 1px solid rgba(53, 208, 170, 0.24);
+        border: 1px solid rgba(53, 208, 170, 0.3);
         border-radius: 8px;
         padding: 0 10px;
-        color: #c7ffee;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #d7fff4;
         background: rgba(53, 208, 170, 0.12);
         font-size: 13px;
       }
@@ -238,7 +239,7 @@
       h1 {
         max-width: 820px;
         margin: 18px 0 0;
-        font-size: clamp(42px, 8vw, 84px);
+        font-size: clamp(42px, 7vw, 82px);
         line-height: 1;
         letter-spacing: 0;
       }
@@ -246,116 +247,129 @@
       .hero-copy {
         max-width: 720px;
         margin: 22px 0 0;
-        color: var(--soft);
+        color: #d9e2df;
         font-size: 18px;
         line-height: 1.82;
       }
 
       .hero-actions {
+        margin-top: 28px;
         display: flex;
         flex-wrap: wrap;
         gap: 12px;
-        margin-top: 28px;
       }
 
-      .hero-stats {
+      .hero-metrics {
+        margin-top: 34px;
         display: grid;
-        grid-template-columns: repeat(4, minmax(118px, 1fr));
+        grid-template-columns: repeat(4, minmax(96px, 1fr));
         gap: 10px;
-        margin-top: 36px;
       }
 
-      .stat {
+      .metric-mini,
+      .metric-card,
+      .admin-card,
+      .content-row,
+      .feature-card {
         border: 1px solid var(--line);
         border-radius: 8px;
+        background: rgba(16, 24, 32, 0.78);
+        box-shadow: var(--shadow);
+      }
+
+      .metric-mini {
         padding: 14px;
-        background: rgba(255, 255, 255, 0.07);
       }
 
-      .stat strong {
+      .metric-mini strong {
         display: block;
-        font-size: 24px;
+        font-size: 26px;
       }
 
-      .stat span {
+      .metric-mini span {
         display: block;
-        margin-top: 4px;
+        margin-top: 5px;
         color: var(--muted);
         font-size: 12px;
       }
 
-      .feature-board {
-        align-self: stretch;
+      .horizontal-panel {
+        min-width: 0;
         display: grid;
-        align-content: center;
-        gap: 12px;
+        gap: 14px;
       }
 
-      .feature-tile {
-        min-height: 132px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
+      .directory-strip {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(230px, 1fr);
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+        scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+      }
+
+      .feature-card {
+        min-height: 164px;
         overflow: hidden;
         display: grid;
-        grid-template-columns: 118px 1fr;
-        background: rgba(17, 26, 33, 0.74);
-        box-shadow: var(--shadow);
+        grid-template-rows: 82px 1fr;
       }
 
-      .feature-tile img {
+      .feature-card img {
         width: 100%;
-        height: 100%;
+        height: 82px;
         object-fit: cover;
       }
 
-      .feature-body {
-        padding: 16px;
-        display: grid;
-        gap: 8px;
+      .feature-card-body {
+        padding: 13px;
       }
 
-      .feature-body strong {
-        font-size: 16px;
+      .feature-card-body strong {
+        display: block;
+        font-size: 15px;
       }
 
-      .feature-body span {
+      .feature-card-body span {
+        display: block;
+        margin-top: 7px;
         color: var(--muted);
-        font-size: 13px;
-        line-height: 1.55;
+        font-size: 12px;
+        line-height: 1.5;
       }
 
       .content-band {
-        width: min(1240px, calc(100% - 32px));
+        width: min(1280px, calc(100% - 32px));
         margin: 0 auto;
-        padding: 72px 0;
+        padding: 64px 0;
       }
 
       .section-head {
+        margin-bottom: 22px;
         display: flex;
-        align-items: end;
+        align-items: flex-end;
         justify-content: space-between;
-        gap: 18px;
-        margin-bottom: 24px;
+        gap: 20px;
       }
 
       .section-head h2 {
         margin: 0;
-        font-size: clamp(26px, 4vw, 44px);
-        letter-spacing: 0;
+        font-size: clamp(28px, 4vw, 44px);
       }
 
       .section-head p {
-        max-width: 620px;
+        max-width: 650px;
         margin: 8px 0 0;
         color: var(--muted);
         line-height: 1.7;
       }
 
       .toolbar {
+        margin-bottom: 22px;
         display: grid;
-        grid-template-columns: minmax(220px, 1fr) auto auto;
+        grid-template-columns: minmax(240px, 1fr) auto auto;
         gap: 10px;
-        margin-bottom: 18px;
       }
 
       .input,
@@ -376,120 +390,156 @@
       }
 
       .textarea {
-        min-height: 110px;
+        min-height: 112px;
         padding: 12px;
         resize: vertical;
       }
 
-      .category-tabs {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
+      .category-nav {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(218px, 1fr);
+        gap: 12px;
+        overflow-x: auto;
+        padding: 4px 0 14px;
       }
 
-      .tab {
-        min-height: 42px;
+      .category-pill {
+        min-height: 88px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 0 12px;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--muted);
+        padding: 14px;
+        display: grid;
+        align-content: space-between;
+        gap: 10px;
+        color: var(--text);
         background: rgba(255, 255, 255, 0.06);
       }
 
-      .tab.active {
-        border-color: rgba(53, 208, 170, 0.4);
-        color: #eafff8;
+      .category-pill.active {
+        border-color: rgba(53, 208, 170, 0.46);
         background: rgba(53, 208, 170, 0.12);
       }
 
-      .grid {
+      .category-pill span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .directory-lanes {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 16px;
+        gap: 22px;
       }
 
-      .item-card {
-        border: 1px solid var(--line);
-        border-radius: 8px;
+      .lane {
+        border-top: 1px solid var(--line);
+        padding-top: 18px;
+      }
+
+      .lane-head {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .lane-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .lane-title h3 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .lane-title span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .lane-scroll {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(360px, 420px);
+        gap: 14px;
+        overflow-x: auto;
+        padding-bottom: 10px;
+        scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+      }
+
+      .content-row {
+        min-height: 176px;
+        display: grid;
+        grid-template-columns: 150px 1fr;
         overflow: hidden;
-        background: rgba(17, 26, 33, 0.86);
-        transition: transform 160ms ease, border-color 160ms ease;
       }
 
-      .item-card:hover {
-        transform: translateY(-3px);
-        border-color: rgba(53, 208, 170, 0.36);
-      }
-
-      .card-media {
-        position: relative;
-        aspect-ratio: 16 / 10;
-        overflow: hidden;
-      }
-
-      .card-media img {
-        width: 100%;
+      .content-row img {
+        width: 150px;
         height: 100%;
         object-fit: cover;
       }
 
-      .badge-row {
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+      .row-body {
+        min-width: 0;
+        padding: 14px;
+        display: grid;
+        gap: 9px;
       }
 
-      .badge {
+      .row-body h4 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .row-body p {
+        margin: 0;
+        min-height: 44px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.58;
+      }
+
+      .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .badge,
+      .status {
         min-height: 26px;
-        border: 1px solid rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.14);
         border-radius: 8px;
         padding: 4px 8px;
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.46);
-        backdrop-filter: blur(10px);
+        color: #f9fffb;
+        background: rgba(255, 255, 255, 0.08);
         font-size: 12px;
       }
 
-      .card-body {
-        padding: 16px;
+      .status {
+        border-color: rgba(53, 208, 170, 0.28);
+        color: #dffff5;
+        background: rgba(53, 208, 170, 0.12);
       }
 
-      .card-body h3 {
-        margin: 0;
-        font-size: 18px;
+      .status.offline {
+        border-color: rgba(255, 107, 93, 0.32);
+        color: #ffd7d2;
+        background: rgba(255, 107, 93, 0.12);
       }
 
-      .card-body p {
-        min-height: 48px;
-        margin: 10px 0 14px;
-        color: var(--muted);
-        line-height: 1.65;
-        font-size: 14px;
-      }
-
-      .card-foot {
+      .row-foot {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .mini-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        gap: 10px;
       }
 
       .admin-layout {
@@ -498,14 +548,14 @@
         grid-template-columns: 264px minmax(0, 1fr);
       }
 
-      .admin-layout.active {
+      .view-admin .admin-layout {
         display: grid;
       }
 
       .admin-sidebar {
         border-right: 1px solid var(--line);
-        background: rgba(11, 16, 20, 0.64);
         padding: 20px;
+        background: rgba(8, 13, 16, 0.68);
       }
 
       .admin-sidebar h2 {
@@ -531,47 +581,58 @@
       }
 
       .metric-grid {
+        margin-bottom: 18px;
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 14px;
-        margin-bottom: 18px;
       }
 
-      .metric {
-        border: 1px solid var(--line);
-        border-radius: 8px;
+      .metric-card {
         padding: 18px;
-        background: rgba(255, 255, 255, 0.06);
       }
 
-      .metric span {
+      .metric-card span {
         color: var(--muted);
         font-size: 13px;
       }
 
-      .metric strong {
+      .metric-card strong {
         display: block;
         margin-top: 8px;
         font-size: 30px;
+      }
+
+      .admin-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .admin-card {
+        padding: 18px;
+      }
+
+      .admin-card h3 {
+        margin: 0 0 12px;
       }
 
       .table-wrap {
         border: 1px solid var(--line);
         border-radius: 8px;
         overflow: auto;
-        background: rgba(17, 26, 33, 0.72);
+        background: rgba(16, 24, 32, 0.74);
       }
 
       table {
         width: 100%;
-        min-width: 820px;
+        min-width: 920px;
         border-collapse: collapse;
       }
 
       th,
       td {
-        padding: 14px 16px;
         border-bottom: 1px solid var(--line);
+        padding: 13px 14px;
         text-align: left;
         vertical-align: middle;
         font-size: 14px;
@@ -579,7 +640,6 @@
 
       th {
         color: var(--muted);
-        font-weight: 700;
         background: rgba(255, 255, 255, 0.04);
       }
 
@@ -587,40 +647,21 @@
         border-bottom: 0;
       }
 
-      .status {
-        min-height: 26px;
-        border-radius: 8px;
-        padding: 4px 8px;
-        display: inline-flex;
+      .actions {
+        display: flex;
         align-items: center;
-        background: rgba(130, 204, 101, 0.14);
-        color: #caffe0;
-        font-size: 12px;
-      }
-
-      .status.offline {
-        background: rgba(255, 119, 101, 0.13);
-        color: #ffd0c9;
-      }
-
-      .notice {
-        grid-column: 1 / -1;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 18px;
-        color: var(--muted);
-        background: rgba(255, 255, 255, 0.06);
+        gap: 8px;
       }
 
       .modal {
         position: fixed;
         inset: 0;
-        z-index: 50;
+        z-index: 60;
         display: none;
         align-items: center;
         justify-content: center;
         padding: 20px;
-        background: rgba(0, 0, 0, 0.64);
+        background: rgba(0, 0, 0, 0.66);
       }
 
       .modal.active {
@@ -628,12 +669,12 @@
       }
 
       .modal-box {
-        width: min(960px, 100%);
-        max-height: min(780px, calc(100vh - 40px));
-        border: 1px solid var(--line-strong);
+        width: min(980px, 100%);
+        max-height: min(820px, calc(100vh - 40px));
+        border: 1px solid var(--line-2);
         border-radius: 8px;
         overflow: auto;
-        background: #111a21;
+        background: #101820;
         box-shadow: var(--shadow);
       }
 
@@ -656,6 +697,33 @@
         padding: 18px;
       }
 
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .form-field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .form-field.full {
+        grid-column: 1 / -1;
+      }
+
+      label {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .auth-tabs,
+      .import-tabs {
+        margin-bottom: 16px;
+        display: flex;
+        gap: 8px;
+      }
+
       .detail-grid {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 330px;
@@ -675,7 +743,7 @@
       }
 
       .detail-copy {
-        color: var(--soft);
+        color: #d9e2df;
         line-height: 1.8;
       }
 
@@ -698,62 +766,17 @@
         color: var(--text);
       }
 
-      .form-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-      }
-
-      .form-field {
-        display: grid;
-        gap: 8px;
-      }
-
-      .form-field.full {
-        grid-column: 1 / -1;
-      }
-
-      label {
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .upload-line {
-        min-height: 112px;
-        border: 1px dashed rgba(236, 241, 245, 0.28);
-        border-radius: 8px;
-        padding: 14px;
-        display: grid;
-        place-items: center;
-        gap: 8px;
-        color: var(--muted);
-        background: rgba(255, 255, 255, 0.04);
-        text-align: center;
-      }
-
-      .hidden {
-        display: none !important;
-      }
-
-      .view-admin .public-view {
-        display: none;
-      }
-
-      .view-admin .admin-layout {
-        display: grid;
-      }
-
       .toast {
         position: fixed;
         right: 18px;
         bottom: 18px;
-        z-index: 70;
+        z-index: 90;
         border: 1px solid rgba(53, 208, 170, 0.28);
         border-radius: 8px;
         padding: 12px 14px;
         display: none;
-        background: rgba(17, 26, 33, 0.94);
         color: #eafff8;
+        background: rgba(16, 24, 32, 0.96);
         box-shadow: var(--shadow);
       }
 
@@ -761,23 +784,20 @@
         display: block;
       }
 
+      .hidden {
+        display: none !important;
+      }
+
       @media (max-width: 1040px) {
         .hero-inner,
-        .detail-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .feature-board {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .grid,
-        .metric-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
+        .detail-grid,
         .admin-layout {
           grid-template-columns: 1fr;
+        }
+
+        .metric-grid,
+        .admin-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .admin-sidebar {
@@ -787,37 +807,38 @@
       }
 
       @media (max-width: 760px) {
-        .topbar-inner {
+        .topbar-inner,
+        .section-head {
           align-items: stretch;
           flex-direction: column;
+        }
+
+        .topbar-inner {
           padding: 12px 0;
         }
 
-        .nav {
-          width: 100%;
-        }
-
         .hero-inner {
-          align-items: start;
-          padding-top: 36px;
+          padding-top: 34px;
         }
 
-        .hero-stats,
-        .feature-board,
-        .grid,
+        .hero-metrics,
+        .toolbar,
         .metric-grid,
-        .form-grid,
-        .toolbar {
+        .admin-grid,
+        .form-grid {
           grid-template-columns: 1fr;
         }
 
-        .section-head {
-          align-items: start;
-          flex-direction: column;
+        .lane-scroll {
+          grid-auto-columns: minmax(292px, 86vw);
         }
 
-        .feature-tile {
-          grid-template-columns: 96px 1fr;
+        .content-row {
+          grid-template-columns: 112px 1fr;
+        }
+
+        .content-row img {
+          width: 112px;
         }
 
         .admin-main {
@@ -827,10 +848,10 @@
     </style>
   </head>
   <body>
-    <div class="site-shell" id="app">
+    <div id="app">
       <header class="topbar">
         <div class="topbar-inner">
-          <a class="brand" href="#home" data-view="public">
+          <a class="brand" href="#home" id="brandHome">
             <span class="brand-mark">NK</span>
             <span class="brand-text">
               <strong>MapleStoryNK</strong>
@@ -839,14 +860,14 @@
           </a>
 
           <nav class="nav" aria-label="主导航">
-            <button class="nav-link active" data-nav="all"><i data-lucide="layout-grid"></i>全部</button>
-            <button class="nav-link" data-nav="WZ业务目录"><i data-lucide="archive"></i>WZ业务</button>
-            <button class="nav-link" data-nav="定制地图展示"><i data-lucide="map"></i>定制地图</button>
-            <button class="nav-link" data-nav="BOSS配套地图展示"><i data-lucide="swords"></i>BOSS配套</button>
-            <button class="nav-link" data-nav="系列地图"><i data-lucide="layers-3"></i>系列地图</button>
+            <button class="nav-button active" data-nav="全部"><i data-lucide="layout-grid"></i>全部</button>
+            <button class="nav-button" data-nav="WZ业务目录"><i data-lucide="archive"></i>WZ业务</button>
+            <button class="nav-button" data-nav="定制地图展示"><i data-lucide="map"></i>定制地图</button>
+            <button class="nav-button" data-nav="BOSS配套地图展示"><i data-lucide="swords"></i>BOSS配套</button>
+            <button class="nav-button" data-nav="系列地图"><i data-lucide="layers-3"></i>系列地图</button>
           </nav>
 
-          <button class="text-button" id="loginButton"><i data-lucide="shield"></i>管理员</button>
+          <button class="text-button" id="authButton"><i data-lucide="shield"></i>管理员</button>
         </div>
       </header>
 
@@ -854,29 +875,28 @@
         <section class="hero" id="home">
           <div class="hero-inner">
             <div>
-              <span class="eyebrow"><i data-lucide="sparkles"></i>MapleStoryNK 内容展示系统</span>
-              <h1>WZ 业务与地图资源的高级展示站</h1>
-              <p class="hero-copy">
-                集中展示 WZ 业务目录、定制地图、BOSS 配套地图与系列地图。前台用于查看资料，后台用于维护内容、图片、视频、状态与管理员账号。
-              </p>
+              <span class="eyebrow"><i data-lucide="sparkles"></i>MapleStoryNK 内容库</span>
+              <h1>横向浏览你的 WZ 业务与地图资源</h1>
+              <p class="hero-copy">按业务类型横向展示资料，每个分类都是独立目录。后续可以接入真实后台，让管理员维护内容、图片、视频、Word 文档和外部链接。</p>
               <div class="hero-actions">
-                <a class="text-button primary-button" href="#catalog"><i data-lucide="compass"></i>浏览内容</a>
-                <button class="text-button" id="heroLoginButton"><i data-lucide="lock-keyhole"></i>进入后台</button>
+                <a class="text-button primary" href="#catalog"><i data-lucide="compass"></i>进入目录</a>
+                <button class="text-button" id="heroAuthButton"><i data-lucide="lock-keyhole"></i>登录后台</button>
               </div>
-              <div class="hero-stats" id="heroStats"></div>
+              <div class="hero-metrics" id="heroMetrics"></div>
             </div>
 
-            <div class="feature-board" id="featureBoard"></div>
+            <div class="horizontal-panel">
+              <div class="directory-strip" id="heroStrip"></div>
+            </div>
           </div>
         </section>
 
         <section class="content-band" id="catalog">
           <div class="section-head">
             <div>
-              <h2>内容目录</h2>
-              <p>按分类、关键词与状态组织资料，适合后续扩展成真实的资源库、展示站和业务管理后台。</p>
+              <h2>横向目录</h2>
+              <p>每个分类单独成行，左右滑动浏览内容；上方目录卡可以快速定位分类。</p>
             </div>
-            <div class="category-tabs" id="categoryTabs"></div>
           </div>
 
           <div class="toolbar">
@@ -889,7 +909,8 @@
             <button class="text-button" id="resetButton"><i data-lucide="rotate-ccw"></i>重置</button>
           </div>
 
-          <div class="grid" id="contentGrid"></div>
+          <div class="category-nav" id="categoryNav"></div>
+          <div class="directory-lanes" id="directoryLanes"></div>
         </section>
       </main>
 
@@ -897,11 +918,11 @@
         <aside class="admin-sidebar">
           <h2>管理后台</h2>
           <div class="admin-menu">
-            <button class="nav-link active" data-panel="dashboard"><i data-lucide="gauge"></i>仪表盘</button>
-            <button class="nav-link" data-panel="contents"><i data-lucide="database"></i>内容管理</button>
-            <button class="nav-link" data-panel="media"><i data-lucide="image-up"></i>媒体库</button>
-            <button class="nav-link" data-panel="admins"><i data-lucide="users"></i>管理员</button>
-            <button class="nav-link" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
+            <button class="nav-button active" data-panel="dashboard"><i data-lucide="gauge"></i>仪表盘</button>
+            <button class="nav-button" data-panel="contents"><i data-lucide="database"></i>内容管理</button>
+            <button class="nav-button" data-panel="import"><i data-lucide="file-input"></i>导入内容</button>
+            <button class="nav-button" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
+            <button class="nav-button" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
           </div>
         </aside>
 
@@ -910,9 +931,9 @@
             <div class="section-head">
               <div>
                 <h2>仪表盘</h2>
-                <p>内容数量、媒体数量、推荐状态与最近更新集中展示。</p>
+                <p id="currentAdminLine">当前账号：未登录</p>
               </div>
-              <button class="text-button primary-button" id="quickAddButton"><i data-lucide="plus"></i>新增内容</button>
+              <button class="text-button primary" id="quickAddButton"><i data-lucide="plus"></i>新增内容</button>
             </div>
             <div class="metric-grid" id="metrics"></div>
             <div class="table-wrap">
@@ -921,6 +942,7 @@
                   <tr>
                     <th>最近更新</th>
                     <th>分类</th>
+                    <th>来源</th>
                     <th>状态</th>
                     <th>更新时间</th>
                   </tr>
@@ -934,9 +956,9 @@
             <div class="section-head">
               <div>
                 <h2>内容管理</h2>
-                <p>维护标题、分类、封面、视频、标签、推荐与显示状态。</p>
+                <p>维护目录内容、媒体、链接来源、显示状态和推荐状态。</p>
               </div>
-              <button class="text-button primary-button" id="addContentButton"><i data-lucide="plus"></i>新增内容</button>
+              <button class="text-button primary" id="addContentButton"><i data-lucide="plus"></i>新增内容</button>
             </div>
             <div class="table-wrap">
               <table>
@@ -945,33 +967,72 @@
                     <th>标题</th>
                     <th>分类</th>
                     <th>标签</th>
+                    <th>来源</th>
                     <th>热度</th>
                     <th>状态</th>
                     <th>操作</th>
                   </tr>
                 </thead>
-                <tbody id="adminRows"></tbody>
+                <tbody id="contentRows"></tbody>
               </table>
             </div>
           </section>
 
-          <section class="admin-panel" data-admin-panel="media">
+          <section class="admin-panel" data-admin-panel="import">
             <div class="section-head">
               <div>
-                <h2>媒体库</h2>
-                <p>图片与视频上传入口已预留，静态原型会在当前浏览器临时预览。</p>
+                <h2>导入内容</h2>
+                <p>上传 Word/TXT/HTML，或粘贴网页链接，系统会读取标题与正文并生成目录内容。</p>
               </div>
             </div>
-            <div class="grid" id="mediaGrid"></div>
+            <div class="admin-grid">
+              <div class="admin-card">
+                <h3>上传文档</h3>
+                <form class="form-grid" id="docImportForm">
+                  <div class="form-field full">
+                    <label for="docFile">文档文件</label>
+                    <input class="input" id="docFile" type="file" accept=".docx,.txt,.md,.html,.htm">
+                  </div>
+                  <div class="form-field">
+                    <label for="docCategory">分类</label>
+                    <select class="select" id="docCategory"></select>
+                  </div>
+                  <div class="form-field">
+                    <label for="docTags">标签</label>
+                    <input class="input" id="docTags" value="文档导入">
+                  </div>
+                  <button class="text-button primary" type="submit"><i data-lucide="file-up"></i>读取并添加</button>
+                </form>
+              </div>
+
+              <div class="admin-card">
+                <h3>读取网页链接</h3>
+                <form class="form-grid" id="urlImportForm">
+                  <div class="form-field full">
+                    <label for="sourceUrl">网页地址</label>
+                    <input class="input" id="sourceUrl" placeholder="https://docs.qq.com/doc/..." required>
+                  </div>
+                  <div class="form-field">
+                    <label for="urlCategory">分类</label>
+                    <select class="select" id="urlCategory"></select>
+                  </div>
+                  <div class="form-field">
+                    <label for="urlTags">标签</label>
+                    <input class="input" id="urlTags" value="链接导入">
+                  </div>
+                  <button class="text-button primary" type="submit"><i data-lucide="link"></i>读取并添加</button>
+                </form>
+              </div>
+            </div>
           </section>
 
           <section class="admin-panel" data-admin-panel="admins">
             <div class="section-head">
               <div>
-                <h2>管理员管理</h2>
-                <p>添加管理员、设置角色、删除账号。真实上线时会接入安全登录系统。</p>
+                <h2>账号权限</h2>
+                <p>超级管理员可调整角色、启停账号、修改密码和维护找回邮箱。</p>
               </div>
-              <button class="text-button primary-button" id="addAdminButton"><i data-lucide="user-plus"></i>新增管理员</button>
+              <button class="text-button primary" id="addAdminButton"><i data-lucide="user-plus"></i>新增账号</button>
             </div>
             <div class="table-wrap">
               <table>
@@ -979,12 +1040,13 @@
                   <tr>
                     <th>账号</th>
                     <th>角色</th>
+                    <th>找回邮箱</th>
                     <th>状态</th>
                     <th>创建时间</th>
                     <th>操作</th>
                   </tr>
                 </thead>
-                <tbody id="adminUsersRows"></tbody>
+                <tbody id="adminRows"></tbody>
               </table>
             </div>
           </section>
@@ -992,14 +1054,19 @@
       </section>
     </div>
 
-    <div class="modal" id="loginModal" aria-hidden="true">
-      <div class="modal-box" style="width:min(460px,100%)">
+    <div class="modal" id="authModal" aria-hidden="true">
+      <div class="modal-box" style="width:min(520px,100%)">
         <div class="modal-head">
-          <h3>管理员登录</h3>
-          <button class="icon-button" data-close="loginModal" aria-label="关闭"><i data-lucide="x"></i></button>
+          <h3>账号中心</h3>
+          <button class="icon-button" data-close="authModal" aria-label="关闭"><i data-lucide="x"></i></button>
         </div>
         <div class="modal-content">
-          <form class="form-grid" id="loginForm">
+          <div class="auth-tabs">
+            <button class="seg-button active" data-auth-tab="login"><i data-lucide="log-in"></i>登录</button>
+            <button class="seg-button" data-auth-tab="register"><i data-lucide="user-plus"></i>注册</button>
+          </div>
+
+          <form class="form-grid" id="loginForm" data-auth-panel="login">
             <div class="form-field full">
               <label for="loginUser">账号</label>
               <input class="input" id="loginUser" value="admin" autocomplete="username">
@@ -1008,7 +1075,23 @@
               <label for="loginPass">密码</label>
               <input class="input" id="loginPass" type="password" value="admin123" autocomplete="current-password">
             </div>
-            <button class="text-button primary-button" type="submit"><i data-lucide="log-in"></i>登录</button>
+            <button class="text-button primary" type="submit"><i data-lucide="log-in"></i>登录</button>
+          </form>
+
+          <form class="form-grid hidden" id="registerForm" data-auth-panel="register">
+            <div class="form-field full">
+              <label for="registerUser">账号</label>
+              <input class="input" id="registerUser" required autocomplete="username">
+            </div>
+            <div class="form-field full">
+              <label for="registerPass">密码</label>
+              <input class="input" id="registerPass" type="password" required autocomplete="new-password">
+            </div>
+            <div class="form-field full">
+              <label for="registerEmail">找回邮箱</label>
+              <input class="input" id="registerEmail" type="email" required autocomplete="email">
+            </div>
+            <button class="text-button primary" type="submit"><i data-lucide="user-plus"></i>注册账号</button>
           </form>
         </div>
       </div>
@@ -1050,6 +1133,10 @@
               <input class="input" id="contentHot" type="number" min="0" value="100">
             </div>
             <div class="form-field full">
+              <label for="contentSource">来源链接</label>
+              <input class="input" id="contentSource" placeholder="https://...">
+            </div>
+            <div class="form-field full">
               <label for="contentImage">封面图片地址</label>
               <input class="input" id="contentImage" placeholder="https://...">
             </div>
@@ -1087,27 +1174,32 @@
                 <option value="no">普通</option>
               </select>
             </div>
-            <div class="form-field full upload-line" id="uploadPreview">
-              <i data-lucide="image"></i>
-              <span>媒体预览区域</span>
-            </div>
-            <button class="text-button primary-button" type="submit"><i data-lucide="save"></i>保存内容</button>
+            <button class="text-button primary" type="submit"><i data-lucide="save"></i>保存内容</button>
           </form>
         </div>
       </div>
     </div>
 
     <div class="modal" id="adminModal" aria-hidden="true">
-      <div class="modal-box" style="width:min(520px,100%)">
+      <div class="modal-box" style="width:min(580px,100%)">
         <div class="modal-head">
-          <h3>新增管理员</h3>
+          <h3 id="adminModalTitle">新增账号</h3>
           <button class="icon-button" data-close="adminModal" aria-label="关闭"><i data-lucide="x"></i></button>
         </div>
         <div class="modal-content">
           <form class="form-grid" id="adminForm">
+            <input type="hidden" id="adminId">
             <div class="form-field full">
               <label for="adminName">账号</label>
               <input class="input" id="adminName" required>
+            </div>
+            <div class="form-field full">
+              <label for="adminPassword">密码</label>
+              <input class="input" id="adminPassword" type="password" placeholder="不修改密码可留空">
+            </div>
+            <div class="form-field full">
+              <label for="adminEmail">找回邮箱</label>
+              <input class="input" id="adminEmail" type="email" required>
             </div>
             <div class="form-field">
               <label for="adminRole">角色</label>
@@ -1115,6 +1207,7 @@
                 <option value="超级管理员">超级管理员</option>
                 <option value="内容管理员">内容管理员</option>
                 <option value="媒体管理员">媒体管理员</option>
+                <option value="只读管理员">只读管理员</option>
               </select>
             </div>
             <div class="form-field">
@@ -1124,7 +1217,7 @@
                 <option value="停用">停用</option>
               </select>
             </div>
-            <button class="text-button primary-button" type="submit"><i data-lucide="user-plus"></i>添加</button>
+            <button class="text-button primary" type="submit"><i data-lucide="save"></i>保存账号</button>
           </form>
         </div>
       </div>
@@ -1134,8 +1227,9 @@
 
     <script>
       const categories = ["WZ业务目录", "定制地图展示", "BOSS配套地图展示", "系列地图"];
-      const storageKey = "maplestorynk.contents.v1";
-      const adminsKey = "maplestorynk.admins.v1";
+      const contentKey = "maplestorynk.contents.v2";
+      const adminKey = "maplestorynk.admins.v2";
+      const sessionKey = "maplestorynk.session.v2";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
 
       const starterContents = [
@@ -1144,9 +1238,11 @@
           title: "WZ 业务目录总览",
           category: "WZ业务目录",
           tags: ["目录", "资源", "流程"],
-          summary: "集中整理 WZ 修改、资源拆分、素材替换与交付项目，适合做成业务入口。",
-          detail: "这里可以放业务介绍、服务范围、交付说明、价格规则、注意事项和常见问题。",
+          summary: "集中整理 WZ 修改、资源拆分、素材替换与交付项目。",
+          detail: "这里可以放业务范围、交付说明、价格规则、常见问题和案例链接。",
+          source: "https://docs.qq.com/doc/DZmVzRW9LRUNSY0t6",
           image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=82",
+          video: "",
           hot: 380,
           featured: true,
           status: "visible",
@@ -1154,12 +1250,14 @@
         },
         {
           id: "map-001",
-          title: "天空风格定制地图",
+          title: "定制地图展示",
           category: "定制地图展示",
-          tags: ["定制", "场景", "展示"],
-          summary: "适合展示地图层级、入口区域、怪物分布与视觉氛围。",
+          tags: ["定制", "地图", "展示"],
+          summary: "展示地图层级、入口区域、怪物分布与视觉风格。",
           detail: "后续可以上传地图全景图、局部截图、演示视频和对应 WZ 文件说明。",
+          source: "https://docs.qq.com/doc/DZlVZaXFPZVpHS3Fy",
           image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=82",
+          video: "",
           hot: 286,
           featured: true,
           status: "visible",
@@ -1167,12 +1265,14 @@
         },
         {
           id: "boss-001",
-          title: "BOSS 房间配套展示",
+          title: "BOSS 配套地图展示",
           category: "BOSS配套地图展示",
           tags: ["BOSS", "副本", "机制"],
-          summary: "用于展示 BOSS 区域、出生点、传送门、奖励点和背景资源。",
+          summary: "展示 BOSS 区域、出生点、传送门、奖励点和背景资源。",
           detail: "详情页可补充 BOSS 参数、地图 ID、入口条件、战斗流程与掉落展示。",
+          source: "https://docs.qq.com/doc/DZk90WXVXbEd6WXJT",
           image: "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1200&q=82",
+          video: "",
           hot: 432,
           featured: true,
           status: "visible",
@@ -1180,12 +1280,14 @@
         },
         {
           id: "series-001",
-          title: "怀旧城镇系列地图",
+          title: "系列地图",
           category: "系列地图",
-          tags: ["系列", "城镇", "套装"],
+          tags: ["系列", "地图包", "套装"],
           summary: "按主题组织多个连续地图，适合展示成完整地图包。",
           detail: "可以按章节、难度、等级、入口、任务线等方式扩展字段。",
+          source: "https://docs.qq.com/doc/DZnhVeWNkZ0VNSER6",
           image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=82",
+          video: "",
           hot: 318,
           featured: false,
           status: "visible",
@@ -1193,11 +1295,22 @@
         }
       ];
 
-      let contents = load(storageKey, starterContents);
-      let admins = load(adminsKey, [
-        { id: "admin-1", name: "admin", role: "超级管理员", state: "启用", createdAt: "2026-07-18" }
-      ]);
-      let activeCategory = "all";
+      const starterAdmins = [
+        {
+          id: "admin-1",
+          name: "admin",
+          password: "admin123",
+          email: "admin@maplestorynk.online",
+          role: "超级管理员",
+          state: "启用",
+          createdAt: "2026-07-18"
+        }
+      ];
+
+      let contents = load(contentKey, starterContents);
+      let admins = load(adminKey, starterAdmins);
+      let currentAdmin = JSON.parse(localStorage.getItem(sessionKey) || "null");
+      let activeCategory = "全部";
 
       const $ = (selector) => document.querySelector(selector);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -1212,21 +1325,20 @@
       }
 
       function save() {
-        localStorage.setItem(storageKey, JSON.stringify(contents));
-        localStorage.setItem(adminsKey, JSON.stringify(admins));
+        localStorage.setItem(contentKey, JSON.stringify(contents));
+        localStorage.setItem(adminKey, JSON.stringify(admins));
+        localStorage.setItem(sessionKey, JSON.stringify(currentAdmin));
       }
 
       function icon() {
-        if (window.lucide) {
-          window.lucide.createIcons();
-        }
+        if (window.lucide) window.lucide.createIcons();
       }
 
       function toast(message) {
         const node = $("#toast");
         node.textContent = message;
         node.classList.add("active");
-        window.setTimeout(() => node.classList.remove("active"), 2200);
+        setTimeout(() => node.classList.remove("active"), 2300);
       }
 
       function showModal(id) {
@@ -1242,19 +1354,30 @@
         modal.setAttribute("aria-hidden", "true");
       }
 
-      function filteredContents(includeHidden = false) {
+      function today() {
+        return new Date().toISOString().slice(0, 10);
+      }
+
+      function categoryIcon(category) {
+        return {
+          "WZ业务目录": "archive",
+          "定制地图展示": "map",
+          "BOSS配套地图展示": "swords",
+          "系列地图": "layers-3"
+        }[category] || "box";
+      }
+
+      function categoryItems(category, includeHidden = false) {
         const keyword = $("#searchInput")?.value.trim().toLowerCase() || "";
         const sort = $("#sortSelect")?.value || "new";
         let list = contents.filter((item) => includeHidden || item.status === "visible");
 
-        if (activeCategory !== "all") {
-          list = list.filter((item) => item.category === activeCategory);
-        }
+        if (category !== "全部") list = list.filter((item) => item.category === category);
 
         if (keyword) {
           list = list.filter((item) => {
-            const haystack = [item.title, item.category, item.summary, item.detail, ...(item.tags || [])].join(" ").toLowerCase();
-            return haystack.includes(keyword);
+            const text = [item.title, item.category, item.summary, item.detail, item.source, ...(item.tags || [])].join(" ").toLowerCase();
+            return text.includes(keyword);
           });
         }
 
@@ -1265,150 +1388,185 @@
         });
       }
 
-      function renderStats() {
-        const heroStats = $("#heroStats");
-        const metrics = $("#metrics");
+      function renderMetrics() {
         const visible = contents.filter((item) => item.status === "visible").length;
-        const media = contents.filter((item) => item.image || item.video).length;
         const featured = contents.filter((item) => item.featured).length;
+        const imported = contents.filter((item) => item.source).length;
+        const values = [["内容", visible], ["分类", categories.length], ["推荐", featured], ["导入", imported]];
+        $("#heroMetrics").innerHTML = values.map(([label, value]) => `<div class="metric-mini"><strong>${value}</strong><span>${label}</span></div>`).join("");
 
-        heroStats.innerHTML = [
-          ["内容", visible],
-          ["分类", categories.length],
-          ["推荐", featured],
-          ["媒体", media]
-        ].map(([label, value]) => `<div class="stat"><strong>${value}</strong><span>${label}</span></div>`).join("");
-
-        metrics.innerHTML = [
-          ["全部内容", contents.length],
-          ["展示中", visible],
-          ["推荐内容", featured],
-          ["管理员", admins.length]
-        ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+        const metrics = [["全部内容", contents.length], ["展示中", visible], ["管理员", admins.length], ["来源链接", imported]];
+        $("#metrics").innerHTML = metrics.map(([label, value]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
       }
 
-      function renderFeatureBoard() {
-        const featured = contents.filter((item) => item.featured && item.status === "visible").slice(0, 3);
-        $("#featureBoard").innerHTML = featured.map((item) => `
-          <article class="feature-tile">
-            <img src="${item.image || fallbackImage}" alt="${item.title}">
-            <div class="feature-body">
-              <strong>${item.title}</strong>
-              <span>${item.summary}</span>
-              <span>${item.category}</span>
-            </div>
-          </article>
-        `).join("");
-      }
-
-      function renderTabs() {
-        $("#categoryTabs").innerHTML = [
-          `<button class="tab ${activeCategory === "all" ? "active" : ""}" data-filter="all"><i data-lucide="layout-grid"></i>全部</button>`,
-          ...categories.map((category) => `
-            <button class="tab ${activeCategory === category ? "active" : ""}" data-filter="${category}">
-              <i data-lucide="${categoryIcon(category)}"></i>${category}
+      function renderHeroStrip() {
+        $("#heroStrip").innerHTML = categories.map((category) => {
+          const list = categoryItems(category).slice(0, 1);
+          const item = list[0] || { title: category, summary: "暂无内容", image: fallbackImage };
+          return `
+            <button class="feature-card" data-jump="${category}">
+              <img src="${item.image || fallbackImage}" alt="${category}">
+              <span class="feature-card-body">
+                <strong>${category}</strong>
+                <span>${item.summary}</span>
+              </span>
             </button>
-          `)
-        ].join("");
+          `;
+        }).join("");
       }
 
-      function renderGrid() {
-        const list = filteredContents(false);
-        $("#contentGrid").innerHTML = list.map((item) => `
-          <article class="item-card">
-            <div class="card-media">
+      function renderCategoryNav() {
+        const buttons = ["全部", ...categories].map((category) => {
+          const count = categoryItems(category).length;
+          return `
+            <button class="category-pill ${activeCategory === category ? "active" : ""}" data-category="${category}">
+              <strong><i data-lucide="${category === "全部" ? "layout-grid" : categoryIcon(category)}"></i> ${category}</strong>
+              <span>${count} 条内容</span>
+            </button>
+          `;
+        }).join("");
+        $("#categoryNav").innerHTML = buttons;
+      }
+
+      function renderDirectory() {
+        const laneCategories = activeCategory === "全部" ? categories : [activeCategory];
+        $("#directoryLanes").innerHTML = laneCategories.map((category) => {
+          const list = categoryItems(category);
+          const cards = list.map((item) => `
+            <article class="content-row">
               <img src="${item.image || fallbackImage}" alt="${item.title}">
-              <div class="badge-row">
-                <span class="badge"><i data-lucide="${categoryIcon(item.category)}"></i>${item.category}</span>
-                ${item.featured ? `<span class="badge"><i data-lucide="star"></i>推荐</span>` : ""}
+              <div class="row-body">
+                <div class="badge-row">
+                  <span class="badge"><i data-lucide="${categoryIcon(item.category)}"></i>${item.category}</span>
+                  ${item.featured ? `<span class="badge"><i data-lucide="star"></i>推荐</span>` : ""}
+                </div>
+                <h4>${item.title}</h4>
+                <p>${item.summary}</p>
+                <div class="row-foot">
+                  <span class="badge">${(item.tags || []).slice(0, 2).join(" / ") || "未设置标签"}</span>
+                  <button class="text-button" data-detail="${item.id}"><i data-lucide="eye"></i>查看</button>
+                </div>
               </div>
-            </div>
-            <div class="card-body">
-              <h3>${item.title}</h3>
-              <p>${item.summary}</p>
-              <div class="card-foot">
-                <span>${(item.tags || []).slice(0, 3).join(" / ")}</span>
-                <button class="text-button" data-detail="${item.id}"><i data-lucide="eye"></i>查看</button>
+            </article>
+          `).join("") || `<div class="content-row"><img src="${fallbackImage}" alt="${category}"><div class="row-body"><h4>暂无内容</h4><p>可以在后台新增或导入该分类的内容。</p></div></div>`;
+
+          return `
+            <section class="lane" id="lane-${category}">
+              <div class="lane-head">
+                <div class="lane-title">
+                  <i data-lucide="${categoryIcon(category)}"></i>
+                  <h3>${category}</h3>
+                  <span>${list.length} 条</span>
+                </div>
+                <button class="text-button" data-category="${category}"><i data-lucide="arrow-right"></i>只看此类</button>
               </div>
-            </div>
-          </article>
-        `).join("") || `<div class="notice">没有找到匹配内容。</div>`;
+              <div class="lane-scroll">${cards}</div>
+            </section>
+          `;
+        }).join("");
       }
 
       function renderAdminTables() {
+        $("#currentAdminLine").textContent = currentAdmin
+          ? `当前账号：${currentAdmin.name} / ${currentAdmin.role}`
+          : "当前账号：未登录";
+
         $("#recentRows").innerHTML = [...contents]
           .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-          .slice(0, 6)
+          .slice(0, 8)
           .map((item) => `
             <tr>
               <td>${item.title}</td>
               <td>${item.category}</td>
+              <td>${item.source ? `<a href="${item.source}" target="_blank" rel="noreferrer">查看来源</a>` : "手动录入"}</td>
               <td><span class="status ${item.status === "hidden" ? "offline" : ""}">${item.status === "hidden" ? "隐藏" : "显示"}</span></td>
               <td>${item.updatedAt}</td>
             </tr>
           `).join("");
 
-        $("#adminRows").innerHTML = contents.map((item) => `
+        $("#contentRows").innerHTML = contents.map((item) => `
           <tr>
             <td>${item.title}</td>
             <td>${item.category}</td>
             <td>${(item.tags || []).join(" / ")}</td>
+            <td>${item.source ? `<a href="${item.source}" target="_blank" rel="noreferrer">来源</a>` : "无"}</td>
             <td>${item.hot || 0}</td>
             <td><span class="status ${item.status === "hidden" ? "offline" : ""}">${item.status === "hidden" ? "隐藏" : "显示"}</span></td>
             <td>
-              <div class="mini-actions">
-                <button class="icon-button" data-edit="${item.id}" aria-label="编辑"><i data-lucide="pencil"></i></button>
-                <button class="icon-button danger-button" data-delete="${item.id}" aria-label="删除"><i data-lucide="trash-2"></i></button>
+              <div class="actions">
+                <button class="icon-button" data-edit-content="${item.id}" aria-label="编辑"><i data-lucide="pencil"></i></button>
+                <button class="icon-button danger" data-delete-content="${item.id}" aria-label="删除"><i data-lucide="trash-2"></i></button>
               </div>
             </td>
           </tr>
         `).join("");
 
-        $("#mediaGrid").innerHTML = contents.map((item) => `
-          <article class="item-card">
-            <div class="card-media"><img src="${item.image || fallbackImage}" alt="${item.title}"></div>
-            <div class="card-body">
-              <h3>${item.title}</h3>
-              <p>${item.category}</p>
-              <button class="text-button" data-edit="${item.id}"><i data-lucide="image-up"></i>更新媒体</button>
-            </div>
-          </article>
-        `).join("");
-
-        $("#adminUsersRows").innerHTML = admins.map((admin) => `
+        $("#adminRows").innerHTML = admins.map((admin) => `
           <tr>
             <td>${admin.name}</td>
             <td>${admin.role}</td>
+            <td>${admin.email}</td>
             <td><span class="status ${admin.state === "停用" ? "offline" : ""}">${admin.state}</span></td>
             <td>${admin.createdAt}</td>
             <td>
-              ${admin.name === "admin" ? `<span class="badge">默认账号</span>` : `<button class="icon-button danger-button" data-delete-admin="${admin.id}" aria-label="删除"><i data-lucide="trash-2"></i></button>`}
+              <div class="actions">
+                <button class="icon-button" data-edit-admin="${admin.id}" aria-label="编辑账号"><i data-lucide="settings"></i></button>
+                <button class="icon-button" data-reset-admin="${admin.id}" aria-label="修改密码"><i data-lucide="key-round"></i></button>
+                ${admin.name === "admin" ? "" : `<button class="icon-button danger" data-delete-admin="${admin.id}" aria-label="删除账号"><i data-lucide="trash-2"></i></button>`}
+              </div>
             </td>
           </tr>
         `).join("");
       }
 
-      function renderCategorySelect() {
-        $("#contentCategory").innerHTML = categories.map((category) => `<option value="${category}">${category}</option>`).join("");
+      function renderSelects() {
+        const options = categories.map((category) => `<option value="${category}">${category}</option>`).join("");
+        $("#contentCategory").innerHTML = options;
+        $("#docCategory").innerHTML = options;
+        $("#urlCategory").innerHTML = options;
       }
 
       function render() {
-        renderStats();
-        renderFeatureBoard();
-        renderTabs();
-        renderGrid();
+        renderSelects();
+        renderMetrics();
+        renderHeroStrip();
+        renderCategoryNav();
+        renderDirectory();
         renderAdminTables();
-        renderCategorySelect();
         icon();
       }
 
-      function categoryIcon(category) {
-        return {
-          "WZ业务目录": "archive",
-          "定制地图展示": "map",
-          "BOSS配套地图展示": "swords",
-          "系列地图": "layers-3"
-        }[category] || "box";
+      function openContentEditor(id) {
+        const item = id ? contents.find((entry) => entry.id === id) : null;
+        $("#contentModalTitle").textContent = item ? "编辑内容" : "新增内容";
+        $("#contentId").value = item?.id || "";
+        $("#contentTitle").value = item?.title || "";
+        $("#contentCategory").value = item?.category || categories[0];
+        $("#contentTags").value = item?.tags?.join(", ") || "";
+        $("#contentHot").value = item?.hot || 100;
+        $("#contentSource").value = item?.source || "";
+        $("#contentImage").value = item?.image || "";
+        $("#contentVideo").value = item?.video || "";
+        $("#contentSummary").value = item?.summary || "";
+        $("#contentDetail").value = item?.detail || "";
+        $("#contentStatus").value = item?.status || "visible";
+        $("#contentFeatured").value = item?.featured ? "yes" : "no";
+        $("#contentImageFile").value = "";
+        $("#contentVideoFile").value = "";
+        showModal("contentModal");
+      }
+
+      function openAdminEditor(id) {
+        const admin = id ? admins.find((entry) => entry.id === id) : null;
+        $("#adminModalTitle").textContent = admin ? "编辑账号权限" : "新增账号";
+        $("#adminId").value = admin?.id || "";
+        $("#adminName").value = admin?.name || "";
+        $("#adminName").disabled = Boolean(admin);
+        $("#adminPassword").value = "";
+        $("#adminEmail").value = admin?.email || "";
+        $("#adminRole").value = admin?.role || "内容管理员";
+        $("#adminState").value = admin?.state || "启用";
+        showModal("adminModal");
       }
 
       function openDetail(id) {
@@ -1427,6 +1585,7 @@
               <div class="meta-line"><span>热度</span><strong>${item.hot || 0}</strong></div>
               <div class="meta-line"><span>状态</span><strong>${item.status === "hidden" ? "隐藏" : "显示"}</strong></div>
               <div class="meta-line"><span>更新</span><strong>${item.updatedAt}</strong></div>
+              ${item.source ? `<a class="text-button" href="${item.source}" target="_blank" rel="noreferrer"><i data-lucide="external-link"></i>打开来源</a>` : ""}
               ${item.video ? `<video controls src="${item.video}"></video>` : ""}
             </aside>
           </div>
@@ -1434,109 +1593,24 @@
         showModal("detailModal");
       }
 
-      function openContentEditor(id) {
-        const item = id ? contents.find((entry) => entry.id === id) : null;
-        $("#contentModalTitle").textContent = item ? "编辑内容" : "新增内容";
-        $("#contentId").value = item?.id || "";
-        $("#contentTitle").value = item?.title || "";
-        $("#contentCategory").value = item?.category || categories[0];
-        $("#contentTags").value = item?.tags?.join(", ") || "";
-        $("#contentHot").value = item?.hot || 100;
-        $("#contentImage").value = item?.image || "";
-        $("#contentVideo").value = item?.video || "";
-        $("#contentSummary").value = item?.summary || "";
-        $("#contentDetail").value = item?.detail || "";
-        $("#contentStatus").value = item?.status || "visible";
-        $("#contentFeatured").value = item?.featured ? "yes" : "no";
-        $("#contentImageFile").value = "";
-        $("#contentVideoFile").value = "";
-        $("#uploadPreview").innerHTML = item?.image
-          ? `<img src="${item.image}" alt="${item.title}" style="max-height:180px;border-radius:8px;object-fit:cover">`
-          : `<i data-lucide="image"></i><span>媒体预览区域</span>`;
-        showModal("contentModal");
+      function isSuperAdmin() {
+        return currentAdmin?.role === "超级管理员";
       }
 
-      function today() {
-        return new Date().toISOString().slice(0, 10);
+      function requireSuperAdmin() {
+        if (isSuperAdmin()) return true;
+        toast("需要超级管理员权限");
+        return false;
       }
 
-      document.addEventListener("click", (event) => {
-        const target = event.target.closest("button, a");
-        if (!target) return;
-
-        if (target.dataset.close) closeModal(target.dataset.close);
-
-        if (target.dataset.nav) {
-          activeCategory = target.dataset.nav;
-          $$(".nav-link[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === activeCategory));
-          render();
-          $("#catalog").scrollIntoView({ behavior: "smooth" });
-        }
-
-        if (target.dataset.filter) {
-          activeCategory = target.dataset.filter;
-          $$(".nav-link[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === activeCategory));
-          render();
-        }
-
-        if (target.dataset.detail) openDetail(target.dataset.detail);
-        if (target.dataset.edit) openContentEditor(target.dataset.edit);
-
-        if (target.dataset.delete) {
-          const item = contents.find((entry) => entry.id === target.dataset.delete);
-          if (item && confirm(`删除「${item.title}」？`)) {
-            contents = contents.filter((entry) => entry.id !== item.id);
-            save();
-            render();
-            toast("内容已删除");
-          }
-        }
-
-        if (target.dataset.deleteAdmin) {
-          admins = admins.filter((admin) => admin.id !== target.dataset.deleteAdmin);
-          save();
-          render();
-          toast("管理员已删除");
-        }
-
-        if (target.id === "loginButton" || target.id === "heroLoginButton") showModal("loginModal");
-        if (target.id === "quickAddButton" || target.id === "addContentButton") openContentEditor();
-        if (target.id === "addAdminButton") showModal("adminModal");
-
-        if (target.id === "backToSite") {
-          document.body.classList.remove("view-admin");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }
-
-        if (target.dataset.panel) {
-          $$(".admin-menu .nav-link").forEach((node) => node.classList.toggle("active", node.dataset.panel === target.dataset.panel));
-          $$(".admin-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.adminPanel === target.dataset.panel));
-        }
-      });
-
-      $("#loginForm").addEventListener("submit", (event) => {
-        event.preventDefault();
-        const user = $("#loginUser").value.trim();
-        const pass = $("#loginPass").value.trim();
-        if (user === "admin" && pass === "admin123") {
-          closeModal("loginModal");
-          document.body.classList.add("view-admin");
-          toast("已进入后台");
-        } else {
-          toast("账号或密码错误");
-        }
-      });
-
-      $("#contentForm").addEventListener("submit", (event) => {
-        event.preventDefault();
-        const id = $("#contentId").value || `content-${Date.now()}`;
-        const existing = contents.find((item) => item.id === id);
-        const next = {
-          id,
+      function contentFromFields(id) {
+        return {
+          id: id || `content-${Date.now()}`,
           title: $("#contentTitle").value.trim(),
           category: $("#contentCategory").value,
           tags: $("#contentTags").value.split(",").map((tag) => tag.trim()).filter(Boolean),
           hot: Number($("#contentHot").value || 0),
+          source: $("#contentSource").value.trim(),
           image: $("#contentImage").value.trim() || fallbackImage,
           video: $("#contentVideo").value.trim(),
           summary: $("#contentSummary").value.trim(),
@@ -1545,6 +1619,208 @@
           featured: $("#contentFeatured").value === "yes",
           updatedAt: today()
         };
+      }
+
+      function addImportedContent({ title, text, category, tags, source }) {
+        const cleanText = (text || "").replace(/\s+/g, " ").trim();
+        const summary = cleanText.slice(0, 120) || "已导入内容，等待管理员补充说明。";
+        contents = [
+          {
+            id: `import-${Date.now()}`,
+            title: title || "未命名导入内容",
+            category,
+            tags,
+            summary,
+            detail: cleanText || summary,
+            source: source || "",
+            image: fallbackImage,
+            video: "",
+            hot: 100,
+            featured: false,
+            status: "visible",
+            updatedAt: today()
+          },
+          ...contents
+        ];
+        save();
+        render();
+      }
+
+      async function readDocument(file) {
+        const lower = file.name.toLowerCase();
+        if (lower.endsWith(".docx") && window.mammoth) {
+          const buffer = await file.arrayBuffer();
+          const result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
+          return result.value;
+        }
+        return await file.text();
+      }
+
+      async function readUrl(url) {
+        const tryUrls = [
+          url,
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+        ];
+        for (const requestUrl of tryUrls) {
+          try {
+            const response = await fetch(requestUrl);
+            if (!response.ok) continue;
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            const title = doc.querySelector("title")?.textContent?.trim() || url;
+            const meta = doc.querySelector('meta[name="description"]')?.content || "";
+            const paragraphs = Array.from(doc.querySelectorAll("p, h1, h2, h3, li"))
+              .map((node) => node.textContent.trim())
+              .filter(Boolean)
+              .slice(0, 24)
+              .join("\n");
+            return { title, text: [meta, paragraphs].filter(Boolean).join("\n") || url };
+          } catch {
+            continue;
+          }
+        }
+        return { title: url, text: `来源链接：${url}` };
+      }
+
+      document.addEventListener("click", (event) => {
+        const target = event.target.closest("button, a");
+        if (!target) return;
+
+        if (target.dataset.close) closeModal(target.dataset.close);
+
+        if (target.id === "authButton" || target.id === "heroAuthButton") showModal("authModal");
+
+        if (target.id === "brandHome") {
+          document.body.classList.remove("view-admin");
+        }
+
+        if (target.dataset.authTab) {
+          $$(".seg-button[data-auth-tab]").forEach((button) => button.classList.toggle("active", button.dataset.authTab === target.dataset.authTab));
+          $$("[data-auth-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.authPanel !== target.dataset.authTab));
+        }
+
+        if (target.dataset.nav) {
+          activeCategory = target.dataset.nav;
+          $$(".nav-button[data-nav]").forEach((button) => button.classList.toggle("active", button.dataset.nav === activeCategory));
+          render();
+          $("#catalog").scrollIntoView({ behavior: "smooth" });
+        }
+
+        if (target.dataset.category) {
+          activeCategory = target.dataset.category;
+          $$(".nav-button[data-nav]").forEach((button) => button.classList.toggle("active", button.dataset.nav === activeCategory));
+          render();
+          $("#catalog").scrollIntoView({ behavior: "smooth" });
+        }
+
+        if (target.dataset.jump) {
+          activeCategory = target.dataset.jump;
+          render();
+          $("#catalog").scrollIntoView({ behavior: "smooth" });
+        }
+
+        if (target.dataset.detail) openDetail(target.dataset.detail);
+        if (target.id === "quickAddButton" || target.id === "addContentButton") openContentEditor();
+        if (target.dataset.editContent) openContentEditor(target.dataset.editContent);
+
+        if (target.dataset.deleteContent) {
+          const item = contents.find((entry) => entry.id === target.dataset.deleteContent);
+          if (item && confirm(`删除「${item.title}」？`)) {
+            contents = contents.filter((entry) => entry.id !== item.id);
+            save();
+            render();
+            toast("内容已删除");
+          }
+        }
+
+        if (target.id === "addAdminButton") {
+          if (requireSuperAdmin()) openAdminEditor();
+        }
+
+        if (target.dataset.editAdmin) {
+          if (requireSuperAdmin()) openAdminEditor(target.dataset.editAdmin);
+        }
+
+        if (target.dataset.resetAdmin) {
+          if (!requireSuperAdmin()) return;
+          const admin = admins.find((entry) => entry.id === target.dataset.resetAdmin);
+          const nextPassword = prompt(`给「${admin.name}」设置新密码`);
+          if (nextPassword) {
+            admin.password = nextPassword;
+            save();
+            toast("密码已修改");
+          }
+        }
+
+        if (target.dataset.deleteAdmin) {
+          if (!requireSuperAdmin()) return;
+          const admin = admins.find((entry) => entry.id === target.dataset.deleteAdmin);
+          if (admin && confirm(`删除账号「${admin.name}」？`)) {
+            admins = admins.filter((entry) => entry.id !== admin.id);
+            save();
+            render();
+            toast("账号已删除");
+          }
+        }
+
+        if (target.id === "backToSite") {
+          document.body.classList.remove("view-admin");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        if (target.dataset.panel) {
+          $$(".admin-menu .nav-button").forEach((button) => button.classList.toggle("active", button.dataset.panel === target.dataset.panel));
+          $$(".admin-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.adminPanel === target.dataset.panel));
+        }
+      });
+
+      $("#loginForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const user = $("#loginUser").value.trim();
+        const pass = $("#loginPass").value.trim();
+        const admin = admins.find((entry) => entry.name === user && entry.password === pass && entry.state === "启用");
+        if (!admin) {
+          toast("账号、密码或状态不正确");
+          return;
+        }
+        currentAdmin = { id: admin.id, name: admin.name, role: admin.role };
+        save();
+        closeModal("authModal");
+        document.body.classList.add("view-admin");
+        render();
+        toast("已进入后台");
+      });
+
+      $("#registerForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const name = $("#registerUser").value.trim();
+        if (admins.some((entry) => entry.name === name)) {
+          toast("账号已存在");
+          return;
+        }
+        admins = [
+          ...admins,
+          {
+            id: `admin-${Date.now()}`,
+            name,
+            password: $("#registerPass").value.trim(),
+            email: $("#registerEmail").value.trim(),
+            role: "内容管理员",
+            state: "启用",
+            createdAt: today()
+          }
+        ];
+        save();
+        $("#registerForm").reset();
+        toast("注册成功，可直接登录");
+        $("[data-auth-tab='login']").click();
+      });
+
+      $("#contentForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const id = $("#contentId").value;
+        const existing = contents.find((item) => item.id === id);
+        const next = contentFromFields(id);
         contents = existing ? contents.map((item) => item.id === id ? next : item) : [next, ...contents];
         save();
         closeModal("contentModal");
@@ -1554,52 +1830,93 @@
 
       $("#adminForm").addEventListener("submit", (event) => {
         event.preventDefault();
-        admins = [
-          ...admins,
-          {
-            id: `admin-${Date.now()}`,
-            name: $("#adminName").value.trim(),
-            role: $("#adminRole").value,
-            state: $("#adminState").value,
-            createdAt: today()
-          }
-        ];
+        if (!requireSuperAdmin()) return;
+        const id = $("#adminId").value;
+        const existing = admins.find((entry) => entry.id === id);
+        const password = $("#adminPassword").value.trim();
+        const next = {
+          id: id || `admin-${Date.now()}`,
+          name: existing?.name || $("#adminName").value.trim(),
+          password: password || existing?.password || "123456",
+          email: $("#adminEmail").value.trim(),
+          role: $("#adminRole").value,
+          state: $("#adminState").value,
+          createdAt: existing?.createdAt || today()
+        };
+        admins = existing ? admins.map((entry) => entry.id === id ? next : entry) : [...admins, next];
+        if (currentAdmin?.id === next.id) currentAdmin = { id: next.id, name: next.name, role: next.role };
         save();
+        $("#adminName").disabled = false;
         $("#adminForm").reset();
         closeModal("adminModal");
         render();
-        toast("管理员已添加");
+        toast("账号已保存");
       });
 
-      $("#searchInput").addEventListener("input", renderGrid);
-      $("#sortSelect").addEventListener("change", renderGrid);
+      $("#docImportForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = $("#docFile").files?.[0];
+        if (!file) {
+          toast("请选择文档");
+          return;
+        }
+        try {
+          const text = await readDocument(file);
+          addImportedContent({
+            title: file.name.replace(/\.[^.]+$/, ""),
+            text,
+            category: $("#docCategory").value,
+            tags: $("#docTags").value.split(",").map((tag) => tag.trim()).filter(Boolean),
+            source: file.name
+          });
+          $("#docImportForm").reset();
+          toast("文档已导入");
+        } catch {
+          toast("文档读取失败");
+        }
+      });
+
+      $("#urlImportForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const url = $("#sourceUrl").value.trim();
+        const result = await readUrl(url);
+        addImportedContent({
+          title: result.title,
+          text: result.text,
+          category: $("#urlCategory").value,
+          tags: $("#urlTags").value.split(",").map((tag) => tag.trim()).filter(Boolean),
+          source: url
+        });
+        $("#urlImportForm").reset();
+        toast("链接已添加到目录");
+      });
+
+      $("#searchInput").addEventListener("input", render);
+      $("#sortSelect").addEventListener("change", render);
       $("#resetButton").addEventListener("click", () => {
         $("#searchInput").value = "";
         $("#sortSelect").value = "new";
-        activeCategory = "all";
-        $$(".nav-link[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === "all"));
+        activeCategory = "全部";
+        $$(".nav-button[data-nav]").forEach((button) => button.classList.toggle("active", button.dataset.nav === "全部"));
         render();
       });
 
       $("#contentImageFile").addEventListener("change", (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        const url = URL.createObjectURL(file);
-        $("#contentImage").value = url;
-        $("#uploadPreview").innerHTML = `<img src="${url}" alt="上传图片预览" style="max-height:180px;border-radius:8px;object-fit:cover">`;
+        $("#contentImage").value = URL.createObjectURL(file);
       });
 
       $("#contentVideoFile").addEventListener("change", (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        const url = URL.createObjectURL(file);
-        $("#contentVideo").value = url;
-        $("#uploadPreview").innerHTML = `<video controls src="${url}" style="max-height:220px;border-radius:8px"></video>`;
+        $("#contentVideo").value = URL.createObjectURL(file);
       });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           $$(".modal.active").forEach((modal) => closeModal(modal.id));
+          $("#adminName").disabled = false;
         }
       });
 
