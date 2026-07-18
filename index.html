@@ -7,6 +7,7 @@
     <meta name="description" content="MapleStoryNK WZ业务、定制地图、BOSS配套地图与系列地图资料目录">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
       :root {
         color-scheme: dark;
@@ -1830,6 +1831,8 @@
       const sessionKey = "maplestorynk.session.v4";
       const rememberKey = "maplestorynk.rememberLogin.v4";
       const appearanceKey = "maplestorynk.appearance.v1";
+      const supabaseUrl = "https://edznwgyyqpsibnkqqeby.supabase.co";
+      const supabaseAnonKey = "sb_publishable_kuMMovS2ZpF7w9lkiK86Ww_VKkgdgao";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
       const defaultAppearance = {
         topLogo: "",
@@ -1919,6 +1922,7 @@
 
       const $ = (selector) => document.querySelector(selector);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+      const supabaseClient = window.supabase?.createClient(supabaseUrl, supabaseAnonKey);
 
       let categories = normalizeCategories(loadCollection(categoryKey, [], defaultCategories));
       let categoryImages = loadObject(categoryImageKey, {});
@@ -1935,6 +1939,8 @@
       let catalogScrollY = 0;
       let pendingImport = null;
       let mediaEditorItems = [];
+      let cloudSaveTimer = null;
+      let cloudReady = false;
 
       function loadCollection(key, legacyKeys, fallback) {
         for (const storageKey of [key, ...legacyKeys]) {
@@ -2009,10 +2015,90 @@
           localStorage.setItem(categoryTextKey, JSON.stringify(categoryTexts));
           localStorage.setItem(appearanceKey, JSON.stringify(appearance));
           localStorage.removeItem(sessionKey);
+          queueCloudSave();
           return true;
         } catch {
           toast("本地存储已满：请压缩图片，或下一步接入真实文件存储");
           return false;
+        }
+      }
+
+      function buildCloudState() {
+        return {
+          version: 1,
+          categories,
+          categoryImages,
+          categoryTexts,
+          contents,
+          appearance,
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      function applyCloudState(data) {
+        if (!data || typeof data !== "object") return;
+        categories = normalizeCategories(data.categories || categories);
+        categoryImages = data.categoryImages || {};
+        categoryTexts = data.categoryTexts || {};
+        appearance = { ...defaultAppearance, ...(data.appearance || {}) };
+        contents = Array.isArray(data.contents) && data.contents.length ? data.contents.map(normalizeContent) : contents;
+      }
+
+      function persistLocalOnly() {
+        localStorage.setItem(contentKey, JSON.stringify(contents));
+        localStorage.setItem(categoryKey, JSON.stringify(categories));
+        localStorage.setItem(categoryImageKey, JSON.stringify(categoryImages));
+        localStorage.setItem(categoryTextKey, JSON.stringify(categoryTexts));
+        localStorage.setItem(appearanceKey, JSON.stringify(appearance));
+        localStorage.removeItem(sessionKey);
+      }
+
+      async function loadCloudState() {
+        if (!supabaseClient) return;
+        try {
+          const { data, error } = await supabaseClient
+            .from("site_state")
+            .select("data")
+            .eq("id", "main")
+            .maybeSingle();
+          if (error) {
+            console.warn("[Supabase] site_state not ready", error.message);
+            return;
+          }
+          if (data?.data) {
+            applyCloudState(data.data);
+            persistLocalOnly();
+            applyAppearance();
+            renderCatalog();
+            renderAdmin();
+            cloudReady = true;
+            toast("已读取云端共享数据");
+          }
+        } catch (error) {
+          console.warn("[Supabase] load failed", error);
+        }
+      }
+
+      function queueCloudSave() {
+        if (!supabaseClient || !currentAdmin?.cloud) return;
+        clearTimeout(cloudSaveTimer);
+        cloudSaveTimer = setTimeout(saveCloudState, 650);
+      }
+
+      async function saveCloudState() {
+        if (!supabaseClient || !currentAdmin?.cloud) return;
+        try {
+          const { error } = await supabaseClient
+            .from("site_state")
+            .upsert({ id: "main", data: buildCloudState(), updated_at: new Date().toISOString() }, { onConflict: "id" });
+          if (error) {
+            console.warn("[Supabase] save failed", error.message);
+            toast("云端保存失败，请确认已执行建表 SQL 并已登录 Supabase");
+            return;
+          }
+          cloudReady = true;
+        } catch (error) {
+          console.warn("[Supabase] save failed", error);
         }
       }
 
@@ -3090,6 +3176,33 @@
         event.preventDefault();
         const user = $("#loginUser").value.trim();
         const pass = $("#loginPass").value.trim();
+        if (supabaseClient && user.includes("@")) {
+          supabaseClient.auth.signInWithPassword({ email: user, password: pass }).then(async ({ data, error }) => {
+            if (error) {
+              toast("Supabase 登录失败，请检查邮箱和密码");
+              return;
+            }
+            currentAdmin = {
+              id: data.user.id,
+              name: data.user.user_metadata?.username || data.user.email,
+              email: data.user.email,
+              role: "超级管理员",
+              cloud: true
+            };
+            if ($("#rememberLogin").checked) {
+              localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
+            } else {
+              localStorage.removeItem(rememberKey);
+              $("#loginPass").value = "";
+            }
+            closeModal("authModal");
+            await loadCloudState();
+            await saveCloudState();
+            setView("admin");
+            toast("已通过 Supabase 进入后台");
+          });
+          return;
+        }
         const admin = admins.find((entry) => entry.name === user && entry.password === pass && entry.state === "启用");
         if (!admin) {
           toast("账号、密码或状态不正确");
@@ -3111,6 +3224,24 @@
       $("#registerForm").addEventListener("submit", (event) => {
         event.preventDefault();
         const name = $("#registerUser").value.trim();
+        const email = $("#registerEmail").value.trim();
+        const password = $("#registerPass").value.trim();
+        if (supabaseClient && email) {
+          supabaseClient.auth.signUp({
+            email,
+            password,
+            options: { data: { username: name } }
+          }).then(({ error }) => {
+            if (error) {
+              toast("Supabase 注册失败：" + error.message);
+              return;
+            }
+            $("#registerForm").reset();
+            toast("注册成功，请用邮箱和密码登陆");
+            $("[data-auth-tab='login']").click();
+          });
+          return;
+        }
         if (admins.some((entry) => entry.name === name)) {
           toast("账号已存在");
           return;
@@ -3118,8 +3249,8 @@
         admins = [...admins, {
           id: `admin-${Date.now()}`,
           name,
-          password: $("#registerPass").value.trim(),
-          email: $("#registerEmail").value.trim(),
+          password,
+          email,
           role: "内容管理员",
           state: "启用",
           createdAt: today()
@@ -3404,6 +3535,7 @@
       renderCatalog();
       renderAdmin();
       save();
+      loadCloudState();
     </script>
   </body>
 </html>
