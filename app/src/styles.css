@@ -203,6 +203,10 @@ select option { color: #10181d; background: #f4f7f5; }
 .metric-row strong { font-size: 32px; }
 .admin-panel { border: 1px solid var(--line); border-radius: 7px; margin-bottom: 18px; padding: 18px; background: var(--surface); }
 .admin-panel > h2 { margin-bottom: 16px; font-size: 17px; }
+.migration-panel { border-color: rgba(231,188,88,.32); display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; background: rgba(231,188,88,.055); }
+.migration-panel h2 { margin: 5px 0; }
+.migration-panel p, .migration-panel span { margin: 0; color: var(--muted); }
+.migration-panel .form-message { grid-column: 1 / -1; margin: 0; }
 .table-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid var(--line); padding: 12px 10px; text-align: left; vertical-align: middle; font-size: 13px; }
@@ -336,6 +340,8 @@ tr:last-child td { border-bottom: 0; }
   .mobile-menu { display: grid; }
   .admin-top { padding: 8px 12px; }
   .admin-content { padding: 18px 12px; }
+  .migration-panel { grid-template-columns: 1fr; }
+  .migration-panel .form-message { grid-column: auto; }
   .category-admin-list > div, .media-editor { grid-template-columns: 1fr; padding: 14px 0; }
   .category-fields, .media-fields, .import-strip, .user-invite { grid-template-columns: 1fr; }
   .media-fields textarea, .media-fields input[type="number"] { grid-column: auto; grid-row: auto; }

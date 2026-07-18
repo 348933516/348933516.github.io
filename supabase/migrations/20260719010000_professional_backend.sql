@@ -478,7 +478,7 @@ on conflict (id) do update set role = 'super_admin', status = 'active', email = 
 insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
 values
   ('maplestorynk-public', 'maplestorynk-public', true, 104857600, array['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','application/pdf','application/zip','application/vnd.openxmlformats-officedocument.wordprocessingml.document','text/plain']),
-  ('maplestorynk-private', 'maplestorynk-private', false, 104857600, array['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','application/pdf','application/zip','application/vnd.openxmlformats-officedocument.wordprocessingml.document','text/plain'])
+  ('maplestorynk-private', 'maplestorynk-private', false, 104857600, array['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','application/pdf','application/zip','application/json','application/vnd.openxmlformats-officedocument.wordprocessingml.document','text/plain'])
 on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists maplestorynk_public_read on storage.objects;

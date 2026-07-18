@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const migration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719010000_professional_backend.sql"), "utf8");
 const freezeLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/manual/freeze-legacy-after-cutover.sql"), "utf8");
+const migrateLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/migrate-legacy/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -32,5 +33,11 @@ describe("Supabase security migration", () => {
     expect(migration).toContain("maplestorynk-private");
     expect(migration).toContain("public.is_owned_draft_content(content_id)");
     expect(migration).toContain("storage_bucket = 'maplestorynk-public' or external_url is not null");
+  });
+
+  it("backs up and verifies legacy data before switching sources", () => {
+    expect(migrateLegacy).toContain("migration-backups/site-state-");
+    expect(migrateLegacy).toContain("Content count mismatch");
+    expect(migrateLegacy).toContain("migration_completed: true");
   });
 });

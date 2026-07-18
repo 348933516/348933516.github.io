@@ -9,6 +9,7 @@ import {
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { RichEditor } from "../components/RichEditor";
+import { useSiteData } from "../data";
 import { publicMediaBucket } from "../lib/config";
 import { readDocument, readWebPage } from "../lib/documents";
 import { changeContentStatus, loadAdminContents, publishContent, saveContent } from "../lib/repository";
@@ -46,6 +47,9 @@ export function AdminPage() {
 }
 
 function Dashboard({ profile }: { profile: Profile }) {
+  const { backendMode } = useSiteData();
+  const [migrationMessage, setMigrationMessage] = useState("");
+  const [migrating, setMigrating] = useState(false);
   const contents = useQuery({ queryKey: ["admin-contents"], queryFn: loadAdminContents });
   const counts = useMemo(() => ({
     published: contents.data?.filter((item) => item.status === "published").length || 0,
@@ -53,7 +57,15 @@ function Dashboard({ profile }: { profile: Profile }) {
     hidden: contents.data?.filter((item) => item.status === "hidden").length || 0,
     trashed: contents.data?.filter((item) => item.status === "trashed").length || 0
   }), [contents.data]);
-  return <><div className="admin-page-heading"><div><span>当前账号：{profile.displayName} / {roleText[profile.role]}</span><h1>内容概览</h1></div></div><div className="metric-row"><div><span>已发布</span><strong>{counts.published}</strong></div><div><span>草稿</span><strong>{counts.draft}</strong></div><div><span>隐藏</span><strong>{counts.hidden}</strong></div><div><span>回收站</span><strong>{counts.trashed}</strong></div></div><section className="admin-panel"><h2>最近修改</h2><AdminContentTable items={(contents.data || []).slice(0, 8)} readonly /></section></>;
+  const migrateLegacy = async () => {
+    if (!window.confirm("系统会先备份旧数据，再迁移现有分类、资料和媒体。确定开始吗？")) return;
+    setMigrating(true); setMigrationMessage("正在备份并迁移旧数据，请不要关闭页面...");
+    const { data, error } = await supabase.functions.invoke("migrate-legacy", { body: {} });
+    if (error || data?.error) { setMigrationMessage(error?.message || data.error); setMigrating(false); return; }
+    setMigrationMessage(`迁移完成：${data.categories} 个分类、${data.contents} 篇资料、${data.media} 个媒体。正在刷新...`);
+    window.setTimeout(() => window.location.reload(), 1200);
+  };
+  return <><div className="admin-page-heading"><div><span>当前账号：{profile.displayName} / {roleText[profile.role]}</span><h1>内容概览</h1></div></div>{backendMode === "legacy" && profile.role === "super_admin" && <section className="admin-panel migration-panel"><div><span>LEGACY DATA</span><h2>正式后台尚未迁移旧资料</h2><p>迁移前会自动保存私有备份；核对数量成功后，预览站才会切换到正式数据表。</p></div><button className="button primary" type="button" disabled={migrating} onClick={migrateLegacy}>{migrating ? <LoaderCircle className="spin" /> : <ArchiveRestore />}{migrating ? "正在迁移..." : "迁移旧数据"}</button>{migrationMessage && <div className="form-message">{migrationMessage}</div>}</section>}<div className="metric-row"><div><span>已发布</span><strong>{counts.published}</strong></div><div><span>草稿</span><strong>{counts.draft}</strong></div><div><span>隐藏</span><strong>{counts.hidden}</strong></div><div><span>回收站</span><strong>{counts.trashed}</strong></div></div><section className="admin-panel"><h2>最近修改</h2><AdminContentTable items={(contents.data || []).slice(0, 8)} readonly /></section></>;
 }
 
 function ContentsPanel({ profile }: { profile: Profile }) {

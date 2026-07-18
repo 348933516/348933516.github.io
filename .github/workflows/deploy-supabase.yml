@@ -36,3 +36,4 @@ jobs:
           pnpm dlx supabase@latest functions deploy publish-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy restore-revision --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy save-content --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy migrate-legacy --project-ref "$PROJECT_REF"

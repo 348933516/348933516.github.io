@@ -32,10 +32,15 @@ pnpm backup:legacy
 - `publish-content`
 - `restore-revision`
 - `save-content`
+- `migrate-legacy`
 
 可以在 GitHub 仓库 Secrets 中设置 `SUPABASE_ACCESS_TOKEN` 和 `SUPABASE_DB_PASSWORD`，然后手动运行 `Deploy Supabase backend` 工作流。
 
 ## 5. 迁移旧数据
+
+部署完成后打开 `/preview/#/admin`。超级管理员在仪表盘点击“迁移旧数据”，系统会先把旧 JSON 备份到私有 Storage，再迁移并核对数量。这是推荐方式，不需要再次输入密码。
+
+也可以在本机使用脚本迁移：
 
 PowerShell 中设置临时环境变量后执行：
 
