@@ -130,6 +130,48 @@
         font-size: 12px;
       }
 
+      .account-area {
+        position: relative;
+      }
+
+      #authButton {
+        max-width: min(320px, 42vw);
+      }
+
+      #authButton .account-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .account-menu {
+        position: absolute;
+        top: calc(100% + 10px);
+        right: 0;
+        z-index: 60;
+        width: 220px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 8px;
+        display: grid;
+        gap: 6px;
+        background: var(--panel-solid);
+        box-shadow: var(--shadow);
+      }
+
+      .account-menu-label {
+        padding: 8px 10px;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .account-menu .nav-button {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
       .text-button,
       .icon-button,
       .nav-button,
@@ -1272,6 +1314,17 @@
           padding: 12px 0;
         }
 
+        #authButton {
+          width: 100%;
+          max-width: none;
+        }
+
+        .account-menu {
+          right: auto;
+          left: 0;
+          width: min(100%, 320px);
+        }
+
         .catalog-tools,
         .category-browser-head,
         .content-grid,
@@ -1334,7 +1387,14 @@
               <span>业务与地图资料中心</span>
             </span>
           </a>
-          <button class="text-button" id="authButton"><i data-lucide="log-in"></i>登陆</button>
+          <div class="account-area">
+            <button class="text-button" id="authButton" aria-expanded="false" aria-controls="accountMenu"><i data-lucide="log-in"></i>登陆</button>
+            <div class="account-menu hidden" id="accountMenu">
+              <div class="account-menu-label" id="accountMenuLabel"></div>
+              <button class="nav-button" id="accountAdminButton"><i data-lucide="layout-dashboard"></i>进入后台</button>
+              <button class="nav-button danger" id="logoutButton"><i data-lucide="log-out"></i>退出登录</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -2307,15 +2367,72 @@
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      async function enterCloudAdmin(user, message = "已通过 Supabase 进入后台") {
-        if (!user) return;
-        currentAdmin = {
+      function cloudAdminFromUser(user) {
+        return {
           id: user.id,
           name: user.user_metadata?.username || user.email,
           email: user.email,
           role: "超级管理员",
           cloud: true
         };
+      }
+
+      function hideAccountMenu() {
+        $("#accountMenu").classList.add("hidden");
+        $("#authButton").setAttribute("aria-expanded", "false");
+      }
+
+      function renderAuthState() {
+        const button = $("#authButton");
+        if (!currentAdmin) {
+          button.innerHTML = '<i data-lucide="log-in"></i>登陆';
+          button.removeAttribute("data-authenticated");
+          $("#accountMenuLabel").textContent = "";
+          hideAccountMenu();
+          icon();
+          return;
+        }
+        const account = currentAdmin.email || currentAdmin.name || "管理员";
+        button.innerHTML = `<i data-lucide="circle-user-round"></i><span class="account-name">${escapeHtml(account)}</span><i data-lucide="chevron-down"></i>`;
+        button.dataset.authenticated = "true";
+        $("#accountMenuLabel").textContent = account;
+        icon();
+      }
+
+      async function restoreSupabaseSession() {
+        if (!supabaseClient || isSupabaseCallbackUrl()) return;
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) {
+          console.warn("[Supabase auth] restore session failed", error);
+          return;
+        }
+        if (!data.session?.user) return;
+        currentAdmin = cloudAdminFromUser(data.session.user);
+        renderAuthState();
+        renderAdmin();
+      }
+
+      async function logoutCurrentAdmin() {
+        if (currentAdmin?.cloud && supabaseClient) {
+          const { error } = await supabaseClient.auth.signOut();
+          if (error) {
+            toast("退出登录失败：" + supabaseErrorText(error), 7000);
+            return;
+          }
+        }
+        currentAdmin = null;
+        selectedCategory = null;
+        hideAccountMenu();
+        renderAuthState();
+        setView("catalog");
+        renderAdmin();
+        toast("已退出登录");
+      }
+
+      async function enterCloudAdmin(user, message = "已通过 Supabase 进入后台") {
+        if (!user) return;
+        currentAdmin = cloudAdminFromUser(user);
+        renderAuthState();
         closeModal("authModal");
         await loadCloudState();
         await saveCloudState();
@@ -3319,18 +3436,35 @@
         }
       }
 
-      document.addEventListener("click", (event) => {
+      document.addEventListener("click", async (event) => {
+        if (!event.target.closest(".account-area")) hideAccountMenu();
         const target = event.target.closest("button, a, img[data-lightbox]");
         if (!target) return;
 
         if (target.dataset.close) closeModal(target.dataset.close);
 
         if (target.id === "authButton") {
-          currentAdmin = null;
+          if (currentAdmin) {
+            const menu = $("#accountMenu");
+            const willOpen = menu.classList.contains("hidden");
+            menu.classList.toggle("hidden", !willOpen);
+            target.setAttribute("aria-expanded", String(willOpen));
+            return;
+          }
           $("#recoveryBox").classList.add("hidden");
           $("#newLoginPass").value = "";
           loadRememberedLogin();
           showModal("authModal");
+        }
+
+        if (target.id === "accountAdminButton") {
+          hideAccountMenu();
+          setView("admin");
+        }
+
+        if (target.id === "logoutButton") {
+          await logoutCurrentAdmin();
+          return;
         }
 
         if (target.id === "brandHome") {
@@ -3530,9 +3664,9 @@
         }
 
         if (target.id === "backToSite") {
-          currentAdmin = null;
           selectedCategory = null;
           setView("catalog");
+          renderAuthState();
         }
 
         if (target.dataset.panel) {
@@ -3696,7 +3830,8 @@
           toast("账号、密码或状态不正确");
           return;
         }
-        currentAdmin = { id: admin.id, name: admin.name, role: admin.role };
+        currentAdmin = { id: admin.id, name: admin.name, email: admin.email, role: admin.role };
+        renderAuthState();
         if ($("#rememberLogin").checked) {
           localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
         } else {
@@ -4199,17 +4334,20 @@
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           $$(".modal.active").forEach((modal) => closeModal(modal.id));
+          hideAccountMenu();
           $("#adminName").disabled = false;
         }
       });
 
       applyAppearance();
+      renderAuthState();
       renderSelects();
       renderCatalog();
       renderAdmin();
       save();
       loadCloudState();
       handleSupabaseCallback();
+      restoreSupabaseSession();
     </script>
   </body>
 </html>
