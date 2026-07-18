@@ -1395,6 +1395,7 @@
                 <thead>
                   <tr>
                     <th>分类名称</th>
+                    <th>分类说明</th>
                     <th>分类图片</th>
                     <th>前台资料</th>
                     <th>操作</th>
@@ -1409,20 +1410,61 @@
             <div class="section-head">
               <div>
                 <h2>界面设置</h2>
-                <p>可替换首页 logo、页面背景、展示区背景和类目卡片背景。</p>
+                <p>可替换红框内的站点文字、logo、首页展示文字和背景图片。</p>
+              </div>
+            </div>
+            <div class="panel-card" style="margin-bottom:16px">
+              <h3>站点文字</h3>
+              <div class="form-grid">
+                <div class="form-field">
+                  <label for="brandTitleInput">顶部站点名称</label>
+                  <input class="input" id="brandTitleInput">
+                </div>
+                <div class="form-field">
+                  <label for="brandSubtitleInput">顶部副标题</label>
+                  <input class="input" id="brandSubtitleInput">
+                </div>
+                <div class="form-field">
+                  <label for="heroTitleInput">首页主标题</label>
+                  <input class="input" id="heroTitleInput">
+                </div>
+                <div class="form-field">
+                  <label for="heroSubtitleInput">首页说明文字</label>
+                  <input class="input" id="heroSubtitleInput">
+                </div>
+                <div class="form-field">
+                  <label for="categoryTitleInput">类目区标题</label>
+                  <input class="input" id="categoryTitleInput">
+                </div>
+                <div class="form-field">
+                  <label for="categorySubtitleInput">类目区说明</label>
+                  <input class="input" id="categorySubtitleInput">
+                </div>
               </div>
             </div>
             <div class="appearance-grid">
               <div class="panel-card">
-                <h3>Logo 图片</h3>
-                <div class="appearance-preview" id="logoPreview">当前使用文字 Logo</div>
+                <h3>顶部 Logo 图片</h3>
+                <div class="appearance-preview" id="topLogoPreview">当前使用文字 Logo</div>
                 <div class="form-field" style="margin-top:12px">
-                  <label for="logoUrl">图片链接</label>
-                  <input class="input" id="logoUrl" placeholder="https://...">
+                  <label for="topLogoUrl">图片链接</label>
+                  <input class="input" id="topLogoUrl" placeholder="https://...">
                 </div>
                 <div class="form-field" style="margin-top:12px">
-                  <label for="logoFile">上传图片</label>
-                  <input class="input" id="logoFile" type="file" accept="image/*" data-appearance-file="logo">
+                  <label for="topLogoFile">上传图片</label>
+                  <input class="input" id="topLogoFile" type="file" accept="image/*" data-appearance-file="topLogo">
+                </div>
+              </div>
+              <div class="panel-card">
+                <h3>首页中心 Logo 图片</h3>
+                <div class="appearance-preview" id="heroLogoPreview">当前使用文字 Logo</div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="heroLogoUrl">图片链接</label>
+                  <input class="input" id="heroLogoUrl" placeholder="https://...">
+                </div>
+                <div class="form-field" style="margin-top:12px">
+                  <label for="heroLogoFile">上传图片</label>
+                  <input class="input" id="heroLogoFile" type="file" accept="image/*" data-appearance-file="heroLogo">
                 </div>
               </div>
               <div class="panel-card">
@@ -1784,11 +1826,25 @@
       const adminKey = "maplestorynk.admins.v4";
       const categoryKey = "maplestorynk.categories.v4";
       const categoryImageKey = "maplestorynk.categoryImages.v1";
+      const categoryTextKey = "maplestorynk.categoryTexts.v1";
       const sessionKey = "maplestorynk.session.v4";
       const rememberKey = "maplestorynk.rememberLogin.v4";
       const appearanceKey = "maplestorynk.appearance.v1";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
-      const defaultAppearance = { logo: "", pageBg: "", heroBg: "", tileBg: "" };
+      const defaultAppearance = {
+        topLogo: "",
+        heroLogo: "",
+        logo: "",
+        pageBg: "",
+        heroBg: "",
+        tileBg: "",
+        brandTitle: "MapleStoryNK",
+        brandSubtitle: "业务与地图资料中心",
+        heroTitle: "MapleStoryNK",
+        heroSubtitle: "资料展示、地图内容、WZ 业务与 BOSS 配套信息统一整理。",
+        categoryTitle: "类目展示",
+        categorySubtitle: "选择一个类目进入查看详细资料。"
+      };
 
       const starterContents = [
         {
@@ -1866,6 +1922,7 @@
 
       let categories = normalizeCategories(loadCollection(categoryKey, [], defaultCategories));
       let categoryImages = loadObject(categoryImageKey, {});
+      let categoryTexts = loadObject(categoryTextKey, {});
       let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map(normalizeContent);
       let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
       localStorage.removeItem(sessionKey);
@@ -1949,6 +2006,7 @@
           localStorage.setItem(adminKey, JSON.stringify(admins));
           localStorage.setItem(categoryKey, JSON.stringify(categories));
           localStorage.setItem(categoryImageKey, JSON.stringify(categoryImages));
+          localStorage.setItem(categoryTextKey, JSON.stringify(categoryTexts));
           localStorage.setItem(appearanceKey, JSON.stringify(appearance));
           localStorage.removeItem(sessionKey);
           return true;
@@ -1962,11 +2020,13 @@
         return src ? `style="background-image:linear-gradient(180deg, rgba(7, 11, 14, 0.3), rgba(7, 11, 14, 0.72)), url('${escapeHtml(src)}');background-size:cover;background-position:center"` : "";
       }
 
-      function logoMarkup(size = "small") {
-        const label = size === "large" ? "NK" : "NK";
-        return appearance.logo
-          ? `<img src="${escapeHtml(appearance.logo)}" alt="MapleStoryNK Logo">`
-          : label;
+      function logoMarkup(kind = "top") {
+        const src = kind === "hero"
+          ? (appearance.heroLogo || appearance.logo)
+          : (appearance.topLogo || appearance.logo);
+        return src
+          ? `<img src="${escapeHtml(src)}" alt="MapleStoryNK Logo">`
+          : "NK";
       }
 
       function applyAppearance() {
@@ -1976,6 +2036,8 @@
           document.body.style.background = "";
         }
         $(".brand-mark").innerHTML = logoMarkup();
+        $(".brand-copy strong").textContent = appearance.brandTitle || defaultAppearance.brandTitle;
+        $(".brand-copy span").textContent = appearance.brandSubtitle || defaultAppearance.brandSubtitle;
       }
 
       function icon() {
@@ -2175,7 +2237,7 @@
       }
 
       function categoryDescription(category) {
-        return {
+        return categoryTexts[category] || {
           "WZ业务目录": "WZ 修改、资源替换、素材整理与交付说明。",
           "定制地图展示": "主题地图、入口结构、场景截图与地图资源展示。",
           "BOSS配套地图展示": "BOSS 区域、传送入口、战斗场景与配套说明。",
@@ -2239,15 +2301,15 @@
           $("#directoryLanes").innerHTML = `
             <section class="catalog-showcase" ${imageStyle(appearance.heroBg)}>
               <div>
-                <div class="showcase-mark">${logoMarkup("large")}</div>
-                <h1>MapleStoryNK</h1>
-                <p>资料展示、地图内容、WZ 业务与 BOSS 配套信息统一整理。</p>
+                <div class="showcase-mark">${logoMarkup("hero")}</div>
+                <h1>${escapeHtml(appearance.heroTitle || defaultAppearance.heroTitle)}</h1>
+                <p>${escapeHtml(appearance.heroSubtitle || defaultAppearance.heroSubtitle)}</p>
               </div>
             </section>
             <section>
               <div class="category-home-head">
-                <h2>类目展示</h2>
-                <p>选择一个类目进入查看详细资料。</p>
+                <h2>${escapeHtml(appearance.categoryTitle || defaultAppearance.categoryTitle)}</h2>
+                <p>${escapeHtml(appearance.categorySubtitle || defaultAppearance.categorySubtitle)}</p>
               </div>
               <div class="category-grid">${categoryTiles}</div>
             </section>
@@ -2399,6 +2461,9 @@
             <tr>
               <td>${escapeHtml(category)}</td>
               <td>
+                <input class="input" value="${escapeHtml(categoryDescription(category))}" data-category-description="${escapeHtml(category)}">
+              </td>
+              <td>
                 <div class="category-image-cell">
                   ${categoryImages[category] ? `<img src="${escapeHtml(categoryImages[category])}" alt="${escapeHtml(category)}">` : `<span class="badge">默认图标</span>`}
                   <input class="input" type="file" accept="image/*" data-category-image="${escapeHtml(category)}">
@@ -2423,11 +2488,19 @@
       }
 
       function renderAppearanceSettings() {
-        $("#logoUrl").value = appearance.logo || "";
+        $("#brandTitleInput").value = appearance.brandTitle || defaultAppearance.brandTitle;
+        $("#brandSubtitleInput").value = appearance.brandSubtitle || defaultAppearance.brandSubtitle;
+        $("#heroTitleInput").value = appearance.heroTitle || defaultAppearance.heroTitle;
+        $("#heroSubtitleInput").value = appearance.heroSubtitle || defaultAppearance.heroSubtitle;
+        $("#categoryTitleInput").value = appearance.categoryTitle || defaultAppearance.categoryTitle;
+        $("#categorySubtitleInput").value = appearance.categorySubtitle || defaultAppearance.categorySubtitle;
+        $("#topLogoUrl").value = appearance.topLogo || appearance.logo || "";
+        $("#heroLogoUrl").value = appearance.heroLogo || appearance.logo || "";
         $("#pageBgUrl").value = appearance.pageBg || "";
         $("#heroBgUrl").value = appearance.heroBg || "";
         $("#tileBgUrl").value = appearance.tileBg || "";
-        previewImage("logoPreview", appearance.logo, "当前使用文字 Logo");
+        previewImage("topLogoPreview", appearance.topLogo || appearance.logo, "当前使用文字 Logo");
+        previewImage("heroLogoPreview", appearance.heroLogo || appearance.logo, "当前使用文字 Logo");
         previewImage("pageBgPreview", appearance.pageBg, "当前使用默认背景");
         previewImage("heroBgPreview", appearance.heroBg, "当前使用默认背景");
         previewImage("tileBgPreview", appearance.tileBg, "当前使用默认背景");
@@ -2513,7 +2586,7 @@
         $("#adminModalTitle").textContent = admin ? "编辑账号权限" : "新增账号";
         $("#adminId").value = admin?.id || "";
         $("#adminName").value = admin?.name || "";
-        $("#adminName").disabled = Boolean(admin);
+        $("#adminName").disabled = false;
         $("#adminPassword").value = "";
         $("#adminEmail").value = admin?.email || "";
         $("#adminRole").value = admin?.role || "内容管理员";
@@ -2531,11 +2604,19 @@
         return false;
       }
 
+      function activeSuperAdminCount() {
+        return admins.filter((admin) => admin.role === "超级管理员" && admin.state === "启用").length;
+      }
+
       function renameCategory(oldName, nextName) {
         categories = categories.map((category) => category === oldName ? nextName : category);
         if (categoryImages[oldName]) {
           categoryImages[nextName] = categoryImages[oldName];
           delete categoryImages[oldName];
+        }
+        if (categoryTexts[oldName]) {
+          categoryTexts[nextName] = categoryTexts[oldName];
+          delete categoryTexts[oldName];
         }
         contents = contents.map((item) => {
           if (item.category !== oldName) return item;
@@ -2863,6 +2944,7 @@
           if (!confirm(`删除分类「${name}」？`)) return;
           categories = categories.filter((category) => category !== name);
           delete categoryImages[name];
+          delete categoryTexts[name];
           if (selectedCategory === name) selectedCategory = null;
           if (!save()) return;
           renderCatalog();
@@ -2901,6 +2983,10 @@
         if (target.dataset.deleteAdmin) {
           if (!requireSuperAdmin()) return;
           const admin = admins.find((entry) => entry.id === target.dataset.deleteAdmin);
+          if (admin?.role === "超级管理员" && admin?.state === "启用" && activeSuperAdminCount() <= 1) {
+            toast("至少保留一个启用的超级管理员");
+            return;
+          }
           if (admin && confirm(`删除账号「${admin.name}」？`)) {
             admins = admins.filter((entry) => entry.id !== admin.id);
             save();
@@ -2968,10 +3054,19 @@
 
         if (target.id === "saveAppearanceButton") {
           appearance = {
-            logo: $("#logoUrl").value.trim(),
+            ...appearance,
+            topLogo: $("#topLogoUrl").value.trim(),
+            heroLogo: $("#heroLogoUrl").value.trim(),
+            logo: "",
             pageBg: $("#pageBgUrl").value.trim(),
             heroBg: $("#heroBgUrl").value.trim(),
-            tileBg: $("#tileBgUrl").value.trim()
+            tileBg: $("#tileBgUrl").value.trim(),
+            brandTitle: $("#brandTitleInput").value.trim() || defaultAppearance.brandTitle,
+            brandSubtitle: $("#brandSubtitleInput").value.trim() || defaultAppearance.brandSubtitle,
+            heroTitle: $("#heroTitleInput").value.trim() || defaultAppearance.heroTitle,
+            heroSubtitle: $("#heroSubtitleInput").value.trim() || defaultAppearance.heroSubtitle,
+            categoryTitle: $("#categoryTitleInput").value.trim() || defaultAppearance.categoryTitle,
+            categorySubtitle: $("#categorySubtitleInput").value.trim() || defaultAppearance.categorySubtitle
           };
           if (!save()) return;
           applyAppearance();
@@ -3092,16 +3187,33 @@
         if (!requireSuperAdmin()) return;
         const id = $("#adminId").value;
         const existing = admins.find((entry) => entry.id === id);
+        const nextName = $("#adminName").value.trim();
         const password = $("#adminPassword").value.trim();
+        if (!nextName) {
+          toast("账号不能为空");
+          return;
+        }
+        if (!existing && !password) {
+          toast("新增账号必须设置密码");
+          return;
+        }
+        if (admins.some((entry) => entry.id !== id && entry.name === nextName)) {
+          toast("账号已存在");
+          return;
+        }
         const next = {
           id: id || `admin-${Date.now()}`,
-          name: existing?.name || $("#adminName").value.trim(),
+          name: nextName,
           password: password || existing?.password || "123456",
           email: $("#adminEmail").value.trim(),
           role: $("#adminRole").value,
           state: $("#adminState").value,
           createdAt: existing?.createdAt || today()
         };
+        if (existing?.role === "超级管理员" && existing?.state === "启用" && (next.role !== "超级管理员" || next.state !== "启用") && activeSuperAdminCount() <= 1) {
+          toast("至少保留一个启用的超级管理员");
+          return;
+        }
         admins = existing ? admins.map((entry) => entry.id === id ? next : entry) : [...admins, next];
         if (currentAdmin?.id === next.id) currentAdmin = { id: next.id, name: next.name, role: next.role };
         if (!save()) return;
@@ -3194,6 +3306,17 @@
       });
 
       document.addEventListener("change", (event) => {
+        const descriptionInput = event.target.closest("[data-category-description]");
+        if (descriptionInput) {
+          if (!requireSuperAdmin()) return;
+          const category = descriptionInput.dataset.categoryDescription;
+          categoryTexts[category] = descriptionInput.value.trim();
+          if (!save()) return;
+          renderCatalog();
+          toast("分类说明已保存");
+          return;
+        }
+
         const categoryInput = event.target.closest("[data-category-image]");
         if (categoryInput) {
           if (!requireSuperAdmin()) return;
@@ -3217,7 +3340,7 @@
         if (!file) return;
         filesToDataUrls([file]).then(([url]) => {
           appearance = { ...appearance, [field]: url };
-          const map = { logo: "logoUrl", pageBg: "pageBgUrl", heroBg: "heroBgUrl", tileBg: "tileBgUrl" };
+          const map = { topLogo: "topLogoUrl", heroLogo: "heroLogoUrl", pageBg: "pageBgUrl", heroBg: "heroBgUrl", tileBg: "tileBgUrl" };
           $("#" + map[field]).value = url;
           renderAppearanceSettings();
           toast("图片已读取，请点击保存界面");
