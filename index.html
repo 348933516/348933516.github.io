@@ -10,46 +10,71 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #080d10;
-        --panel: #101820;
-        --panel-2: #16232d;
+        --bg: #070b0e;
+        --bg-soft: #0b1115;
+        --panel: rgba(18, 28, 36, 0.86);
+        --panel-solid: #111b23;
+        --panel-2: #17252f;
         --line: rgba(238, 245, 247, 0.12);
-        --line-2: rgba(238, 245, 247, 0.22);
-        --text: #f6f8f6;
-        --soft: #dbe4df;
-        --muted: #a8b4bc;
+        --line-strong: rgba(238, 245, 247, 0.22);
+        --text: #f7faf7;
+        --soft: #dce6e1;
+        --muted: #a8b5bd;
+        --muted-2: #74828b;
         --teal: #45d9b3;
         --gold: #efbd55;
         --red: #ff7166;
-        --shadow: 0 22px 70px rgba(0, 0, 0, 0.36);
+        --blue: #7eb0ff;
+        --shadow: 0 24px 90px rgba(0, 0, 0, 0.38);
       }
 
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
 
-      html { scroll-behavior: smooth; }
+      html {
+        scroll-behavior: smooth;
+      }
 
       body {
         margin: 0;
         min-height: 100vh;
         color: var(--text);
         background:
-          linear-gradient(135deg, rgba(69, 217, 179, 0.12), transparent 26%),
-          linear-gradient(225deg, rgba(239, 189, 85, 0.1), transparent 28%),
-          linear-gradient(180deg, #0b1013 0%, #080d10 52%, #0a100e 100%);
+          linear-gradient(135deg, rgba(69, 217, 179, 0.12), transparent 28%),
+          linear-gradient(225deg, rgba(239, 189, 85, 0.11), transparent 30%),
+          linear-gradient(180deg, #0a0f12 0%, #070b0e 54%, #0a100e 100%);
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
       }
 
-      button, input, select, textarea { font: inherit; }
-      button { cursor: pointer; }
-      a { color: inherit; text-decoration: none; }
-      img, video { display: block; max-width: 100%; }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img,
+      video {
+        display: block;
+        max-width: 100%;
+      }
 
       .topbar {
         position: sticky;
         top: 0;
-        z-index: 30;
+        z-index: 40;
         border-bottom: 1px solid var(--line);
-        background: rgba(8, 13, 16, 0.9);
+        background: rgba(7, 11, 14, 0.9);
         backdrop-filter: blur(18px);
       }
 
@@ -60,14 +85,14 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 18px;
+        gap: 16px;
       }
 
       .brand {
+        min-width: 0;
         display: inline-flex;
         align-items: center;
         gap: 12px;
-        min-width: 0;
       }
 
       .brand-mark {
@@ -76,16 +101,30 @@
         border-radius: 8px;
         display: grid;
         place-items: center;
-        color: #06130f;
+        color: #07130f;
         background: linear-gradient(135deg, var(--teal), var(--gold));
         font-weight: 900;
       }
 
-      .brand-text { display: grid; gap: 2px; }
-      .brand-text strong { font-size: 16px; }
-      .brand-text span { color: var(--muted); font-size: 12px; }
+      .brand-copy {
+        display: grid;
+        gap: 2px;
+      }
 
-      .text-button, .icon-button, .nav-button, .seg-button {
+      .brand-copy strong {
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+
+      .brand-copy span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .text-button,
+      .icon-button,
+      .nav-button,
+      .seg-button {
         min-height: 40px;
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -97,8 +136,17 @@
         background: rgba(255, 255, 255, 0.06);
       }
 
-      .text-button, .nav-button, .seg-button { padding: 0 14px; white-space: nowrap; }
-      .icon-button { width: 40px; padding: 0; }
+      .text-button,
+      .nav-button,
+      .seg-button {
+        padding: 0 14px;
+        white-space: nowrap;
+      }
+
+      .icon-button {
+        width: 40px;
+        padding: 0;
+      }
 
       .primary {
         border-color: transparent;
@@ -113,23 +161,31 @@
         background: rgba(255, 113, 102, 0.12);
       }
 
-      .public-view { display: block; }
-      .view-admin .public-view { display: none; }
+      .public-view {
+        display: block;
+      }
 
-      .catalog {
+      .view-admin .public-view {
+        display: none;
+      }
+
+      .catalog-page,
+      .detail-page {
         width: min(1280px, calc(100% - 32px));
         margin: 0 auto;
-        padding: 34px 0 76px;
+        padding: 34px 0 80px;
       }
 
       .catalog-tools {
-        margin-bottom: 22px;
+        margin-bottom: 28px;
         display: grid;
         grid-template-columns: minmax(240px, 1fr) auto;
         gap: 10px;
       }
 
-      .input, .select, .textarea {
+      .input,
+      .select,
+      .textarea {
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -138,15 +194,25 @@
         outline: none;
       }
 
-      .input, .select { height: 42px; padding: 0 12px; }
-      .textarea { min-height: 122px; padding: 12px; resize: vertical; }
+      .input,
+      .select {
+        height: 42px;
+        padding: 0 12px;
+      }
+
+      .textarea {
+        min-height: 126px;
+        padding: 12px;
+        resize: vertical;
+      }
 
       .lane-list {
         display: grid;
-        gap: 34px;
+        gap: 38px;
       }
 
       .lane {
+        position: relative;
         border-top: 1px solid var(--line);
         padding-top: 20px;
       }
@@ -179,33 +245,40 @@
       .lane-scroll {
         display: grid;
         grid-auto-flow: column;
-        grid-auto-columns: minmax(310px, 380px);
+        grid-auto-columns: minmax(320px, 392px);
         gap: 14px;
         overflow-x: auto;
-        padding-bottom: 12px;
-        scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+        padding-bottom: 14px;
+        scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
       }
 
       .content-card {
-        min-height: 160px;
+        min-height: 168px;
         border: 1px solid var(--line);
         border-radius: 8px;
         overflow: hidden;
         display: grid;
-        grid-template-columns: 130px 1fr;
-        background: rgba(16, 24, 32, 0.82);
+        grid-template-columns: 136px 1fr;
+        background: var(--panel);
         box-shadow: var(--shadow);
+        transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+      }
+
+      .content-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(69, 217, 179, 0.36);
+        background: rgba(20, 34, 42, 0.92);
       }
 
       .content-card img {
-        width: 130px;
+        width: 136px;
         height: 100%;
         object-fit: cover;
       }
 
       .card-body {
         min-width: 0;
-        padding: 14px;
+        padding: 15px;
         display: grid;
         align-content: space-between;
         gap: 12px;
@@ -215,21 +288,120 @@
         margin: 0;
         font-size: 18px;
         line-height: 1.35;
+        letter-spacing: 0;
       }
 
       .card-body p {
-        margin: 0;
+        margin: 8px 0 0;
         color: var(--muted);
         font-size: 13px;
         line-height: 1.62;
       }
 
       .empty-card {
-        border: 1px dashed var(--line-2);
+        border: 1px dashed var(--line-strong);
         border-radius: 8px;
         padding: 22px;
         color: var(--muted);
         background: rgba(255, 255, 255, 0.04);
+      }
+
+      .detail-shell {
+        display: grid;
+        gap: 22px;
+      }
+
+      .detail-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .detail-article {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(16, 24, 32, 0.76);
+        box-shadow: var(--shadow);
+      }
+
+      .detail-cover {
+        min-height: 280px;
+        max-height: 520px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .detail-cover img,
+      .detail-cover video {
+        width: 100%;
+        height: min(52vw, 520px);
+        min-height: 280px;
+        object-fit: cover;
+      }
+
+      .detail-content {
+        max-width: 920px;
+        padding: 32px;
+      }
+
+      .detail-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        border: 1px solid rgba(69, 217, 179, 0.24);
+        border-radius: 8px;
+        padding: 0 10px;
+        color: #dffff5;
+        background: rgba(69, 217, 179, 0.1);
+        font-size: 13px;
+      }
+
+      .detail-content h1 {
+        margin: 16px 0 12px;
+        font-size: clamp(32px, 5vw, 58px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .detail-summary {
+        margin: 0 0 28px;
+        color: var(--soft);
+        font-size: 17px;
+        line-height: 1.78;
+      }
+
+      .reader-body {
+        color: var(--soft);
+        font-size: 16px;
+        line-height: 1.86;
+      }
+
+      .reader-body h1,
+      .reader-body h2,
+      .reader-body h3 {
+        color: var(--text);
+        line-height: 1.25;
+      }
+
+      .reader-body p {
+        margin: 0 0 15px;
+      }
+
+      .reader-body ul,
+      .reader-body ol {
+        padding-left: 22px;
+      }
+
+      .attachment-list {
+        margin-top: 28px;
+        border-top: 1px solid var(--line);
+        padding-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
       }
 
       .admin-layout {
@@ -238,16 +410,25 @@
         grid-template-columns: 264px minmax(0, 1fr);
       }
 
-      .view-admin .admin-layout { display: grid; }
+      .view-admin .admin-layout {
+        display: grid;
+      }
 
       .admin-sidebar {
         border-right: 1px solid var(--line);
         padding: 20px;
-        background: rgba(8, 13, 16, 0.7);
+        background: rgba(8, 13, 16, 0.72);
       }
 
-      .admin-sidebar h2 { margin: 0 0 18px; font-size: 18px; }
-      .admin-menu { display: grid; gap: 8px; }
+      .admin-sidebar h2 {
+        margin: 0 0 18px;
+        font-size: 18px;
+      }
+
+      .admin-menu {
+        display: grid;
+        gap: 8px;
+      }
 
       .nav-button {
         width: 100%;
@@ -257,14 +438,24 @@
         background: transparent;
       }
 
-      .nav-button.active, .nav-button:hover, .seg-button.active {
+      .nav-button.active,
+      .nav-button:hover,
+      .seg-button.active {
         color: var(--text);
         background: rgba(255, 255, 255, 0.1);
       }
 
-      .admin-main { padding: 28px; }
-      .admin-panel { display: none; }
-      .admin-panel.active { display: block; }
+      .admin-main {
+        padding: 28px;
+      }
+
+      .admin-panel {
+        display: none;
+      }
+
+      .admin-panel.active {
+        display: block;
+      }
 
       .section-head {
         margin-bottom: 22px;
@@ -274,8 +465,17 @@
         gap: 18px;
       }
 
-      .section-head h2 { margin: 0; font-size: 34px; }
-      .section-head p { margin: 8px 0 0; color: var(--muted); line-height: 1.7; }
+      .section-head h2 {
+        margin: 0;
+        font-size: 34px;
+        letter-spacing: 0;
+      }
+
+      .section-head p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
 
       .metric-grid {
         margin-bottom: 18px;
@@ -284,16 +484,29 @@
         gap: 14px;
       }
 
-      .metric-card, .panel-card {
+      .metric-card,
+      .panel-card,
+      .preview-box {
         border: 1px solid var(--line);
         border-radius: 8px;
         background: rgba(16, 24, 32, 0.78);
         box-shadow: var(--shadow);
       }
 
-      .metric-card { padding: 18px; }
-      .metric-card span { color: var(--muted); font-size: 13px; }
-      .metric-card strong { display: block; margin-top: 8px; font-size: 30px; }
+      .metric-card {
+        padding: 18px;
+      }
+
+      .metric-card span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .metric-card strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 30px;
+      }
 
       .panel-grid {
         display: grid;
@@ -301,8 +514,14 @@
         gap: 16px;
       }
 
-      .panel-card { padding: 18px; }
-      .panel-card h3 { margin: 0 0 12px; font-size: 18px; }
+      .panel-card {
+        padding: 18px;
+      }
+
+      .panel-card h3 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
 
       .table-wrap {
         border: 1px solid var(--line);
@@ -317,7 +536,8 @@
         border-collapse: collapse;
       }
 
-      th, td {
+      th,
+      td {
         border-bottom: 1px solid var(--line);
         padding: 13px 14px;
         text-align: left;
@@ -325,10 +545,17 @@
         font-size: 14px;
       }
 
-      th { color: var(--muted); background: rgba(255, 255, 255, 0.04); }
-      tr:last-child td { border-bottom: 0; }
+      th {
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.04);
+      }
 
-      .status, .badge {
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .status,
+      .badge {
         min-height: 26px;
         border: 1px solid rgba(255, 255, 255, 0.14);
         border-radius: 8px;
@@ -341,10 +568,23 @@
         font-size: 12px;
       }
 
-      .status { border-color: rgba(69, 217, 179, 0.28); color: #dffff5; background: rgba(69, 217, 179, 0.12); }
-      .status.offline { border-color: rgba(255, 113, 102, 0.34); color: #ffd7d2; background: rgba(255, 113, 102, 0.12); }
+      .status {
+        border-color: rgba(69, 217, 179, 0.28);
+        color: #dffff5;
+        background: rgba(69, 217, 179, 0.12);
+      }
 
-      .actions { display: flex; align-items: center; gap: 8px; }
+      .status.offline {
+        border-color: rgba(255, 113, 102, 0.34);
+        color: #ffd7d2;
+        background: rgba(255, 113, 102, 0.12);
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
 
       .progress {
         height: 8px;
@@ -363,18 +603,19 @@
 
       .preview-box {
         margin-top: 16px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
         padding: 16px;
-        background: rgba(255, 255, 255, 0.05);
       }
 
-      .preview-box h4 { margin: 0 0 10px; }
       .preview-body {
         max-height: 260px;
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
         overflow: auto;
+        padding: 14px;
         color: var(--soft);
-        line-height: 1.76;
+        background: rgba(255, 255, 255, 0.04);
+        line-height: 1.74;
       }
 
       .modal {
@@ -388,15 +629,17 @@
         background: rgba(0, 0, 0, 0.66);
       }
 
-      .modal.active { display: flex; }
+      .modal.active {
+        display: flex;
+      }
 
       .modal-box {
         width: min(980px, 100%);
         max-height: min(820px, calc(100vh - 40px));
-        border: 1px solid var(--line-2);
+        border: 1px solid var(--line-strong);
         border-radius: 8px;
         overflow: auto;
-        background: #101820;
+        background: var(--panel-solid);
         box-shadow: var(--shadow);
       }
 
@@ -410,8 +653,14 @@
         gap: 12px;
       }
 
-      .modal-head h3 { margin: 0; font-size: 18px; }
-      .modal-content { padding: 18px; }
+      .modal-head h3 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .modal-content {
+        padding: 18px;
+      }
 
       .form-grid {
         display: grid;
@@ -419,57 +668,25 @@
         gap: 14px;
       }
 
-      .form-field { display: grid; gap: 8px; }
-      .form-field.full { grid-column: 1 / -1; }
-      label { color: var(--muted); font-size: 13px; }
-
-      .auth-tabs { margin-bottom: 16px; display: flex; gap: 8px; }
-
-      .reader {
+      .form-field {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 280px;
-        gap: 20px;
+        gap: 8px;
       }
 
-      .reader-media {
-        margin-bottom: 18px;
-        border-radius: 8px;
-        overflow: hidden;
-        aspect-ratio: 16 / 9;
-        background: rgba(255, 255, 255, 0.06);
+      .form-field.full {
+        grid-column: 1 / -1;
       }
 
-      .reader-media img, .reader-media video {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      .reader-body {
-        color: var(--soft);
-        line-height: 1.82;
-        font-size: 16px;
-      }
-
-      .reader-body h1, .reader-body h2, .reader-body h3 { color: var(--text); }
-      .reader-body p { margin: 0 0 14px; }
-      .reader-body ul, .reader-body ol { padding-left: 22px; }
-
-      .reader-side {
-        display: grid;
-        align-content: start;
-        gap: 10px;
-      }
-
-      .side-line {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 12px;
+      label {
         color: var(--muted);
-        background: rgba(255, 255, 255, 0.04);
+        font-size: 13px;
       }
 
-      .side-line strong { display: block; margin-top: 4px; color: var(--text); }
+      .auth-tabs {
+        margin-bottom: 16px;
+        display: flex;
+        gap: 8px;
+      }
 
       .toast {
         position: fixed;
@@ -485,23 +702,68 @@
         box-shadow: var(--shadow);
       }
 
-      .toast.active { display: block; }
-      .hidden { display: none !important; }
+      .toast.active {
+        display: block;
+      }
+
+      .hidden {
+        display: none !important;
+      }
 
       @media (max-width: 1040px) {
-        .admin-layout, .reader { grid-template-columns: 1fr; }
-        .metric-grid, .panel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .admin-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+        .admin-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .metric-grid,
+        .panel-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .admin-sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
       }
 
       @media (max-width: 760px) {
-        .topbar-inner, .section-head { align-items: stretch; flex-direction: column; }
-        .topbar-inner { padding: 12px 0; }
-        .catalog-tools, .metric-grid, .panel-grid, .form-grid { grid-template-columns: 1fr; }
-        .lane-scroll { grid-auto-columns: minmax(286px, 86vw); }
-        .content-card { grid-template-columns: 112px 1fr; }
-        .content-card img { width: 112px; }
-        .admin-main { padding: 18px; }
+        .topbar-inner,
+        .section-head,
+        .detail-top {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .topbar-inner {
+          padding: 12px 0;
+        }
+
+        .catalog-tools,
+        .metric-grid,
+        .panel-grid,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .lane-scroll {
+          grid-auto-columns: minmax(286px, 86vw);
+        }
+
+        .content-card {
+          grid-template-columns: 112px 1fr;
+        }
+
+        .content-card img {
+          width: 112px;
+        }
+
+        .detail-content {
+          padding: 22px;
+        }
+
+        .admin-main {
+          padding: 18px;
+        }
       }
     </style>
   </head>
@@ -511,7 +773,7 @@
         <div class="topbar-inner">
           <a class="brand" href="#" id="brandHome">
             <span class="brand-mark">NK</span>
-            <span class="brand-text">
+            <span class="brand-copy">
               <strong>MapleStoryNK</strong>
               <span>业务与地图资料中心</span>
             </span>
@@ -521,13 +783,15 @@
       </header>
 
       <main class="public-view">
-        <section class="catalog">
+        <section class="catalog-page" id="catalogView">
           <div class="catalog-tools">
             <input class="input" id="searchInput" type="search" placeholder="搜索资料">
             <button class="text-button" id="resetButton"><i data-lucide="rotate-ccw"></i>重置</button>
           </div>
           <div class="lane-list" id="directoryLanes"></div>
         </section>
+
+        <section class="detail-page hidden" id="detailView"></section>
       </main>
 
       <section class="admin-layout" id="adminView">
@@ -598,7 +862,7 @@
             <div class="section-head">
               <div>
                 <h2>导入内容</h2>
-                <p>读取后先预览，确认后才进入目录。</p>
+                <p>读取后先预览，确认后才进入目录；来源只保存在后台，不作为前台跳转入口。</p>
               </div>
             </div>
 
@@ -657,10 +921,6 @@
                   <label for="previewCategory">分类</label>
                   <select class="select" id="previewCategory"></select>
                 </div>
-                <div class="form-field full">
-                  <label for="manualBody">正文内容</label>
-                  <textarea class="textarea" id="manualBody" placeholder="读取失败时，可在这里粘贴正文。"></textarea>
-                </div>
                 <div class="form-field">
                   <label for="previewOrder">排序</label>
                   <input class="input" id="previewOrder" type="number" value="100">
@@ -669,8 +929,12 @@
                   <label for="previewSource">后台来源记录</label>
                   <input class="input" id="previewSource">
                 </div>
+                <div class="form-field full">
+                  <label for="manualBody">正文内容</label>
+                  <textarea class="textarea" id="manualBody" placeholder="读取失败时，可在这里粘贴正文。"></textarea>
+                </div>
               </div>
-              <div class="preview-body" id="previewBody"></div>
+              <div class="preview-body" id="previewBody">暂无预览。</div>
               <div class="actions" style="margin-top:14px">
                 <button class="text-button primary" id="confirmImportButton"><i data-lucide="check"></i>确认添加</button>
                 <button class="text-button" id="clearImportButton"><i data-lucide="x"></i>清空</button>
@@ -749,16 +1013,6 @@
       </div>
     </div>
 
-    <div class="modal" id="detailModal" aria-hidden="true">
-      <div class="modal-box">
-        <div class="modal-head">
-          <h3 id="detailTitle">详情</h3>
-          <button class="icon-button" data-close="detailModal" aria-label="关闭"><i data-lucide="x"></i></button>
-        </div>
-        <div class="modal-content" id="detailContent"></div>
-      </div>
-    </div>
-
     <div class="modal" id="contentModal" aria-hidden="true">
       <div class="modal-box">
         <div class="modal-head">
@@ -799,6 +1053,10 @@
             <div class="form-field">
               <label for="contentVideoFile">上传视频</label>
               <input class="input" id="contentVideoFile" type="file" accept="video/*">
+            </div>
+            <div class="form-field full">
+              <label for="contentAttachments">附件</label>
+              <textarea class="textarea" id="contentAttachments" placeholder="每行一个附件，可写：名称 | 链接"></textarea>
             </div>
             <div class="form-field full">
               <label for="contentBody">正文内容</label>
@@ -869,9 +1127,9 @@
 
     <script>
       const categories = ["WZ业务目录", "定制地图展示", "BOSS配套地图展示", "系列地图"];
-      const contentKey = "maplestorynk.contents.v3";
-      const adminKey = "maplestorynk.admins.v3";
-      const sessionKey = "maplestorynk.session.v3";
+      const contentKey = "maplestorynk.contents.v4";
+      const adminKey = "maplestorynk.admins.v4";
+      const sessionKey = "maplestorynk.session.v4";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
 
       const starterContents = [
@@ -881,9 +1139,10 @@
           category: "WZ业务目录",
           summary: "WZ 修改、素材替换、资源整理与交付目录。",
           bodyHtml: "<p>这里用于展示 WZ 业务内容。可以放业务范围、处理流程、交付格式、注意事项和案例说明。</p><p>后续从 Word 或网页导入后，正文会直接出现在这个详情页，而不是跳转到外部网站。</p>",
-          source: "腾讯文档 WZ业务目录",
           image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=82",
           video: "",
+          attachments: [],
+          source: "腾讯文档 WZ业务目录",
           order: 100,
           status: "published",
           updatedAt: "2026-07-18"
@@ -894,9 +1153,10 @@
           category: "定制地图展示",
           summary: "地图层级、入口区域、怪物分布与视觉风格。",
           bodyHtml: "<p>这里用于展示定制地图内容。可以放地图全景图、局部截图、演示视频、地图编号和对应 WZ 文件说明。</p>",
-          source: "腾讯文档 定制地图展示",
           image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=82",
           video: "",
+          attachments: [],
+          source: "腾讯文档 定制地图展示",
           order: 100,
           status: "published",
           updatedAt: "2026-07-18"
@@ -907,9 +1167,10 @@
           category: "BOSS配套地图展示",
           summary: "BOSS 区域、出生点、传送门、奖励点和背景资源。",
           bodyHtml: "<p>这里用于展示 BOSS 配套地图内容。可以补充 BOSS 参数、入口条件、战斗流程、地图资源和掉落展示。</p>",
-          source: "腾讯文档 BOSS配套地图展示",
           image: "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1200&q=82",
           video: "",
+          attachments: [],
+          source: "腾讯文档 BOSS配套地图展示",
           order: 100,
           status: "published",
           updatedAt: "2026-07-18"
@@ -920,9 +1181,10 @@
           category: "系列地图",
           summary: "按主题组织多个连续地图，形成完整地图包。",
           bodyHtml: "<p>这里用于展示系列地图内容。可以按章节、等级、入口、任务线和地图包结构整理。</p>",
-          source: "腾讯文档 系列地图",
           image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=82",
           video: "",
+          attachments: [],
+          source: "腾讯文档 系列地图",
           order: 100,
           status: "published",
           updatedAt: "2026-07-18"
@@ -933,21 +1195,57 @@
         { id: "admin-1", name: "admin", password: "admin123", email: "admin@maplestorynk.online", role: "超级管理员", state: "启用", createdAt: "2026-07-18" }
       ];
 
-      let contents = load(contentKey, starterContents);
-      let admins = load(adminKey, starterAdmins);
-      let currentAdmin = JSON.parse(localStorage.getItem(sessionKey) || "null");
-      let pendingImport = null;
-
       const $ = (selector) => document.querySelector(selector);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
-      function load(key, fallback) {
-        try {
-          const data = JSON.parse(localStorage.getItem(key));
-          return Array.isArray(data) ? data : fallback;
-        } catch {
-          return fallback;
+      let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map(normalizeContent);
+      let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
+      let currentAdmin = JSON.parse(localStorage.getItem(sessionKey) || localStorage.getItem("maplestorynk.session.v3") || "null");
+      let currentView = "catalog";
+      let selectedContentId = null;
+      let catalogScrollY = 0;
+      let pendingImport = null;
+
+      function loadCollection(key, legacyKeys, fallback) {
+        for (const storageKey of [key, ...legacyKeys]) {
+          try {
+            const data = JSON.parse(localStorage.getItem(storageKey));
+            if (Array.isArray(data)) return data;
+          } catch {
+            continue;
+          }
         }
+        return fallback;
+      }
+
+      function normalizeContent(item) {
+        const status = item.status === "visible" ? "published" : item.status || "published";
+        return {
+          id: item.id || `content-${Date.now()}-${Math.random()}`,
+          title: item.title || "未命名内容",
+          category: categories.includes(item.category) ? item.category : categories[0],
+          summary: item.summary || item.detail || "暂无简介",
+          bodyHtml: item.bodyHtml || textToHtml(item.detail || item.summary || ""),
+          image: item.image || fallbackImage,
+          video: item.video || "",
+          attachments: Array.isArray(item.attachments) ? item.attachments : [],
+          source: item.source || "",
+          order: Number(item.order || item.hot || 100),
+          status,
+          updatedAt: item.updatedAt || today()
+        };
+      }
+
+      function normalizeAdmin(admin) {
+        return {
+          id: admin.id || `admin-${Date.now()}-${Math.random()}`,
+          name: admin.name || "admin",
+          password: admin.password || "admin123",
+          email: admin.email || "admin@maplestorynk.online",
+          role: admin.role || "内容管理员",
+          state: admin.state || "启用",
+          createdAt: admin.createdAt || today()
+        };
       }
 
       function save() {
@@ -968,14 +1266,16 @@
       }
 
       function showModal(id) {
-        $("#" + id).classList.add("active");
-        $("#" + id).setAttribute("aria-hidden", "false");
+        const modal = $("#" + id);
+        modal.classList.add("active");
+        modal.setAttribute("aria-hidden", "false");
         icon();
       }
 
       function closeModal(id) {
-        $("#" + id).classList.remove("active");
-        $("#" + id).setAttribute("aria-hidden", "true");
+        const modal = $("#" + id);
+        modal.classList.remove("active");
+        modal.setAttribute("aria-hidden", "true");
       }
 
       function today() {
@@ -995,13 +1295,30 @@
       function textToHtml(text) {
         return String(text || "")
           .split(/\n{2,}/)
-          .map((block) => `<p>${escapeHtml(block.trim()).replace(/\n/g, "<br>")}</p>`)
+          .map((block) => block.trim())
+          .filter(Boolean)
+          .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
           .join("");
       }
 
       function htmlToText(html) {
         const doc = new DOMParser().parseFromString(html || "", "text/html");
         return doc.body.textContent || "";
+      }
+
+      function parseAttachments(value) {
+        return String(value || "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const [name, url] = line.split("|").map((part) => part.trim());
+            return { name: name || url || "附件", url: url || "" };
+          });
+      }
+
+      function attachmentsToText(attachments) {
+        return (attachments || []).map((item) => item.url ? `${item.name} | ${item.url}` : item.name).join("\n");
       }
 
       function categoryIcon(category) {
@@ -1011,6 +1328,10 @@
           "BOSS配套地图展示": "swords",
           "系列地图": "layers-3"
         }[category] || "file-text";
+      }
+
+      function statusText(status) {
+        return { published: "已发布", draft: "草稿", hidden: "隐藏" }[status] || status;
       }
 
       function visibleItems(category) {
@@ -1024,7 +1345,26 @@
           .sort((a, b) => Number(a.order || 100) - Number(b.order || 100) || String(b.updatedAt).localeCompare(String(a.updatedAt)));
       }
 
-      function renderDirectory() {
+      function setView(view, contentId = null) {
+        if (currentView === "catalog" && view === "detail") catalogScrollY = window.scrollY;
+        currentView = view;
+        selectedContentId = contentId;
+        document.body.classList.toggle("view-admin", view === "admin");
+        $("#catalogView").classList.toggle("hidden", view !== "catalog");
+        $("#detailView").classList.toggle("hidden", view !== "detail");
+        if (view === "detail") {
+          renderDetail();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        if (view === "catalog") {
+          renderCatalog();
+          setTimeout(() => window.scrollTo({ top: catalogScrollY, behavior: "smooth" }), 0);
+        }
+        if (view === "admin") renderAdmin();
+        icon();
+      }
+
+      function renderCatalog() {
         $("#directoryLanes").innerHTML = categories.map((category) => {
           const items = visibleItems(category);
           const cards = items.map((item) => `
@@ -1053,6 +1393,54 @@
             </section>
           `;
         }).join("");
+        icon();
+      }
+
+      function renderDetail() {
+        const item = contents.find((entry) => entry.id === selectedContentId);
+        if (!item) {
+          setView("catalog");
+          return;
+        }
+        const media = item.video
+          ? `<video controls src="${item.video}"></video>`
+          : `<img src="${item.image || fallbackImage}" alt="${escapeHtml(item.title)}">`;
+        const attachments = (item.attachments || []).map((attachment) => {
+          const label = escapeHtml(attachment.name || "附件");
+          return attachment.url
+            ? `<a class="text-button" href="${attachment.url}" target="_blank" rel="noreferrer"><i data-lucide="paperclip"></i>${label}</a>`
+            : `<span class="badge"><i data-lucide="paperclip"></i>${label}</span>`;
+        }).join("");
+
+        $("#detailView").innerHTML = `
+          <div class="detail-shell">
+            <div class="detail-top">
+              <button class="text-button" id="returnCatalogButton"><i data-lucide="arrow-left"></i>返回目录</button>
+            </div>
+            <article class="detail-article">
+              <div class="detail-cover">${media}</div>
+              <div class="detail-content">
+                <span class="detail-kicker"><i data-lucide="${categoryIcon(item.category)}"></i>${item.category}</span>
+                <h1>${escapeHtml(item.title)}</h1>
+                <p class="detail-summary">${escapeHtml(item.summary)}</p>
+                <div class="reader-body">${item.bodyHtml || textToHtml(item.summary)}</div>
+                ${attachments ? `<div class="attachment-list">${attachments}</div>` : ""}
+              </div>
+            </article>
+          </div>
+        `;
+      }
+
+      function renderAdmin() {
+        renderSelects();
+        renderMetrics();
+        renderAdminTables();
+        icon();
+      }
+
+      function renderSelects() {
+        const options = categories.map((category) => `<option value="${category}">${category}</option>`).join("");
+        ["contentCategory", "docCategory", "urlCategory", "previewCategory"].forEach((id) => $("#" + id).innerHTML = options);
       }
 
       function renderMetrics() {
@@ -1118,42 +1506,6 @@
         `).join("");
       }
 
-      function statusText(status) {
-        return { published: "已发布", draft: "草稿", hidden: "隐藏" }[status] || status;
-      }
-
-      function renderSelects() {
-        const options = categories.map((category) => `<option value="${category}">${category}</option>`).join("");
-        ["contentCategory", "docCategory", "urlCategory", "previewCategory"].forEach((id) => $("#" + id).innerHTML = options);
-      }
-
-      function render() {
-        renderSelects();
-        renderDirectory();
-        renderMetrics();
-        renderAdminTables();
-        icon();
-      }
-
-      function openDetail(id) {
-        const item = contents.find((entry) => entry.id === id);
-        if (!item) return;
-        $("#detailTitle").textContent = item.title;
-        $("#detailContent").innerHTML = `
-          <div class="reader">
-            <div>
-              ${item.video ? `<div class="reader-media"><video controls src="${item.video}"></video></div>` : `<div class="reader-media"><img src="${item.image || fallbackImage}" alt="${escapeHtml(item.title)}"></div>`}
-              <div class="reader-body">${item.bodyHtml || textToHtml(item.summary)}</div>
-            </div>
-            <aside class="reader-side">
-              <div class="side-line">分类<strong>${item.category}</strong></div>
-              <div class="side-line">简介<strong>${escapeHtml(item.summary)}</strong></div>
-            </aside>
-          </div>
-        `;
-        showModal("detailModal");
-      }
-
       function openContentEditor(id) {
         const item = id ? contents.find((entry) => entry.id === id) : null;
         $("#contentModalTitle").textContent = item ? "编辑内容" : "新增内容";
@@ -1164,6 +1516,7 @@
         $("#contentOrder").value = item?.order || 100;
         $("#contentImage").value = item?.image || "";
         $("#contentVideo").value = item?.video || "";
+        $("#contentAttachments").value = attachmentsToText(item?.attachments || []);
         $("#contentBody").value = htmlToText(item?.bodyHtml || "");
         $("#contentSource").value = item?.source || "";
         $("#contentStatus").value = item?.status || "published";
@@ -1207,7 +1560,7 @@
         $("#previewOrder").value = data.order || 100;
         $("#previewSource").value = data.source || "";
         $("#manualBody").value = htmlToText(data.bodyHtml || "");
-        $("#previewBody").innerHTML = data.bodyHtml || "";
+        $("#previewBody").innerHTML = data.bodyHtml || "未读取到正文，请手动粘贴内容。";
       }
 
       function clearImport() {
@@ -1216,7 +1569,7 @@
         $("#previewOrder").value = "100";
         $("#previewSource").value = "";
         $("#manualBody").value = "";
-        $("#previewBody").innerHTML = "";
+        $("#previewBody").innerHTML = "暂无预览。";
         setImportStatus("等待导入", 0);
       }
 
@@ -1265,9 +1618,19 @@
         if (!target) return;
 
         if (target.dataset.close) closeModal(target.dataset.close);
-        if (target.id === "authButton") showModal("authModal");
-        if (target.id === "brandHome") document.body.classList.remove("view-admin");
-        if (target.dataset.detail) openDetail(target.dataset.detail);
+
+        if (target.id === "authButton") {
+          if (currentAdmin) setView("admin");
+          else showModal("authModal");
+        }
+
+        if (target.id === "brandHome") {
+          event.preventDefault();
+          setView("catalog");
+        }
+
+        if (target.dataset.detail) setView("detail", target.dataset.detail);
+        if (target.id === "returnCatalogButton") setView("catalog");
 
         if (target.dataset.authTab) {
           $$(".seg-button[data-auth-tab]").forEach((button) => button.classList.toggle("active", button.dataset.authTab === target.dataset.authTab));
@@ -1282,7 +1645,8 @@
           if (item && confirm(`删除「${item.title}」？`)) {
             contents = contents.filter((entry) => entry.id !== item.id);
             save();
-            render();
+            renderCatalog();
+            renderAdmin();
             toast("内容已删除");
           }
         }
@@ -1312,15 +1676,12 @@
           if (admin && confirm(`删除账号「${admin.name}」？`)) {
             admins = admins.filter((entry) => entry.id !== admin.id);
             save();
-            render();
+            renderAdmin();
             toast("账号已删除");
           }
         }
 
-        if (target.id === "backToSite") {
-          document.body.classList.remove("view-admin");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }
+        if (target.id === "backToSite") setView("catalog");
 
         if (target.dataset.panel) {
           $$(".admin-menu .nav-button").forEach((button) => button.classList.toggle("active", button.dataset.panel === target.dataset.panel));
@@ -1341,15 +1702,17 @@
             category: $("#previewCategory").value,
             summary: htmlToText(bodyHtml).slice(0, 70) || "导入内容",
             bodyHtml,
-            source: $("#previewSource").value.trim(),
             image: fallbackImage,
             video: "",
+            attachments: [],
+            source: $("#previewSource").value.trim(),
             order: Number($("#previewOrder").value || 100),
             status: "published",
             updatedAt: today()
           }, ...contents];
           save();
-          render();
+          renderCatalog();
+          renderAdmin();
           clearImport();
           toast("已添加到目录");
         }
@@ -1369,8 +1732,7 @@
         currentAdmin = { id: admin.id, name: admin.name, role: admin.role };
         save();
         closeModal("authModal");
-        document.body.classList.add("view-admin");
-        render();
+        setView("admin");
         toast("已进入后台");
       });
 
@@ -1392,6 +1754,7 @@
         }];
         save();
         $("#registerForm").reset();
+        renderAdmin();
         toast("注册成功，可直接登录");
         $("[data-auth-tab='login']").click();
       });
@@ -1406,9 +1769,10 @@
           category: $("#contentCategory").value,
           summary: $("#contentSummary").value.trim(),
           bodyHtml: textToHtml($("#contentBody").value.trim()),
-          source: $("#contentSource").value.trim(),
           image: $("#contentImage").value.trim() || fallbackImage,
           video: $("#contentVideo").value.trim(),
+          attachments: parseAttachments($("#contentAttachments").value),
+          source: $("#contentSource").value.trim(),
           order: Number($("#contentOrder").value || 100),
           status: $("#contentStatus").value,
           updatedAt: today()
@@ -1416,7 +1780,9 @@
         contents = existing ? contents.map((item) => item.id === id ? next : item) : [next, ...contents];
         save();
         closeModal("contentModal");
-        render();
+        renderCatalog();
+        renderAdmin();
+        if (currentView === "detail" && selectedContentId === id) renderDetail();
         toast("内容已保存");
       });
 
@@ -1441,7 +1807,7 @@
         $("#adminName").disabled = false;
         $("#adminForm").reset();
         closeModal("adminModal");
-        render();
+        renderAdmin();
         toast("账号已保存");
       });
 
@@ -1484,15 +1850,15 @@
           category: $("#urlCategory").value,
           order: Number($("#urlOrder").value || 100),
           source: parsed.url,
-          bodyHtml: result.bodyHtml || textToHtml("")
+          bodyHtml: result.bodyHtml || ""
         });
         setImportStatus(result.bodyHtml ? "读取成功，请确认" : "等待手动补充正文", 100);
       });
 
-      $("#searchInput").addEventListener("input", render);
+      $("#searchInput").addEventListener("input", renderCatalog);
       $("#resetButton").addEventListener("click", () => {
         $("#searchInput").value = "";
-        render();
+        renderCatalog();
       });
 
       $("#contentImageFile").addEventListener("change", (event) => {
@@ -1512,7 +1878,10 @@
         }
       });
 
-      render();
+      renderSelects();
+      renderCatalog();
+      renderAdmin();
+      save();
     </script>
   </body>
 </html>
