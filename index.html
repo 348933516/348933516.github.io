@@ -1353,8 +1353,9 @@
             <button class="nav-button active" data-panel="dashboard"><i data-lucide="gauge"></i>仪表盘</button>
             <button class="nav-button" data-panel="contents"><i data-lucide="database"></i>内容管理</button>
             <button class="nav-button" data-panel="categories"><i data-lucide="folder-tree"></i>分类管理</button>
-            <button class="nav-button" data-panel="appearance"><i data-lucide="palette"></i>界面设置</button>
+            <button class="nav-button" data-panel="appearance"><i data-lucide="home"></i>首页编辑</button>
             <button class="nav-button" data-panel="import"><i data-lucide="file-input"></i>导入内容</button>
+            <button class="nav-button" data-panel="tools"><i data-lucide="wrench"></i>工具备份</button>
             <button class="nav-button" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
             <button class="nav-button" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
           </div>
@@ -1395,6 +1396,39 @@
               </div>
               <button class="text-button primary" id="addContentButton"><i data-lucide="plus"></i>新增内容</button>
             </div>
+            <div class="panel-card" style="margin-bottom:16px">
+              <h3>批量上传图片</h3>
+              <form class="form-grid" id="batchImageForm">
+                <div class="form-field">
+                  <label for="batchImageCategory">分类</label>
+                  <select class="select" id="batchImageCategory"></select>
+                </div>
+                <div class="form-field">
+                  <label for="batchImageMode">生成方式</label>
+                  <select class="select" id="batchImageMode">
+                    <option value="single">生成一篇多图资料</option>
+                    <option value="many">每张图片生成一条资料</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="batchImageTitle">标题前缀</label>
+                  <input class="input" id="batchImageTitle" placeholder="例如：城镇地图">
+                </div>
+                <div class="form-field">
+                  <label for="batchImageStatus">状态</label>
+                  <select class="select" id="batchImageStatus">
+                    <option value="draft">草稿</option>
+                    <option value="published">已发布</option>
+                    <option value="hidden">隐藏</option>
+                  </select>
+                </div>
+                <div class="form-field full">
+                  <label for="batchImageFiles">图片文件</label>
+                  <input class="input" id="batchImageFiles" type="file" accept="image/*" multiple>
+                </div>
+                <button class="text-button primary full" type="submit"><i data-lucide="images"></i>生成资料</button>
+              </form>
+            </div>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -1433,6 +1467,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th>排序</th>
                     <th>分类名称</th>
                     <th>分类说明</th>
                     <th>分类图片</th>
@@ -1448,8 +1483,8 @@
           <section class="admin-panel" data-admin-panel="appearance">
             <div class="section-head">
               <div>
-                <h2>界面设置</h2>
-                <p>可替换红框内的站点文字、logo、首页展示文字和背景图片。</p>
+                <h2>首页编辑</h2>
+                <p>专门维护顶部 Logo、站点文字、首页展示区、类目区文案和背景图片。</p>
               </div>
             </div>
             <div class="panel-card" style="margin-bottom:16px">
@@ -1543,9 +1578,56 @@
                 </div>
               </div>
             </div>
+            <div class="panel-card" style="margin-top:16px">
+              <h3>首页类目内容</h3>
+              <p class="import-note">在这里统一修改首页类目的名称、说明和展示图片。分类新增、删除和排序仍在“分类管理”中操作。</p>
+              <div class="table-wrap" style="margin-top:14px">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>类目名称</th>
+                      <th>类目说明</th>
+                      <th>展示图片</th>
+                    </tr>
+                  </thead>
+                  <tbody id="homeCategoryRows"></tbody>
+                </table>
+              </div>
+            </div>
             <div class="actions" style="margin-top:16px">
               <button class="text-button primary" id="saveAppearanceButton"><i data-lucide="save"></i>保存界面</button>
               <button class="text-button" id="resetAppearanceButton"><i data-lucide="rotate-ccw"></i>恢复默认</button>
+            </div>
+          </section>
+
+          <section class="admin-panel" data-admin-panel="tools">
+            <div class="section-head">
+              <div>
+                <h2>工具备份</h2>
+                <p>清理空内容、坏媒体和错误导入；导出或导入整站 JSON 备份。</p>
+              </div>
+            </div>
+            <div class="panel-grid">
+              <div class="panel-card">
+                <h3>清理无效数据</h3>
+                <p class="import-note">扫描空标题、空正文、空分类、无效图片、临时视频和错误导入内容。清理前会显示数量。</p>
+                <div class="actions" style="margin-top:14px">
+                  <button class="text-button primary" id="scanCleanupButton"><i data-lucide="scan-search"></i>扫描问题</button>
+                  <button class="text-button danger" id="runCleanupButton"><i data-lucide="trash-2"></i>清理已发现问题</button>
+                </div>
+                <div class="preview-body" id="cleanupPreview" style="margin-top:14px">尚未扫描。</div>
+              </div>
+              <div class="panel-card">
+                <h3>导出 / 导入备份</h3>
+                <p class="import-note">备份包含分类、类目图片、类目文字、资料内容和首页设置，不包含登录密码。</p>
+                <div class="actions" style="margin-top:14px">
+                  <button class="text-button primary" id="exportBackupButton"><i data-lucide="download"></i>导出 JSON</button>
+                  <button class="text-button" id="chooseBackupButton"><i data-lucide="upload"></i>选择备份</button>
+                  <input class="hidden" id="backupFileInput" type="file" accept="application/json,.json">
+                </div>
+                <div class="preview-body" id="backupPreview" style="margin-top:14px">尚未选择备份。</div>
+                <button class="text-button primary hidden" id="confirmBackupImportButton" style="margin-top:14px"><i data-lucide="check"></i>确认覆盖导入</button>
+              </div>
             </div>
           </section>
 
@@ -1988,6 +2070,7 @@
       let selectedCategory = null;
       let catalogScrollY = 0;
       let pendingImport = null;
+      let pendingBackupImport = null;
       let mediaEditorItems = [];
       let cloudSaveTimer = null;
       let cloudReady = false;
@@ -2018,7 +2101,7 @@
         return cleaned.length ? cleaned : [...defaultCategories];
       }
 
-      function normalizeContent(item) {
+      function normalizeContent(item, allowedCategories = categories) {
         const status = item.status === "visible" ? "published" : item.status || "published";
         const images = uniqueList([...(Array.isArray(item.images) ? item.images : []), item.image].filter(Boolean));
         const videos = uniqueList([...(Array.isArray(item.videos) ? item.videos : []), item.video].filter(Boolean));
@@ -2028,7 +2111,7 @@
         return {
           id: item.id || `content-${Date.now()}-${Math.random()}`,
           title: item.title || "未命名内容",
-          category: categories.includes(item.category) ? item.category : categories[0],
+          category: allowedCategories.includes(item.category) ? item.category : allowedCategories[0],
           summary: item.summary || item.detail || "暂无简介",
           bodyHtml: item.bodyHtml || textToHtml(item.detail || item.summary || ""),
           image: images[0] || item.image || fallbackImage,
@@ -2646,13 +2729,17 @@
         renderMetrics();
         renderAdminTables();
         renderCategoryRows();
+        renderHomeCategoryRows();
         renderAppearanceSettings();
         icon();
       }
 
       function renderSelects() {
         const options = categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
-        ["contentCategory", "docCategory", "urlCategory", "previewCategory"].forEach((id) => $("#" + id).innerHTML = options);
+        ["contentCategory", "docCategory", "urlCategory", "previewCategory", "batchImageCategory"].forEach((id) => {
+          const node = $("#" + id);
+          if (node) node.innerHTML = options;
+        });
       }
 
       function renderMetrics() {
@@ -2668,10 +2755,16 @@
       }
 
       function renderCategoryRows() {
-        $("#categoryRows").innerHTML = categories.map((category) => {
+        $("#categoryRows").innerHTML = categories.map((category, index) => {
           const count = contents.filter((item) => item.category === category).length;
           return `
             <tr>
+              <td>
+                <div class="actions">
+                  <button class="icon-button" data-move-category="${escapeHtml(category)}" data-direction="-1" aria-label="上移分类" ${index === 0 ? "disabled" : ""}><i data-lucide="arrow-up"></i></button>
+                  <button class="icon-button" data-move-category="${escapeHtml(category)}" data-direction="1" aria-label="下移分类" ${index === categories.length - 1 ? "disabled" : ""}><i data-lucide="arrow-down"></i></button>
+                </div>
+              </td>
               <td>${escapeHtml(category)}</td>
               <td>
                 <input class="input" value="${escapeHtml(categoryDescription(category))}" data-category-description="${escapeHtml(category)}">
@@ -2693,6 +2786,26 @@
             </tr>
           `;
         }).join("");
+      }
+
+      function renderHomeCategoryRows() {
+        $("#homeCategoryRows").innerHTML = categories.map((category) => `
+          <tr>
+            <td>
+              <input class="input" value="${escapeHtml(category)}" data-home-category-name="${escapeHtml(category)}" aria-label="类目名称">
+            </td>
+            <td>
+              <input class="input" value="${escapeHtml(categoryDescription(category))}" data-category-description="${escapeHtml(category)}" aria-label="类目说明">
+            </td>
+            <td>
+              <div class="category-image-cell">
+                ${categoryImages[category] ? `<img src="${escapeHtml(categoryImages[category])}" alt="${escapeHtml(category)}">` : `<span class="badge">默认图标</span>`}
+                <input class="input" type="file" accept="image/*" data-category-image="${escapeHtml(category)}" aria-label="上传类目图片">
+                ${categoryImages[category] ? `<button class="icon-button" data-clear-category-image="${escapeHtml(category)}" aria-label="恢复默认图标"><i data-lucide="image-off"></i></button>` : ""}
+              </div>
+            </td>
+          </tr>
+        `).join("");
       }
 
       function previewImage(id, src, emptyText) {
@@ -2736,22 +2849,38 @@
             </tr>
           `).join("");
 
-        $("#contentRows").innerHTML = contents.map((item) => `
-          <tr data-content-row="${item.id}">
-            <td>${escapeHtml(item.title)}</td>
-            <td>${item.category}</td>
-            <td>${escapeHtml(item.source || "手动录入")}</td>
-            <td>${item.mediaItems?.length || item.images?.length || 0} 图 / ${item.videos?.length || 0} 视频</td>
-            <td><span class="status ${item.status !== "published" ? "offline" : ""}">${statusText(item.status)}</span></td>
-            <td>${item.order || 100}</td>
-            <td>
-              <div class="actions">
-                <button class="icon-button" data-edit-content="${item.id}" aria-label="编辑"><i data-lucide="pencil"></i></button>
-                <button class="icon-button danger" data-delete-content="${item.id}" aria-label="删除"><i data-lucide="trash-2"></i></button>
-              </div>
-            </td>
-          </tr>
-        `).join("");
+        const sortedContents = [...contents].sort((a, b) =>
+          categories.indexOf(a.category) - categories.indexOf(b.category) ||
+          Number(a.order || 100) - Number(b.order || 100) ||
+          String(b.updatedAt).localeCompare(String(a.updatedAt))
+        );
+        const contentPositions = new Map();
+        categories.forEach((category) => {
+          const group = sortedContents.filter((item) => item.category === category);
+          group.forEach((item, index) => contentPositions.set(item.id, { index, lastIndex: group.length - 1 }));
+        });
+        $("#contentRows").innerHTML = sortedContents.map((item) => {
+          const position = contentPositions.get(item.id) || { index: 0, lastIndex: 0 };
+          return `
+            <tr data-content-row="${item.id}">
+              <td>${escapeHtml(item.title)}</td>
+              <td>${item.category}</td>
+              <td>${escapeHtml(item.source || "手动录入")}</td>
+              <td>${item.mediaItems?.length || item.images?.length || 0} 图 / ${item.videos?.length || 0} 视频</td>
+              <td><span class="status ${item.status !== "published" ? "offline" : ""}">${statusText(item.status)}</span></td>
+              <td>${item.order || 100}</td>
+              <td>
+                <div class="actions">
+                  <button class="icon-button" data-move-content="${item.id}" data-direction="-1" aria-label="上移内容" ${position.index === 0 ? "disabled" : ""}><i data-lucide="arrow-up"></i></button>
+                  <button class="icon-button" data-move-content="${item.id}" data-direction="1" aria-label="下移内容" ${position.index === position.lastIndex ? "disabled" : ""}><i data-lucide="arrow-down"></i></button>
+                  <button class="icon-button" data-copy-content="${item.id}" aria-label="复制内容"><i data-lucide="copy"></i></button>
+                  <button class="icon-button" data-edit-content="${item.id}" aria-label="编辑"><i data-lucide="pencil"></i></button>
+                  <button class="icon-button danger" data-delete-content="${item.id}" aria-label="删除"><i data-lucide="trash-2"></i></button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join("");
 
         $("#adminRows").innerHTML = admins.map((admin) => `
           <tr>
@@ -2846,6 +2975,170 @@
           };
         });
         if (selectedCategory === oldName) selectedCategory = nextName;
+      }
+
+      function moveCategory(category, direction) {
+        const index = categories.indexOf(category);
+        const nextIndex = index + Number(direction);
+        if (index < 0 || nextIndex < 0 || nextIndex >= categories.length) return false;
+        const next = [...categories];
+        [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+        categories = next;
+        return true;
+      }
+
+      function reorderContentWithinCategory(id, direction) {
+        const item = contents.find((entry) => entry.id === id);
+        if (!item) return false;
+        const group = contents
+          .filter((entry) => entry.category === item.category)
+          .sort((a, b) => Number(a.order || 100) - Number(b.order || 100) || String(b.updatedAt).localeCompare(String(a.updatedAt)));
+        const index = group.findIndex((entry) => entry.id === id);
+        const nextIndex = index + Number(direction);
+        if (index < 0 || nextIndex < 0 || nextIndex >= group.length) return false;
+        [group[index], group[nextIndex]] = [group[nextIndex], group[index]];
+        const orderMap = new Map(group.map((entry, entryIndex) => [entry.id, (entryIndex + 1) * 10]));
+        contents = contents.map((entry) => orderMap.has(entry.id) ? { ...entry, order: orderMap.get(entry.id), updatedAt: today() } : entry);
+        return true;
+      }
+
+      function duplicateContent(id) {
+        const item = contents.find((entry) => entry.id === id);
+        if (!item) return false;
+        const maxOrder = Math.max(0, ...contents.filter((entry) => entry.category === item.category).map((entry) => Number(entry.order || 100)));
+        const copy = JSON.parse(JSON.stringify(item));
+        copy.id = `copy-${Date.now()}`;
+        copy.title = `${item.title} 副本`;
+        copy.status = "draft";
+        copy.order = maxOrder + 10;
+        copy.updatedAt = today();
+        copy.source = item.source ? `${item.source} / 复制` : "复制模板";
+        contents = [normalizeContent(copy), ...contents];
+        return true;
+      }
+
+      function buildBackupData() {
+        return {
+          app: "MapleStoryNK",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          categories,
+          categoryImages,
+          categoryTexts,
+          contents,
+          appearance
+        };
+      }
+
+      function normalizeBackupData(raw) {
+        const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+        if (!source || typeof source !== "object") throw new Error("备份文件格式不正确");
+        const backupCategories = normalizeCategories(source.categories || defaultCategories);
+        return {
+          categories: backupCategories,
+          categoryImages: source.categoryImages && typeof source.categoryImages === "object" ? source.categoryImages : {},
+          categoryTexts: source.categoryTexts && typeof source.categoryTexts === "object" ? source.categoryTexts : {},
+          contents: Array.isArray(source.contents) ? source.contents.map((item) => normalizeContent(item, backupCategories)) : [],
+          appearance: { ...defaultAppearance, ...(source.appearance || {}) }
+        };
+      }
+
+      function applyBackupData(data) {
+        categories = normalizeCategories(data.categories);
+        categoryImages = data.categoryImages || {};
+        categoryTexts = data.categoryTexts || {};
+        appearance = { ...defaultAppearance, ...(data.appearance || {}) };
+        contents = (data.contents || []).map(normalizeContent);
+        selectedCategory = null;
+        selectedContentId = null;
+      }
+
+      function downloadBackup() {
+        const blob = new Blob([JSON.stringify(buildBackupData(), null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `maplestorynk-backup-${today()}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function isInvalidMediaSource(src) {
+        const value = String(src || "").trim();
+        if (!value || /^(undefined|null)$/i.test(value)) return true;
+        if (value.startsWith("blob:")) return true;
+        if (value.startsWith("data:image/")) return false;
+        if (value.startsWith("http://") || value.startsWith("https://")) return false;
+        return true;
+      }
+
+      function scanCleanupIssues() {
+        const blankCategories = categories.filter((category) => !String(category || "").trim());
+        const duplicatedCategories = categories.filter((category, index) => categories.indexOf(category) !== index);
+        const emptyContents = contents.filter((item) => !String(item.title || "").trim() || (!htmlToText(item.bodyHtml).trim() && !(item.mediaItems || []).length));
+        const brokenMedia = [];
+        const brokenVideos = [];
+        contents.forEach((item) => {
+          (item.mediaItems || []).forEach((media, index) => {
+            if (isInvalidMediaSource(media.src)) brokenMedia.push(`${item.title || "未命名内容"} / 图片 ${index + 1}`);
+          });
+          uniqueList(item.videos || [item.video].filter(Boolean)).forEach((video, index) => {
+            if (!video || String(video).startsWith("blob:")) brokenVideos.push(`${item.title || "未命名内容"} / 视频 ${index + 1}`);
+          });
+        });
+        const failedImports = contents.filter((item) =>
+          item.source && !htmlToText(item.bodyHtml).trim() && !(item.mediaItems || []).length
+        );
+        return { blankCategories, duplicatedCategories, emptyContents, brokenMedia, brokenVideos, failedImports };
+      }
+
+      function renderCleanupPreview() {
+        const issues = scanCleanupIssues();
+        const rows = [
+          ["空分类名称", issues.blankCategories.length],
+          ["重复分类", issues.duplicatedCategories.length],
+          ["空内容或无正文内容", issues.emptyContents.length],
+          ["无效图片", issues.brokenMedia.length],
+          ["临时视频地址", issues.brokenVideos.length],
+          ["错误导入内容", issues.failedImports.length]
+        ];
+        const detail = [
+          ...issues.brokenMedia.slice(0, 8),
+          ...issues.brokenVideos.slice(0, 8),
+          ...issues.emptyContents.slice(0, 8).map((item) => item.title || item.id)
+        ];
+        $("#cleanupPreview").innerHTML = `
+          <table>
+            <tbody>${rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join("")}</tbody>
+          </table>
+          ${detail.length ? `<p class="import-note">示例：${detail.map(escapeHtml).join("、")}</p>` : "<p>没有发现需要清理的问题。</p>"}
+        `;
+        return issues;
+      }
+
+      function runCleanup() {
+        const issues = scanCleanupIssues();
+        const removeIds = new Set([...issues.emptyContents, ...issues.failedImports].map((item) => item.id));
+        categories = normalizeCategories(categories.filter((category, index) => category && categories.indexOf(category) === index));
+        contents = contents
+          .filter((item) => !removeIds.has(item.id))
+          .map((item) => {
+            const mediaItems = (item.mediaItems || []).map((media, index) => normalizeMediaItem(media, index)).filter((media) => !isInvalidMediaSource(media.src));
+            const images = mediaItems.map((media) => media.src);
+            const videos = uniqueList(item.videos || [item.video].filter(Boolean)).filter((video) => video && !String(video).startsWith("blob:"));
+            return {
+              ...item,
+              mediaItems,
+              images,
+              image: images[0] || fallbackImage,
+              videos,
+              video: videos[0] || "",
+              attachments: (item.attachments || []).filter((attachment) => attachment.name || attachment.url),
+              updatedAt: today()
+            };
+          });
       }
 
       function setImportStatus(text, percent) {
@@ -3117,6 +3410,22 @@
         if (target.id === "quickAddButton" || target.id === "addContentButton") openContentEditor();
         if (target.dataset.editContent) openContentEditor(target.dataset.editContent);
 
+        if (target.dataset.copyContent) {
+          if (!duplicateContent(target.dataset.copyContent)) return;
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("已复制为草稿，可作为模板继续编辑");
+        }
+
+        if (target.dataset.moveContent) {
+          if (!reorderContentWithinCategory(target.dataset.moveContent, target.dataset.direction)) return;
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("内容排序已更新");
+        }
+
         if (target.dataset.deleteContent) {
           const item = contents.find((entry) => entry.id === target.dataset.deleteContent);
           if (item && confirm(`删除「${item.title}」？`)) {
@@ -3142,6 +3451,15 @@
           renderCatalog();
           renderAdmin();
           toast("分类已改名");
+        }
+
+        if (target.dataset.moveCategory) {
+          if (!requireSuperAdmin()) return;
+          if (!moveCategory(target.dataset.moveCategory, target.dataset.direction)) return;
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("分类排序已更新");
         }
 
         if (target.dataset.deleteCategory) {
@@ -3298,6 +3616,53 @@
           renderCatalog();
           renderAppearanceSettings();
           toast("已恢复默认界面");
+        }
+
+        if (target.id === "scanCleanupButton") {
+          renderCleanupPreview();
+          toast("扫描完成");
+        }
+
+        if (target.id === "runCleanupButton") {
+          const issues = renderCleanupPreview();
+          const total = Object.values(issues).reduce((sum, list) => sum + list.length, 0);
+          if (!total) {
+            toast("没有需要清理的问题");
+            return;
+          }
+          if (!confirm(`发现 ${total} 个问题，确认清理无效数据？`)) return;
+          runCleanup();
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          renderCleanupPreview();
+          toast("无效数据已清理");
+        }
+
+        if (target.id === "exportBackupButton") {
+          downloadBackup();
+          toast("JSON 备份已导出");
+        }
+
+        if (target.id === "chooseBackupButton") {
+          $("#backupFileInput").click();
+        }
+
+        if (target.id === "confirmBackupImportButton") {
+          if (!pendingBackupImport) {
+            toast("请先选择 JSON 备份");
+            return;
+          }
+          if (!confirm("确认用这个备份覆盖当前网站数据？")) return;
+          applyBackupData(pendingBackupImport);
+          if (!save()) return;
+          pendingBackupImport = null;
+          $("#backupPreview").innerHTML = "备份已导入。";
+          $("#confirmBackupImportButton").classList.add("hidden");
+          applyAppearance();
+          renderCatalog();
+          renderAdmin();
+          toast("备份已覆盖导入");
         }
       });
 
@@ -3462,6 +3827,79 @@
         toast("分类已新增");
       });
 
+      $("#batchImageForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const files = Array.from($("#batchImageFiles").files || []);
+        if (!files.length) {
+          toast("请选择要批量上传的图片");
+          return;
+        }
+        const category = $("#batchImageCategory").value || categories[0];
+        const mode = $("#batchImageMode").value;
+        const titlePrefix = $("#batchImageTitle").value.trim() || "批量图片资料";
+        const status = $("#batchImageStatus").value || "draft";
+        try {
+          toast("正在读取批量图片，请稍等...");
+          const urls = await filesToDataUrls(files);
+          const baseOrder = Math.max(0, ...contents.filter((item) => item.category === category).map((item) => Number(item.order || 100))) + 10;
+          if (mode === "many") {
+            const rows = urls.map((url, index) => {
+              const fileTitle = files[index]?.name?.replace(/\.[^.]+$/, "") || `${titlePrefix} ${index + 1}`;
+              const title = titlePrefix === "批量图片资料" ? fileTitle : `${titlePrefix} ${index + 1}`;
+              const mediaItems = [normalizeMediaItem({ src: url, path: category, title, note: "" }, 0)];
+              return normalizeContent({
+                id: `batch-${Date.now()}-${index}`,
+                title,
+                category,
+                summary: "批量图片生成的资料，可继续编辑正文和标注。",
+                bodyHtml: "<p>批量图片生成的资料，可在后台继续补充说明。</p>",
+                image: url,
+                images: [url],
+                mediaItems,
+                videos: [],
+                attachments: [],
+                source: "批量上传图片",
+                order: baseOrder + index * 10,
+                status,
+                updatedAt: today()
+              });
+            });
+            contents = [...rows, ...contents];
+            toast(`已生成 ${rows.length} 条图片资料`);
+          } else {
+            const mediaItems = urls.map((url, index) => normalizeMediaItem({
+              src: url,
+              path: category,
+              title: files[index]?.name?.replace(/\.[^.]+$/, "") || `图片 ${index + 1}`,
+              note: ""
+            }, index));
+            contents = [normalizeContent({
+              id: `batch-${Date.now()}`,
+              title: titlePrefix,
+              category,
+              summary: `批量上传 ${mediaItems.length} 张图片，可继续编辑名称、标注和多级分类。`,
+              bodyHtml: `<p>本资料由批量上传生成，共 ${mediaItems.length} 张图片。</p>`,
+              image: mediaItems[0]?.src || fallbackImage,
+              images: mediaItems.map((media) => media.src),
+              mediaItems,
+              videos: [],
+              attachments: [],
+              source: "批量上传图片",
+              order: baseOrder,
+              status,
+              updatedAt: today()
+            }), ...contents];
+            toast(`已生成 1 篇多图资料，共 ${mediaItems.length} 张图片`);
+          }
+          $("#batchImageForm").reset();
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+        } catch {
+          toast("批量图片读取失败，请减少图片数量或压缩后重试");
+        }
+      });
+
       $("#contentForm").addEventListener("submit", (event) => {
         event.preventDefault();
         const id = $("#contentId").value || `content-${Date.now()}`;
@@ -3619,7 +4057,58 @@
         toast(`已追加 ${urls.length} 个视频预览`);
       });
 
+      $("#backupFileInput").addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          const raw = JSON.parse(await file.text());
+          pendingBackupImport = normalizeBackupData(raw);
+          $("#backupPreview").innerHTML = `
+            <table>
+              <tbody>
+                <tr><td>分类</td><td>${pendingBackupImport.categories.length} 个</td></tr>
+                <tr><td>资料</td><td>${pendingBackupImport.contents.length} 条</td></tr>
+                <tr><td>类目图片</td><td>${Object.keys(pendingBackupImport.categoryImages).length} 个</td></tr>
+                <tr><td>首页设置</td><td>${pendingBackupImport.appearance.brandTitle || defaultAppearance.brandTitle}</td></tr>
+              </tbody>
+            </table>
+            <p class="import-note">确认后会覆盖当前网站资料和首页设置。</p>
+          `;
+          $("#confirmBackupImportButton").classList.remove("hidden");
+          toast("备份读取成功，请确认是否覆盖导入");
+        } catch (error) {
+          pendingBackupImport = null;
+          $("#backupPreview").innerHTML = `<p class="import-note">备份读取失败：${escapeHtml(error.message || "文件格式不正确")}</p>`;
+          $("#confirmBackupImportButton").classList.add("hidden");
+          toast("备份读取失败");
+        } finally {
+          event.target.value = "";
+        }
+      });
+
       document.addEventListener("change", (event) => {
+        const categoryNameInput = event.target.closest("[data-home-category-name]");
+        if (categoryNameInput) {
+          if (!requireSuperAdmin()) {
+            renderHomeCategoryRows();
+            return;
+          }
+          const oldName = categoryNameInput.dataset.homeCategoryName;
+          const nextName = categoryNameInput.value.trim();
+          if (!nextName || (nextName !== oldName && categories.includes(nextName))) {
+            toast(!nextName ? "分类名称不能为空" : "分类名称已存在");
+            renderHomeCategoryRows();
+            return;
+          }
+          if (nextName === oldName) return;
+          renameCategory(oldName, nextName);
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("首页类目名称已保存");
+          return;
+        }
+
         const descriptionInput = event.target.closest("[data-category-description]");
         if (descriptionInput) {
           if (!requireSuperAdmin()) return;
