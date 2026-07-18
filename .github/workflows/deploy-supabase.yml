@@ -2,6 +2,11 @@ name: Deploy Supabase backend
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - ".github/workflows/deploy-supabase.yml"
 
 permissions:
   contents: read
@@ -35,3 +40,5 @@ jobs:
           pnpm dlx supabase@latest functions deploy restore-revision --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy save-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy migrate-legacy --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy batch-content --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy duplicate-content --project-ref "$PROJECT_REF"

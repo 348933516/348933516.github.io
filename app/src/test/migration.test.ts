@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const migration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719010000_professional_backend.sql"), "utf8");
 const freezeLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/manual/freeze-legacy-after-cutover.sql"), "utf8");
 const migrateLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/migrate-legacy/index.ts"), "utf8");
+const removeOfficialAssets = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719020000_remove_official_assets.sql"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -39,5 +40,11 @@ describe("Supabase security migration", () => {
     expect(migrateLegacy).toContain("migration-backups/site-state-");
     expect(migrateLegacy).toContain("Content count mismatch");
     expect(migrateLegacy).toContain("migration_completed: true");
+  });
+
+  it("removes bundled theme references without clearing uploaded backgrounds", () => {
+    expect(removeOfficialAssets).toContain("like 'official/%'");
+    expect(removeOfficialAssets).toContain("drop column if exists hero_background_path");
+    expect(removeOfficialAssets).not.toContain("page_background_path = null");
   });
 });
