@@ -344,6 +344,11 @@
         padding: 0 12px;
       }
 
+      .select option {
+        color: #101820;
+        background: #f7faf7;
+      }
+
       .textarea {
         min-height: 126px;
         padding: 12px;
@@ -1080,6 +1085,24 @@
         grid-column: 1 / -1;
       }
 
+      .checkbox-line {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--soft);
+      }
+
+      .checkbox-line.full {
+        grid-column: 1 / -1;
+      }
+
+      .checkbox-line input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--teal);
+      }
+
       label {
         color: var(--muted);
         font-size: 13px;
@@ -1206,7 +1229,7 @@
               <span>业务与地图资料中心</span>
             </span>
           </a>
-          <button class="text-button" id="authButton"><i data-lucide="shield"></i>管理员</button>
+          <button class="text-button" id="authButton"><i data-lucide="log-in"></i>登陆</button>
         </div>
       </header>
 
@@ -1224,6 +1247,7 @@
           <div class="admin-menu">
             <button class="nav-button active" data-panel="dashboard"><i data-lucide="gauge"></i>仪表盘</button>
             <button class="nav-button" data-panel="contents"><i data-lucide="database"></i>内容管理</button>
+            <button class="nav-button" data-panel="categories"><i data-lucide="folder-tree"></i>分类管理</button>
             <button class="nav-button" data-panel="import"><i data-lucide="file-input"></i>导入内容</button>
             <button class="nav-button" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
             <button class="nav-button" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
@@ -1279,6 +1303,36 @@
                   </tr>
                 </thead>
                 <tbody id="contentRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="admin-panel" data-admin-panel="categories">
+            <div class="section-head">
+              <div>
+                <h2>分类管理</h2>
+                <p>可自定义首页类目名称；改名会同步更新该分类下的内容。</p>
+              </div>
+            </div>
+            <div class="panel-card" style="margin-bottom:16px">
+              <form class="form-grid" id="categoryForm">
+                <div class="form-field full">
+                  <label for="categoryName">新增分类名称</label>
+                  <input class="input" id="categoryName" placeholder="例如：装备展示、任务地图、活动副本" required>
+                </div>
+                <button class="text-button primary" type="submit"><i data-lucide="folder-plus"></i>新增分类</button>
+              </form>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>分类名称</th>
+                    <th>前台资料</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="categoryRows"></tbody>
               </table>
             </div>
           </section>
@@ -1410,13 +1464,17 @@
           <form class="form-grid" id="loginForm" data-auth-panel="login">
             <div class="form-field full">
               <label for="loginUser">账号</label>
-              <input class="input" id="loginUser" value="admin" autocomplete="username">
+              <input class="input" id="loginUser" autocomplete="off" placeholder="请输入账号">
             </div>
             <div class="form-field full">
               <label for="loginPass">密码</label>
-              <input class="input" id="loginPass" type="password" value="admin123" autocomplete="current-password">
+              <input class="input" id="loginPass" type="password" autocomplete="off" placeholder="请输入密码">
             </div>
-            <button class="text-button primary" type="submit"><i data-lucide="log-in"></i>登录</button>
+            <label class="checkbox-line full">
+              <input id="rememberLogin" type="checkbox">
+              <span>保存账号密码</span>
+            </label>
+            <button class="text-button primary" type="submit"><i data-lucide="log-in"></i>登陆</button>
           </form>
 
           <form class="form-grid hidden" id="registerForm" data-auth-panel="register">
@@ -1590,10 +1648,12 @@
     <div class="toast" id="toast"></div>
 
     <script>
-      const categories = ["WZ业务目录", "定制地图展示", "BOSS配套地图展示", "系列地图"];
+      const defaultCategories = ["WZ业务目录", "定制地图展示", "BOSS配套地图展示", "系列地图"];
       const contentKey = "maplestorynk.contents.v4";
       const adminKey = "maplestorynk.admins.v4";
+      const categoryKey = "maplestorynk.categories.v4";
       const sessionKey = "maplestorynk.session.v4";
+      const rememberKey = "maplestorynk.rememberLogin.v4";
       const fallbackImage = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
 
       const starterContents = [
@@ -1670,6 +1730,7 @@
       const $ = (selector) => document.querySelector(selector);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
+      let categories = normalizeCategories(loadCollection(categoryKey, [], defaultCategories));
       let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map(normalizeContent);
       let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
       let currentAdmin = JSON.parse(localStorage.getItem(sessionKey) || localStorage.getItem("maplestorynk.session.v3") || "null");
@@ -1690,6 +1751,11 @@
           }
         }
         return fallback;
+      }
+
+      function normalizeCategories(items) {
+        const cleaned = uniqueList((items || []).map((item) => String(item || "").trim()));
+        return cleaned.length ? cleaned : [...defaultCategories];
       }
 
       function normalizeContent(item) {
@@ -1734,6 +1800,7 @@
         try {
           localStorage.setItem(contentKey, JSON.stringify(contents));
           localStorage.setItem(adminKey, JSON.stringify(admins));
+          localStorage.setItem(categoryKey, JSON.stringify(categories));
           localStorage.setItem(sessionKey, JSON.stringify(currentAdmin));
           return true;
         } catch {
@@ -1980,11 +2047,11 @@
           const categoryTiles = categories.map((category) => {
             const count = contents.filter((item) => item.status === "published" && item.category === category).length;
             return `
-              <button class="category-tile" data-category="${category}">
+              <button class="category-tile" data-category="${escapeHtml(category)}">
                 <span class="category-tile-icon"><i data-lucide="${categoryIcon(category)}"></i></span>
                 <span>
-                  <h3>${category}</h3>
-                  <p>${categoryDescription(category)}</p>
+                  <h3>${escapeHtml(category)}</h3>
+                  <p>${escapeHtml(categoryDescription(category))}</p>
                 </span>
                 <span class="category-tile-footer">
                   <span>${count} 条资料</span>
@@ -2036,13 +2103,13 @@
           <section>
             <div class="category-browser-head">
               <div>
-                <h1>${selectedCategory}</h1>
-                <p>${categoryDescription(selectedCategory)}</p>
+                <h1>${escapeHtml(selectedCategory)}</h1>
+                <p>${escapeHtml(categoryDescription(selectedCategory))}</p>
               </div>
               <button class="text-button" data-category-home><i data-lucide="arrow-left"></i>返回类目</button>
             </div>
             <div class="catalog-tools">
-              <input class="input" id="searchInput" type="search" value="${escapeHtml(keyword)}" placeholder="搜索 ${selectedCategory}">
+              <input class="input" id="searchInput" type="search" value="${escapeHtml(keyword)}" placeholder="搜索 ${escapeHtml(selectedCategory)}">
               <button class="text-button" id="resetButton"><i data-lucide="rotate-ccw"></i>重置</button>
             </div>
             <div class="lane">
@@ -2128,11 +2195,12 @@
         renderSelects();
         renderMetrics();
         renderAdminTables();
+        renderCategoryRows();
         icon();
       }
 
       function renderSelects() {
-        const options = categories.map((category) => `<option value="${category}">${category}</option>`).join("");
+        const options = categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
         ["contentCategory", "docCategory", "urlCategory", "previewCategory"].forEach((id) => $("#" + id).innerHTML = options);
       }
 
@@ -2146,6 +2214,24 @@
           ["导入内容", imported],
           ["管理员", admins.length]
         ].map(([label, value]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
+      }
+
+      function renderCategoryRows() {
+        $("#categoryRows").innerHTML = categories.map((category) => {
+          const count = contents.filter((item) => item.category === category).length;
+          return `
+            <tr>
+              <td>${escapeHtml(category)}</td>
+              <td>${count} 条</td>
+              <td>
+                <div class="actions">
+                  <button class="icon-button" data-edit-category="${escapeHtml(category)}" aria-label="修改分类名称"><i data-lucide="pencil"></i></button>
+                  <button class="icon-button danger" data-delete-category="${escapeHtml(category)}" aria-label="删除分类"><i data-lucide="trash-2"></i></button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join("");
       }
 
       function renderAdminTables() {
@@ -2244,6 +2330,25 @@
         if (isSuperAdmin()) return true;
         toast("需要超级管理员权限");
         return false;
+      }
+
+      function renameCategory(oldName, nextName) {
+        categories = categories.map((category) => category === oldName ? nextName : category);
+        contents = contents.map((item) => {
+          if (item.category !== oldName) return item;
+          return {
+            ...item,
+            category: nextName,
+            mediaItems: (item.mediaItems || []).map((media, index) => {
+              const normalized = normalizeMediaItem(media, index);
+              const nextPath = normalized.path === oldName || normalized.path.startsWith(`${oldName}/`)
+                ? normalized.path.replace(oldName, nextName)
+                : normalized.path;
+              return { ...normalized, path: nextPath };
+            })
+          };
+        });
+        if (selectedCategory === oldName) selectedCategory = nextName;
       }
 
       function setImportStatus(text, percent) {
@@ -2410,6 +2515,19 @@
         $("#contentBody").value = htmlToText($("#richEditor").innerHTML);
       }
 
+      function loadRememberedLogin() {
+        try {
+          const remembered = JSON.parse(localStorage.getItem(rememberKey) || "null");
+          $("#loginUser").value = remembered?.user || "";
+          $("#loginPass").value = remembered?.pass || "";
+          $("#rememberLogin").checked = Boolean(remembered?.user && remembered?.pass);
+        } catch {
+          $("#loginUser").value = "";
+          $("#loginPass").value = "";
+          $("#rememberLogin").checked = false;
+        }
+      }
+
       document.addEventListener("click", (event) => {
         const target = event.target.closest("button, a, img[data-lightbox]");
         if (!target) return;
@@ -2418,7 +2536,10 @@
 
         if (target.id === "authButton") {
           if (currentAdmin) setView("admin");
-          else showModal("authModal");
+          else {
+            loadRememberedLogin();
+            showModal("authModal");
+          }
         }
 
         if (target.id === "brandHome") {
@@ -2508,6 +2629,43 @@
             renderAdmin();
             toast("内容已删除");
           }
+        }
+
+        if (target.dataset.editCategory) {
+          if (!requireSuperAdmin()) return;
+          const oldName = target.dataset.editCategory;
+          const nextName = prompt("输入新的分类名称", oldName)?.trim();
+          if (!nextName || nextName === oldName) return;
+          if (categories.includes(nextName)) {
+            toast("分类名称已存在");
+            return;
+          }
+          renameCategory(oldName, nextName);
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("分类已改名");
+        }
+
+        if (target.dataset.deleteCategory) {
+          if (!requireSuperAdmin()) return;
+          const name = target.dataset.deleteCategory;
+          const count = contents.filter((item) => item.category === name).length;
+          if (count > 0) {
+            toast("分类下还有内容，请先改名或移动内容");
+            return;
+          }
+          if (categories.length <= 1) {
+            toast("至少保留一个分类");
+            return;
+          }
+          if (!confirm(`删除分类「${name}」？`)) return;
+          categories = categories.filter((category) => category !== name);
+          if (selectedCategory === name) selectedCategory = null;
+          if (!save()) return;
+          renderCatalog();
+          renderAdmin();
+          toast("分类已删除");
         }
 
         if (target.id === "addAdminButton") {
@@ -2607,6 +2765,12 @@
           return;
         }
         currentAdmin = { id: admin.id, name: admin.name, role: admin.role };
+        if ($("#rememberLogin").checked) {
+          localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
+        } else {
+          localStorage.removeItem(rememberKey);
+          $("#loginPass").value = "";
+        }
         save();
         closeModal("authModal");
         setView("admin");
@@ -2634,6 +2798,23 @@
         renderAdmin();
         toast("注册成功，可直接登录");
         $("[data-auth-tab='login']").click();
+      });
+
+      $("#categoryForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!requireSuperAdmin()) return;
+        const name = $("#categoryName").value.trim();
+        if (!name) return;
+        if (categories.includes(name)) {
+          toast("分类名称已存在");
+          return;
+        }
+        categories = [...categories, name];
+        $("#categoryName").value = "";
+        if (!save()) return;
+        renderCatalog();
+        renderAdmin();
+        toast("分类已新增");
       });
 
       $("#contentForm").addEventListener("submit", (event) => {
