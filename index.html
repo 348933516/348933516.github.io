@@ -1178,6 +1178,34 @@
         gap: 8px;
       }
 
+      .auth-help {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .auth-help .text-button {
+        justify-content: center;
+        width: 100%;
+      }
+
+      .auth-note {
+        margin: -2px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .recovery-box {
+        margin-top: 4px;
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+        border: 1px solid rgba(69, 217, 179, 0.22);
+        border-radius: 8px;
+        background: rgba(69, 217, 179, 0.07);
+      }
+
       .toast {
         position: fixed;
         right: 18px;
@@ -1190,6 +1218,8 @@
         color: #eafff8;
         background: rgba(16, 24, 32, 0.96);
         box-shadow: var(--shadow);
+        max-width: min(560px, calc(100vw - 36px));
+        line-height: 1.5;
       }
 
       .toast.active {
@@ -1250,6 +1280,10 @@
         }
 
         .category-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .auth-help {
           grid-template-columns: 1fr;
         }
 
@@ -1649,6 +1683,18 @@
               <span>保存账号密码</span>
             </label>
             <button class="text-button primary" type="submit"><i data-lucide="log-in"></i>登陆</button>
+            <div class="auth-help full">
+              <button class="text-button" type="button" id="resetPasswordButton"><i data-lucide="key-round"></i>发送重置密码邮件</button>
+              <button class="text-button" type="button" id="magicLinkButton"><i data-lucide="mail"></i>发送邮箱登录链接</button>
+            </div>
+            <p class="auth-note full">云端登录请使用 Supabase 里的邮箱账号。如果忘记密码，先发送重置密码邮件。</p>
+            <div class="recovery-box full hidden" id="recoveryBox">
+              <div class="form-field full">
+                <label for="newLoginPass">设置新密码</label>
+                <input class="input" id="newLoginPass" type="password" autocomplete="new-password" placeholder="至少 6 位新密码">
+              </div>
+              <button class="text-button primary" type="button" id="updatePasswordButton"><i data-lucide="save"></i>保存新密码并进入后台</button>
+            </div>
           </form>
 
           <form class="form-grid hidden" id="registerForm" data-auth-panel="register">
@@ -2130,11 +2176,85 @@
         if (window.lucide) window.lucide.createIcons();
       }
 
-      function toast(message) {
+      let toastTimer = null;
+
+      function toast(message, duration = 3600) {
         const node = $("#toast");
+        if (toastTimer) clearTimeout(toastTimer);
         node.textContent = message;
         node.classList.add("active");
-        setTimeout(() => node.classList.remove("active"), 2300);
+        toastTimer = setTimeout(() => node.classList.remove("active"), duration);
+      }
+
+      function supabaseErrorText(error) {
+        if (!error) return "未知错误";
+        const status = error.status ? ` (${error.status})` : "";
+        return `${error.message || "未知错误"}${status}`;
+      }
+
+      function getLoginEmail() {
+        const email = $("#loginUser").value.trim();
+        if (!email || !email.includes("@")) {
+          toast("请先在账号栏输入 Supabase 邮箱，例如 348933516@qq.com");
+          return "";
+        }
+        return email;
+      }
+
+      function isSupabaseCallbackUrl() {
+        const hash = window.location.hash || "";
+        const search = window.location.search || "";
+        return hash.includes("access_token") || hash.includes("type=recovery") || search.includes("code=");
+      }
+
+      function isPasswordRecoveryUrl() {
+        return (window.location.hash || "").includes("type=recovery") || (window.location.search || "").includes("type=recovery");
+      }
+
+      function clearAuthCallbackUrl() {
+        if (!isSupabaseCallbackUrl()) return;
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      async function enterCloudAdmin(user, message = "已通过 Supabase 进入后台") {
+        if (!user) return;
+        currentAdmin = {
+          id: user.id,
+          name: user.user_metadata?.username || user.email,
+          email: user.email,
+          role: "超级管理员",
+          cloud: true
+        };
+        closeModal("authModal");
+        await loadCloudState();
+        await saveCloudState();
+        setView("admin");
+        toast(message);
+      }
+
+      async function handleSupabaseCallback() {
+        if (!supabaseClient || !isSupabaseCallbackUrl()) return;
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) {
+          console.warn("[Supabase auth] getSession failed", error);
+          toast("邮箱链接登录失败：" + supabaseErrorText(error), 7000);
+          return;
+        }
+        const user = data.session?.user;
+        if (!user) {
+          toast("邮箱链接已打开，但没有拿到登录状态。请重新发送链接再试。", 7000);
+          return;
+        }
+        if (isPasswordRecoveryUrl()) {
+          $("#loginUser").value = user.email || "";
+          $("#recoveryBox").classList.remove("hidden");
+          showModal("authModal");
+          toast("请输入新密码，然后点击保存新密码。", 7000);
+          clearAuthCallbackUrl();
+          return;
+        }
+        clearAuthCallbackUrl();
+        await enterCloudAdmin(user, "已通过邮箱链接进入后台");
       }
 
       function showModal(id) {
@@ -2906,6 +3026,8 @@
 
         if (target.id === "authButton") {
           currentAdmin = null;
+          $("#recoveryBox").classList.add("hidden");
+          $("#newLoginPass").value = "";
           loadRememberedLogin();
           showModal("authModal");
         }
@@ -3172,35 +3294,28 @@
         }
       });
 
-      $("#loginForm").addEventListener("submit", (event) => {
+      $("#loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const user = $("#loginUser").value.trim();
         const pass = $("#loginPass").value.trim();
         if (supabaseClient && user.includes("@")) {
-          supabaseClient.auth.signInWithPassword({ email: user, password: pass }).then(async ({ data, error }) => {
-            if (error) {
-              toast("Supabase 登录失败，请检查邮箱和密码");
-              return;
-            }
-            currentAdmin = {
-              id: data.user.id,
-              name: data.user.user_metadata?.username || data.user.email,
-              email: data.user.email,
-              role: "超级管理员",
-              cloud: true
-            };
-            if ($("#rememberLogin").checked) {
-              localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
-            } else {
-              localStorage.removeItem(rememberKey);
-              $("#loginPass").value = "";
-            }
-            closeModal("authModal");
-            await loadCloudState();
-            await saveCloudState();
-            setView("admin");
-            toast("已通过 Supabase 进入后台");
-          });
+          if (!pass) {
+            toast("请输入 Supabase 邮箱对应的密码；忘记密码可以点“发送重置密码邮件”。");
+            return;
+          }
+          const { data, error } = await supabaseClient.auth.signInWithPassword({ email: user, password: pass });
+          if (error) {
+            console.warn("[Supabase auth] signInWithPassword failed", error);
+            toast("Supabase 登录失败：" + supabaseErrorText(error), 7000);
+            return;
+          }
+          if ($("#rememberLogin").checked) {
+            localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
+          } else {
+            localStorage.removeItem(rememberKey);
+            $("#loginPass").value = "";
+          }
+          await enterCloudAdmin(data.user);
           return;
         }
         const admin = admins.find((entry) => entry.name === user && entry.password === pass && entry.state === "启用");
@@ -3219,6 +3334,67 @@
         closeModal("authModal");
         setView("admin");
         toast("已进入后台");
+      });
+
+      $("#resetPasswordButton").addEventListener("click", async () => {
+        if (!supabaseClient) {
+          toast("Supabase 还没有加载完成，请刷新页面后再试。");
+          return;
+        }
+        const email = getLoginEmail();
+        if (!email) return;
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+          redirectTo: "https://maplestorynk.online"
+        });
+        if (error) {
+          console.warn("[Supabase auth] resetPasswordForEmail failed", error);
+          toast("重置密码邮件发送失败：" + supabaseErrorText(error), 7000);
+          return;
+        }
+        toast("重置密码邮件已发送，请打开邮箱按邮件设置新密码。", 7000);
+      });
+
+      $("#magicLinkButton").addEventListener("click", async () => {
+        if (!supabaseClient) {
+          toast("Supabase 还没有加载完成，请刷新页面后再试。");
+          return;
+        }
+        const email = getLoginEmail();
+        if (!email) return;
+        const { error } = await supabaseClient.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: "https://maplestorynk.online" }
+        });
+        if (error) {
+          console.warn("[Supabase auth] signInWithOtp failed", error);
+          toast("邮箱登录链接发送失败：" + supabaseErrorText(error), 7000);
+          return;
+        }
+        toast("邮箱登录链接已发送，请打开邮箱点击登录链接。", 7000);
+      });
+
+      $("#updatePasswordButton").addEventListener("click", async () => {
+        if (!supabaseClient) {
+          toast("Supabase 还没有加载完成，请刷新页面后再试。");
+          return;
+        }
+        const password = $("#newLoginPass").value.trim();
+        if (password.length < 6) {
+          toast("新密码至少需要 6 位。");
+          return;
+        }
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) {
+          console.warn("[Supabase auth] updateUser failed", error);
+          toast("新密码保存失败：" + supabaseErrorText(error), 7000);
+          return;
+        }
+        const { data } = await supabaseClient.auth.getUser();
+        $("#newLoginPass").value = "";
+        $("#loginPass").value = "";
+        $("#recoveryBox").classList.add("hidden");
+        clearAuthCallbackUrl();
+        await enterCloudAdmin(data.user, "新密码已保存，已进入后台");
       });
 
       $("#registerForm").addEventListener("submit", (event) => {
@@ -3536,6 +3712,7 @@
       renderAdmin();
       save();
       loadCloudState();
+      handleSupabaseCallback();
     </script>
   </body>
 </html>
