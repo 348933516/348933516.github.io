@@ -2059,7 +2059,7 @@
       let categories = normalizeCategories(loadCollection(categoryKey, [], defaultCategories));
       let categoryImages = loadObject(categoryImageKey, {});
       let categoryTexts = loadObject(categoryTextKey, {});
-      let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map(normalizeContent);
+      let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map((item) => normalizeContent(item));
       let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
       localStorage.removeItem(sessionKey);
       localStorage.removeItem("maplestorynk.session.v3");
@@ -2101,7 +2101,8 @@
         return cleaned.length ? cleaned : [...defaultCategories];
       }
 
-      function normalizeContent(item, allowedCategories = categories) {
+      function normalizeContent(item, allowedCategories = null) {
+        const categoryList = Array.isArray(allowedCategories) && allowedCategories.length ? allowedCategories : categories;
         const status = item.status === "visible" ? "published" : item.status || "published";
         const images = uniqueList([...(Array.isArray(item.images) ? item.images : []), item.image].filter(Boolean));
         const videos = uniqueList([...(Array.isArray(item.videos) ? item.videos : []), item.video].filter(Boolean));
@@ -2111,7 +2112,7 @@
         return {
           id: item.id || `content-${Date.now()}-${Math.random()}`,
           title: item.title || "未命名内容",
-          category: allowedCategories.includes(item.category) ? item.category : allowedCategories[0],
+          category: categoryList.includes(item.category) ? item.category : categoryList[0],
           summary: item.summary || item.detail || "暂无简介",
           bodyHtml: item.bodyHtml || textToHtml(item.detail || item.summary || ""),
           image: images[0] || item.image || fallbackImage,
@@ -2174,7 +2175,7 @@
         categoryImages = data.categoryImages || {};
         categoryTexts = data.categoryTexts || {};
         appearance = { ...defaultAppearance, ...(data.appearance || {}) };
-        contents = Array.isArray(data.contents) && data.contents.length ? data.contents.map(normalizeContent) : contents;
+        contents = Array.isArray(data.contents) && data.contents.length ? data.contents.map((item) => normalizeContent(item)) : contents;
       }
 
       function persistLocalOnly() {
@@ -3048,7 +3049,7 @@
         categoryImages = data.categoryImages || {};
         categoryTexts = data.categoryTexts || {};
         appearance = { ...defaultAppearance, ...(data.appearance || {}) };
-        contents = (data.contents || []).map(normalizeContent);
+        contents = (data.contents || []).map((item) => normalizeContent(item));
         selectedCategory = null;
         selectedContentId = null;
       }
