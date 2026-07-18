@@ -1,0 +1,37 @@
+name: Deploy Supabase backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: edznwgvyqpsibnkqqeby
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Link project
+        run: pnpm dlx supabase@latest link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Apply migrations
+        run: |
+          pnpm dlx supabase@latest config push --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
+      - name: Deploy functions
+        run: |
+          pnpm dlx supabase@latest functions deploy invite-admin --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy update-admin --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy import-url --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy publish-content --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy restore-revision --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy save-content --project-ref "$PROJECT_REF"

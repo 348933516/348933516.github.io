@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MapleStoryNK 资料目录</title>
     <meta name="description" content="MapleStoryNK WZ业务、定制地图、BOSS配套地图与系列地图资料目录">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
       :root {
@@ -1416,7 +1419,7 @@
             <button class="nav-button" data-panel="appearance"><i data-lucide="home"></i>首页编辑</button>
             <button class="nav-button" data-panel="import"><i data-lucide="file-input"></i>导入内容</button>
             <button class="nav-button" data-panel="tools"><i data-lucide="wrench"></i>工具备份</button>
-            <button class="nav-button" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
+            <button class="nav-button hidden" data-panel="admins"><i data-lucide="users"></i>账号权限</button>
             <button class="nav-button" id="backToSite"><i data-lucide="monitor"></i>返回前台</button>
           </div>
         </aside>
@@ -1812,7 +1815,6 @@
         <div class="modal-content">
           <div class="auth-tabs">
             <button class="seg-button active" data-auth-tab="login"><i data-lucide="log-in"></i>登录</button>
-            <button class="seg-button" data-auth-tab="register"><i data-lucide="user-plus"></i>注册</button>
           </div>
 
           <form class="form-grid" id="loginForm" data-auth-panel="login">
@@ -1826,14 +1828,14 @@
             </div>
             <label class="checkbox-line full">
               <input id="rememberLogin" type="checkbox">
-              <span>保存账号密码</span>
+              <span>只记住邮箱，不保存密码</span>
             </label>
             <button class="text-button primary full" type="submit"><i data-lucide="log-in"></i>登陆</button>
             <div class="auth-help full">
               <button class="text-button" type="button" id="resetPasswordButton"><i data-lucide="key-round"></i>发送重置密码邮件</button>
               <button class="text-button" type="button" id="magicLinkButton"><i data-lucide="mail"></i>发送邮箱登录链接</button>
             </div>
-            <p class="auth-note full">云端登录请使用 Supabase 里的邮箱账号。如果忘记密码，先发送重置密码邮件。</p>
+            <p class="auth-note full">后台账号由超级管理员邀请。云端登录请使用 Supabase 邮箱；如果忘记密码，可发送重置邮件。</p>
             <div class="recovery-box full hidden" id="recoveryBox">
               <div class="form-field full">
                 <label for="newLoginPass">设置新密码</label>
@@ -2108,9 +2110,8 @@
         }
       ];
 
-      const starterAdmins = [
-        { id: "admin-1", name: "admin", password: "admin123", email: "admin@maplestorynk.online", role: "超级管理员", state: "启用", createdAt: "2026-07-18" }
-      ];
+      const starterAdmins = [];
+      const legacyOwnerEmail = "348933516@qq.com";
 
       const $ = (selector) => document.querySelector(selector);
       const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -2120,7 +2121,8 @@
       let categoryImages = loadObject(categoryImageKey, {});
       let categoryTexts = loadObject(categoryTextKey, {});
       let contents = loadCollection(contentKey, ["maplestorynk.contents.v3", "maplestorynk.contents.v2"], starterContents).map((item) => normalizeContent(item));
-      let admins = loadCollection(adminKey, ["maplestorynk.admins.v3", "maplestorynk.admins.v2"], starterAdmins).map(normalizeAdmin);
+      let admins = [...starterAdmins];
+      localStorage.removeItem(adminKey);
       localStorage.removeItem(sessionKey);
       localStorage.removeItem("maplestorynk.session.v3");
       let appearance = loadObject(appearanceKey, defaultAppearance);
@@ -2174,7 +2176,7 @@
           title: item.title || "未命名内容",
           category: categoryList.includes(item.category) ? item.category : categoryList[0],
           summary: item.summary || item.detail || "暂无简介",
-          bodyHtml: item.bodyHtml || textToHtml(item.detail || item.summary || ""),
+          bodyHtml: sanitizeRichHtml(item.bodyHtml || textToHtml(item.detail || item.summary || "")),
           image: images[0] || item.image || fallbackImage,
           images: images.length ? images : [item.image || fallbackImage],
           video: videos[0] || item.video || "",
@@ -2186,6 +2188,25 @@
           status,
           updatedAt: item.updatedAt || today()
         };
+      }
+
+      function sanitizeRichHtml(value) {
+        const source = String(value || "");
+        if (!window.DOMPurify) return textToHtml(htmlToText(source));
+        const clean = window.DOMPurify.sanitize(source, {
+          ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span"],
+          ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class"],
+          ALLOW_DATA_ATTR: false
+        });
+        const template = document.createElement("template");
+        template.innerHTML = clean;
+        template.content.querySelectorAll("[href],[src]").forEach((node) => {
+          for (const attribute of ["href", "src"]) {
+            const url = node.getAttribute(attribute);
+            if (url && !/^(https:\/\/|#)/i.test(url)) node.removeAttribute(attribute);
+          }
+        });
+        return template.innerHTML;
       }
 
       function normalizeAdmin(admin) {
@@ -2203,7 +2224,7 @@
       function save() {
         try {
           localStorage.setItem(contentKey, JSON.stringify(contents));
-          localStorage.setItem(adminKey, JSON.stringify(admins));
+          localStorage.removeItem(adminKey);
           localStorage.setItem(categoryKey, JSON.stringify(categories));
           localStorage.setItem(categoryImageKey, JSON.stringify(categoryImages));
           localStorage.setItem(categoryTextKey, JSON.stringify(categoryTexts));
@@ -2248,7 +2269,8 @@
       }
 
       async function loadCloudState() {
-        if (!supabaseClient) return;
+        cloudReady = false;
+        if (!supabaseClient) return false;
         try {
           const { data, error } = await supabaseClient
             .from("site_state")
@@ -2257,7 +2279,7 @@
             .maybeSingle();
           if (error) {
             console.warn("[Supabase] site_state not ready", error.message);
-            return;
+            return false;
           }
           if (data?.data) {
             applyCloudState(data.data);
@@ -2267,20 +2289,22 @@
             renderAdmin();
             cloudReady = true;
             toast("已读取云端共享数据");
+            return true;
           }
         } catch (error) {
           console.warn("[Supabase] load failed", error);
         }
+        return false;
       }
 
       function queueCloudSave() {
-        if (!supabaseClient || !currentAdmin?.cloud) return;
+        if (!supabaseClient || !currentAdmin?.cloud || !cloudReady) return;
         clearTimeout(cloudSaveTimer);
         cloudSaveTimer = setTimeout(saveCloudState, 650);
       }
 
       async function saveCloudState() {
-        if (!supabaseClient || !currentAdmin?.cloud) return;
+        if (!supabaseClient || !currentAdmin?.cloud || !cloudReady) return;
         try {
           const { error } = await supabaseClient
             .from("site_state")
@@ -2377,6 +2401,10 @@
         };
       }
 
+      function isLegacyOwner(user) {
+        return String(user?.email || "").toLowerCase() === legacyOwnerEmail;
+      }
+
       function hideAccountMenu() {
         $("#accountMenu").classList.add("hidden");
         $("#authButton").setAttribute("aria-expanded", "false");
@@ -2407,6 +2435,11 @@
           return;
         }
         if (!data.session?.user) return;
+        if (!isLegacyOwner(data.session.user)) {
+          await supabaseClient.auth.signOut();
+          toast("此账号尚未获得旧版后台权限，请联系超级管理员。", 7000);
+          return;
+        }
         currentAdmin = cloudAdminFromUser(data.session.user);
         renderAuthState();
         renderAdmin();
@@ -2431,11 +2464,21 @@
 
       async function enterCloudAdmin(user, message = "已通过 Supabase 进入后台") {
         if (!user) return;
+        if (!isLegacyOwner(user)) {
+          await supabaseClient.auth.signOut();
+          currentAdmin = null;
+          renderAuthState();
+          toast("此账号尚未获得旧版后台权限，请联系超级管理员。", 7000);
+          return;
+        }
         currentAdmin = cloudAdminFromUser(user);
         renderAuthState();
         closeModal("authModal");
-        await loadCloudState();
-        await saveCloudState();
+        const loaded = await loadCloudState();
+        if (!loaded) {
+          toast("云端数据读取失败，已停止保存以防覆盖原有资料。", 7000);
+          return;
+        }
         setView("admin");
         toast(message);
       }
@@ -3275,7 +3318,7 @@
         const notice = data.warning ? `<p class="import-note">${escapeHtml(data.warning)}</p>` : "";
         $("#previewBody").innerHTML = `
           ${notice}
-          ${data.bodyHtml || "<p>未读取到正文，请在上方手动粘贴内容，或把腾讯文档导出为 Word 后上传。</p>"}
+          ${sanitizeRichHtml(data.bodyHtml) || "<p>未读取到正文，请在上方手动粘贴内容，或把腾讯文档导出为 Word 后上传。</p>"}
           ${previewImages ? `<h3>读取到的图片</h3><div class="gallery-grid">${previewImages}</div>` : ""}
         `;
       }
@@ -3427,8 +3470,9 @@
         try {
           const remembered = JSON.parse(localStorage.getItem(rememberKey) || "null");
           $("#loginUser").value = remembered?.user || "";
-          $("#loginPass").value = remembered?.pass || "";
-          $("#rememberLogin").checked = Boolean(remembered?.user && remembered?.pass);
+          $("#loginPass").value = "";
+          $("#rememberLogin").checked = Boolean(remembered?.user);
+          if (remembered?.pass) localStorage.setItem(rememberKey, JSON.stringify({ user: remembered.user || "" }));
         } catch {
           $("#loginUser").value = "";
           $("#loginPass").value = "";
@@ -3699,7 +3743,7 @@
             title: $("#previewTitle").value.trim(),
             category: $("#previewCategory").value,
             summary: htmlToText(bodyHtml).slice(0, 70) || "导入内容",
-            bodyHtml,
+            bodyHtml: sanitizeRichHtml(bodyHtml),
             images: importedMediaItems.map((media) => media.src),
             image: importedMediaItems[0]?.src || fallbackImage,
             mediaItems: importedMediaItems,
@@ -3817,7 +3861,7 @@
             return;
           }
           if ($("#rememberLogin").checked) {
-            localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
+            localStorage.setItem(rememberKey, JSON.stringify({ user }));
           } else {
             localStorage.removeItem(rememberKey);
             $("#loginPass").value = "";
@@ -3825,23 +3869,7 @@
           await enterCloudAdmin(data.user);
           return;
         }
-        const admin = admins.find((entry) => entry.name === user && entry.password === pass && entry.state === "启用");
-        if (!admin) {
-          toast("账号、密码或状态不正确");
-          return;
-        }
-        currentAdmin = { id: admin.id, name: admin.name, email: admin.email, role: admin.role };
-        renderAuthState();
-        if ($("#rememberLogin").checked) {
-          localStorage.setItem(rememberKey, JSON.stringify({ user, pass }));
-        } else {
-          localStorage.removeItem(rememberKey);
-          $("#loginPass").value = "";
-        }
-        save();
-        closeModal("authModal");
-        setView("admin");
-        toast("已进入后台");
+        toast("请输入受邀请的 Supabase 邮箱账号。", 7000);
       });
 
       $("#resetPasswordButton").addEventListener("click", async () => {
@@ -3871,7 +3899,7 @@
         if (!email) return;
         const { error } = await supabaseClient.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: "https://maplestorynk.online" }
+          options: { emailRedirectTo: "https://maplestorynk.online", shouldCreateUser: false }
         });
         if (error) {
           console.warn("[Supabase auth] signInWithOtp failed", error);
@@ -3907,43 +3935,7 @@
 
       $("#registerForm").addEventListener("submit", (event) => {
         event.preventDefault();
-        const name = $("#registerUser").value.trim();
-        const email = $("#registerEmail").value.trim();
-        const password = $("#registerPass").value.trim();
-        if (supabaseClient && email) {
-          supabaseClient.auth.signUp({
-            email,
-            password,
-            options: { data: { username: name } }
-          }).then(({ error }) => {
-            if (error) {
-              toast("Supabase 注册失败：" + error.message);
-              return;
-            }
-            $("#registerForm").reset();
-            toast("注册成功，请用邮箱和密码登陆");
-            $("[data-auth-tab='login']").click();
-          });
-          return;
-        }
-        if (admins.some((entry) => entry.name === name)) {
-          toast("账号已存在");
-          return;
-        }
-        admins = [...admins, {
-          id: `admin-${Date.now()}`,
-          name,
-          password,
-          email,
-          role: "内容管理员",
-          state: "启用",
-          createdAt: today()
-        }];
-        save();
-        $("#registerForm").reset();
-        renderAdmin();
-        toast("注册成功，可直接登录");
-        $("[data-auth-tab='login']").click();
+        toast("后台已关闭公开注册，请由超级管理员发送邀请。", 7000);
       });
 
       $("#categoryForm").addEventListener("submit", (event) => {
@@ -4049,7 +4041,7 @@
           title: $("#contentTitle").value.trim(),
           category: $("#contentCategory").value,
           summary: $("#contentSummary").value.trim(),
-          bodyHtml: $("#richEditor").innerHTML.trim() || textToHtml($("#contentBody").value.trim()),
+          bodyHtml: sanitizeRichHtml($("#richEditor").innerHTML.trim() || textToHtml($("#contentBody").value.trim())),
           images,
           image: images[0] || fallbackImage,
           videos,
