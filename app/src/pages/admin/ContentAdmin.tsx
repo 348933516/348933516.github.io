@@ -1,0 +1,211 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArchiveRestore, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronLeft, ChevronRight,
+  Copy, Database, Eye, FileImage, FilePenLine, FileText, FolderOpen, Gauge, ImagePlus,
+  Layers3, Link2, LoaderCircle, Plus, RefreshCcw, Save, Search, Trash2, Upload, X
+} from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { RichEditor } from "../../components/RichEditor";
+import { privateMediaBucket, publicMediaBucket } from "../../lib/config";
+import { readDocument, readWebPage } from "../../lib/documents";
+import { randomId } from "../../lib/id";
+import {
+  batchContent, changeContentStatus, duplicateContent, loadAdminContent, loadAdminContents,
+  publishContent, saveContent
+} from "../../lib/repository";
+import { slugify } from "../../lib/sanitize";
+import { supabase } from "../../lib/supabase";
+import { imageDimensions, imageToWebp, uploadWithProgress, validateUpload } from "../../lib/uploads";
+import type { Category, ContentDraft, ContentItem, ContentStatus, Profile } from "../../types";
+import {
+  AdminEmpty, AdminLoading, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
+  formatDate, messageOf, publicAssetUrl, roleText, StatusBadge, statusText, useAdminCategories
+} from "./shared";
+
+const pageSize = 20;
+
+export function DashboardPage({ profile }: { profile: Profile }) {
+  const contents = useQuery({ queryKey: ["admin-contents"], queryFn: loadAdminContents });
+  const logs = useQuery({ queryKey: ["dashboard-logs"], queryFn: async () => {
+    const { data, error } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(8);
+    if (error) throw error; return data || [];
+  } });
+  const storage = useQuery({ queryKey: ["dashboard-storage"], queryFn: async () => {
+    const [media, attachments] = await Promise.all([
+      supabase.from("content_media").select("size_bytes"), supabase.from("attachments").select("size_bytes")
+    ]);
+    if (media.error) throw media.error; if (attachments.error) throw attachments.error;
+    return [...(media.data || []), ...(attachments.data || [])].reduce((sum, row) => sum + Number(row.size_bytes || 0), 0);
+  } });
+  if (contents.isLoading) return <AdminLoading label="正在准备工作台" />;
+  const items = contents.data || [];
+  const count = (status: ContentStatus) => items.filter((item) => item.status === status).length;
+  return <div className="admin-page-stack"><header className="admin-page-heading"><div><span>{profile.displayName} · {roleText[profile.role]}</span><h1>内容工作台</h1><p>集中处理草稿、发布状态和最近操作。</p></div>{canEdit(profile.role) && <Link className="button primary" to="/admin/contents/new"><Plus />新建资料</Link>}</header>
+    <div className="metric-row"><Link to="/admin/contents?status=published"><span>已发布</span><strong>{count("published")}</strong><small>前台可见内容</small></Link><Link to="/admin/contents?status=draft"><span>待处理草稿</span><strong>{count("draft")}</strong><small>继续编辑与发布</small></Link><Link to="/admin/contents?status=hidden"><span>隐藏内容</span><strong>{count("hidden")}</strong><small>仅后台可见</small></Link><Link to="/admin/media"><span>媒体容量</span><strong>{formatBytes(storage.data || 0)}</strong><small>图片、视频与附件</small></Link></div>
+    <div className="admin-dashboard-grid"><section className="admin-panel"><div className="panel-heading"><div><h2>待处理内容</h2><p>草稿和隐藏资料</p></div><Link to="/admin/contents">查看全部<ChevronRight /></Link></div><CompactContentList items={items.filter((item) => item.status === "draft" || item.status === "hidden").slice(0, 6)} /></section>
+      <section className="admin-panel"><div className="panel-heading"><div><h2>最近操作</h2><p>系统记录的后台变更</p></div><Link to="/admin/history">查看日志<ChevronRight /></Link></div><div className="activity-feed">{logs.data?.map((log) => <div key={log.id}><span className="activity-dot" /><div><strong>{actionText(String(log.action))}</strong><small>{String(log.entity_type)} · {String(log.entity_id).slice(0, 12)}</small></div><time>{formatDate(log.created_at)}</time></div>)}{!logs.data?.length && <AdminEmpty title="暂无操作记录" />}</div></section></div>
+  </div>;
+}
+
+function actionText(action: string) {
+  return ({ INSERT: "新增记录", UPDATE: "更新记录", DELETE: "删除记录" } as Record<string, string>)[action] || action;
+}
+
+function CompactContentList({ items }: { items: ContentItem[] }) {
+  if (!items.length) return <AdminEmpty title="没有待处理内容" detail="当前草稿和隐藏内容均已处理。" />;
+  return <div className="compact-content-list">{items.map((item) => <Link key={item.id} to={`/admin/contents/${item.id}`}><ContentThumb item={item} /><div><strong>{item.title}</strong><span>{item.categoryName} · {formatDate(item.updatedAt)}</span></div><StatusBadge status={item.status} /></Link>)}</div>;
+}
+
+function ContentThumb({ item }: { item: ContentItem }) {
+  const source = item.media.find((media) => media.kind === "image")?.src;
+  return <span className="content-thumb">{source ? <img src={source} alt="" /> : <FileImage />}</span>;
+}
+
+export function ContentListPage({ profile }: { profile: Profile }) {
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const contents = useQuery({ queryKey: ["admin-contents"], queryFn: loadAdminContents });
+  const categories = useAdminCategories();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
+  const [batchCategory, setBatchCategory] = useState("");
+  const query = params.get("q") || "";
+  const status = (params.get("status") || "all") as ContentStatus | "all";
+  const category = params.get("category") || "all";
+  const sort = params.get("sort") || "updated";
+  const page = Math.max(1, Number(params.get("page") || 1));
+  const updateParam = (name: string, value: string) => { const next = new URLSearchParams(params); if (!value || value === "all" || (name === "sort" && value === "updated")) next.delete(name); else next.set(name, value); if (name !== "page") next.delete("page"); setParams(next); };
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const rows = (contents.data || []).filter((item) => (status === "all" || item.status === status) && (category === "all" || item.categoryId === category) && (!term || `${item.title} ${item.summary} ${item.categoryName}`.toLowerCase().includes(term)));
+    return [...rows].sort((a, b) => sort === "title" ? a.title.localeCompare(b.title, "zh-CN") : sort === "order" ? a.sortOrder - b.sortOrder : +new Date(b.updatedAt) - +new Date(a.updatedAt));
+  }, [contents.data, status, category, query, sort]);
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
+  const refresh = () => { client.invalidateQueries({ queryKey: ["admin-contents"] }); client.invalidateQueries({ queryKey: ["public-site"] }); setSelected(new Set()); };
+  const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
+  const runStatus = async (item: ContentItem, next: "draft" | "hidden" | "trashed") => { try { await changeContentStatus(item.id, item.version, next, profile.id); notify("状态已更新。"); refresh(); } catch (error) { notify(messageOf(error), true); } };
+  const runPublish = async (item: ContentItem) => { try { await publishContent(item.id, item.version); notify("资料和媒体已发布。"); refresh(); } catch (error) { notify(messageOf(error, "发布失败"), true); } };
+  const runDuplicate = async (item: ContentItem) => { try { const copy = await duplicateContent(item.id); notify("已复制为草稿。"); refresh(); navigate(`/admin/contents/${copy.id}`); } catch (error) { notify(messageOf(error, "复制失败"), true); } };
+  const runBatch = async (action: "move" | "draft" | "hidden" | "trashed" | "published") => {
+    const rows = (contents.data || []).filter((item) => selected.has(item.id)); if (!rows.length) return;
+    try {
+      if (action === "published") { for (const row of rows) await publishContent(row.id, row.version); notify(`已发布 ${rows.length} 篇资料。`); }
+      else { const result = await batchContent(rows.map(({ id, version }) => ({ id, version })), action, action === "move" ? batchCategory : undefined); notify(`已处理 ${result.succeeded} 篇资料。`, result.succeeded !== rows.length); }
+      refresh();
+    } catch (error) { notify(messageOf(error, "批量操作失败"), true); }
+  };
+  if (contents.isLoading) return <AdminLoading label="正在读取内容" />;
+  const counts = Object.fromEntries((["published", "draft", "hidden", "trashed"] as ContentStatus[]).map((key) => [key, (contents.data || []).filter((item) => item.status === key).length]));
+  return <div className="admin-page-stack"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="admin-page-heading"><div><span>CONTENT LIBRARY</span><h1>内容管理</h1><p>搜索、筛选、批量处理和发布资料。</p></div>{canEdit(profile.role) && <Link className="button primary" to="/admin/contents/new"><Plus />新增资料</Link>}</header>
+    <div className="status-tabs"><button className={status === "all" ? "active" : ""} onClick={() => updateParam("status", "all")}>全部 <span>{contents.data?.length || 0}</span></button>{(["published", "draft", "hidden", "trashed"] as ContentStatus[]).map((key) => <button className={status === key ? "active" : ""} key={key} onClick={() => updateParam("status", key)}>{statusText[key]} <span>{counts[key]}</span></button>)}</div>
+    <div className="admin-filterbar"><label className="search-control"><Search /><input value={query} onChange={(event) => updateParam("q", event.target.value)} placeholder="搜索标题、简介或分类" /></label><select value={category} onChange={(event) => updateParam("category", event.target.value)}><option value="all">全部分类</option>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select value={sort} onChange={(event) => updateParam("sort", event.target.value)}><option value="updated">最近更新</option><option value="title">标题排序</option><option value="order">自定义顺序</option></select></div>
+    {selected.size > 0 && <div className="batch-toolbar"><strong>已选择 {selected.size} 项</strong><select value={batchCategory} onChange={(event) => setBatchCategory(event.target.value)}><option value="">移动到分类</option>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button disabled={!batchCategory} onClick={() => runBatch("move")}>移动</button>{canPublish(profile.role) && <><button onClick={() => runBatch("published")}><Check />发布</button><button onClick={() => runBatch("hidden")}><Eye />隐藏</button></>}{profile.role === "super_admin" && <button className="danger" onClick={() => window.confirm("确定将所选内容移入回收站吗？") && runBatch("trashed")}><Trash2 />回收</button>}<button className="icon-only" onClick={() => setSelected(new Set())}><X /></button></div>}
+    <section className="admin-panel flush"><div className="content-admin-table"><div className="content-table-head"><input type="checkbox" checked={visible.length > 0 && visible.every((item) => selected.has(item.id))} onChange={(event) => setSelected(event.target.checked ? new Set([...selected, ...visible.map((item) => item.id)]) : new Set([...selected].filter((id) => !visible.some((item) => item.id === id))))} /><span>资料</span><span>分类</span><span>状态</span><span>更新时间</span><span>操作</span></div>{visible.map((item) => <div className="content-table-row" key={item.id}><input type="checkbox" checked={selected.has(item.id)} onChange={(event) => { const next = new Set(selected); event.target.checked ? next.add(item.id) : next.delete(item.id); setSelected(next); }} /><ContentThumb item={item} /><div className="content-row-title"><Link to={`/admin/contents/${item.id}`}>{item.title}</Link><span>{item.summary || "暂无简介"}</span></div><span>{item.categoryName}</span><StatusBadge status={item.status} /><time>{formatDate(item.updatedAt)}</time><div className="row-actions">{canEditItem(profile, item) && item.status !== "trashed" && <Link title="编辑" to={`/admin/contents/${item.id}`}><FilePenLine /></Link>}{canEdit(profile.role) && item.status !== "trashed" && <button title="复制为草稿" onClick={() => runDuplicate(item)}><Copy /></button>}{canPublish(profile.role) && item.status !== "trashed" && <button title="发布" onClick={() => runPublish(item)}><Check /></button>}{item.status === "trashed" && canPublish(profile.role) && <button title="恢复草稿" onClick={() => runStatus(item, "draft")}><ArchiveRestore /></button>}{profile.role === "super_admin" && item.status !== "trashed" && <button className="danger" title="移入回收站" onClick={() => window.confirm(`确定回收“${item.title}”吗？`) && runStatus(item, "trashed")}><Trash2 /></button>}</div></div>)}{!visible.length && <AdminEmpty title="没有符合条件的资料" detail="调整筛选条件或新建一篇资料。" />}</div></section>
+    <div className="pagination"><span>共 {filtered.length} 条</span><button disabled={page <= 1} onClick={() => updateParam("page", String(page - 1))}><ChevronLeft /></button><strong>{Math.min(page, pages)} / {pages}</strong><button disabled={page >= pages} onClick={() => updateParam("page", String(page + 1))}><ChevronRight /></button></div>
+  </div>;
+}
+
+export function NewContentPage({ profile }: { profile: Profile }) {
+  const navigate = useNavigate();
+  const categories = useAdminCategories();
+  const [title, setTitle] = useState(""); const [categoryId, setCategoryId] = useState(""); const [message, setMessage] = useState(""); const [saving, setSaving] = useState(false);
+  useEffect(() => { if (!categoryId && categories.data?.[0]) setCategoryId(categories.data[0].id); }, [categoryId, categories.data]);
+  const create = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const data = await saveContent({ slug: slugify(title), categoryId, title: title.trim(), summary: "", bodyHtml: "<p></p>", bodyJson: {}, bodyText: "", sourceRecord: "", status: "draft", featured: false, sortOrder: 100, tags: [] }, profile.id); navigate(`/admin/contents/${data.id}`, { replace: true }); } catch (error) { setMessage(messageOf(error, "草稿创建失败")); setSaving(false); } };
+  return <div className="quick-create-page"><Link className="back-link" to="/admin/contents"><ArrowLeft />返回内容管理</Link><form className="quick-create" onSubmit={create}><span>NEW DRAFT</span><h1>创建资料草稿</h1><p>先建立标题和分类，下一步即可编辑正文并上传媒体。</p><label>资料标题<input required autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="输入清晰、容易搜索的标题" /></label><label>所属分类<select required value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{message && <div className="form-message">{message}</div>}<button className="button primary" disabled={saving || !title.trim() || !categoryId}>{saving ? <LoaderCircle className="spin" /> : <Plus />}{saving ? "正在创建..." : "创建并进入编辑器"}</button></form></div>;
+}
+
+export function ContentEditorPage({ profile }: { profile: Profile }) {
+  const { id = "" } = useParams(); const navigate = useNavigate(); const client = useQueryClient();
+  const content = useQuery({ queryKey: ["admin-content", id], queryFn: () => loadAdminContent(id), enabled: Boolean(id) });
+  const categories = useAdminCategories();
+  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const loadedVersion = useRef<number | null>(null);
+  const storageKey = `maplestorynk-editor-${id}`;
+  useEffect(() => { if (!content.data || loadedVersion.current === content.data.version) return; const item = content.data; loadedVersion.current = item.version; const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags }; setDraft(initial); setDirty(false); try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); if (saved?.version === item.version) setRecovery(saved); } catch { sessionStorage.removeItem(storageKey); } }, [content.data, storageKey]);
+  useEffect(() => { if (!draft || !dirty) return; const timer = window.setTimeout(() => sessionStorage.setItem(storageKey, JSON.stringify(draft)), 600); return () => window.clearTimeout(timer); }, [draft, dirty, storageKey]);
+  useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (!dirty) return; event.preventDefault(); event.returnValue = ""; }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [dirty]);
+  const update = (patch: Partial<ContentDraft>) => { setDraft((current) => current ? { ...current, ...patch } : current); setDirty(true); };
+  const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
+  const save = async () => { if (!draft) return null; setSaving(true); try { const result = await saveContent(draft, profile.id); loadedVersion.current = result.version; setDraft({ ...draft, version: result.version }); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null); notify(result.tagWarning || "草稿已保存到云端。", Boolean(result.tagWarning)); client.invalidateQueries({ queryKey: ["admin-contents"] }); return result; } catch (error) { notify(error instanceof Error && error.message === "VERSION_CONFLICT" ? "资料已被其他管理员修改，请重新载入后再编辑。" : messageOf(error, "保存失败"), true); return null; } finally { setSaving(false); } };
+  const publish = async () => { if (!draft || !content.data) return; if (!draft.title.trim() || !draft.summary.trim() || !draft.categoryId || (!draft.bodyText.trim() && !content.data.media.length)) return notify("发布前请补齐标题、简介、分类以及正文或媒体。", true); const saved = dirty ? await save() : { version: draft.version }; if (!saved?.version) return; setSaving(true); try { await publishContent(id, saved.version); sessionStorage.removeItem(storageKey); notify("资料已发布。"); client.invalidateQueries({ queryKey: ["public-site"] }); client.invalidateQueries({ queryKey: ["admin-contents"] }); await content.refetch(); } catch (error) { notify(messageOf(error, "发布失败"), true); } finally { setSaving(false); } };
+  const goBack = () => { if (!dirty || window.confirm("存在未保存修改，确定离开编辑器吗？")) navigate("/admin/contents"); };
+  const applyImport = (data: Awaited<ReturnType<typeof readDocument>>) => { update({ title: draft?.title || data.title, bodyHtml: data.bodyHtml, bodyText: data.bodyText, bodyJson: {}, sourceRecord: data.source }); notify(data.warning || `已读取“${data.title}”，请检查内容后保存。`); };
+  const importFile = async (file: File) => { setImporting(true); try { applyImport(await readDocument(file)); } catch (error) { notify(messageOf(error, "文档读取失败"), true); } finally { setImporting(false); } };
+  const importPage = async () => { if (!importUrl.trim()) return; setImporting(true); try { applyImport(await readWebPage(importUrl.trim())); } catch (error) { notify(`${messageOf(error, "网页读取失败")}。腾讯文档请下载 Word 后导入。`, true); } finally { setImporting(false); } };
+  if (content.error) return <div className="admin-error"><Database /><h1>资料读取失败</h1><p>{messageOf(content.error)}</p><button className="button" onClick={() => content.refetch()}><RefreshCcw />重新读取</button></div>;
+  if (content.isLoading || !draft || !content.data) return <AdminLoading label="正在打开编辑工作区" />;
+  if (!canEditItem(profile, content.data)) return <div className="admin-error"><Eye /><h1>仅可查看</h1><p>上传管理员只能编辑自己创建的草稿。</p><button className="button" onClick={() => navigate("/admin/contents")}>返回内容管理</button></div>;
+  return <div className="content-workspace"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="workspace-header"><button className="icon-only" type="button" onClick={goBack}><ArrowLeft /></button><div className="workspace-title"><span><StatusBadge status={content.data.status} /> 版本 {draft.version}{dirty && " · 有未保存修改"}</span><h1>{draft.title || "未命名资料"}</h1></div><div className="workspace-actions"><button className="button quiet" type="button" onClick={() => setTab(tab === "preview" ? "body" : "preview")}><Eye />{tab === "preview" ? "返回编辑" : "预览"}</button><button className="button" disabled={saving || !dirty} type="button" onClick={save}><Save />保存草稿</button>{canPublish(profile.role) && <button className="button primary" disabled={saving} type="button" onClick={publish}><Check />发布</button>}</div></header>
+    {recovery && <div className="recovery-banner"><div><strong>发现未提交的本地修改</strong><span>可恢复上次关闭前的编辑内容。</span></div><button onClick={() => { setDraft(recovery); setDirty(true); setRecovery(null); }}>恢复</button><button onClick={() => { sessionStorage.removeItem(storageKey); setRecovery(null); }}>忽略</button></div>}
+    <div className="workspace-tabs"><button className={tab === "body" ? "active" : ""} onClick={() => setTab("body")}><FileText />正文</button><button className={tab === "media" ? "active" : ""} onClick={() => setTab("media")}><FileImage />媒体与附件 <span>{content.data.media.length + content.data.attachments.length}</span></button><button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}><Eye />阅读预览</button></div>
+    <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / TXT / Markdown</span><input type="file" accept=".docx,.txt,.md,.html" onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section><RichEditor value={draft.bodyHtml} onChange={(bodyHtml, bodyText, bodyJson) => update({ bodyHtml, bodyText, bodyJson })} /></>}
+      {tab === "media" && <ContentMediaManager contentId={id} profile={profile} onChanged={async () => { await content.refetch(); client.invalidateQueries({ queryKey: ["admin-contents"] }); }} />}
+      {tab === "preview" && <DraftPreview draft={draft} item={content.data} />}</main>
+      <aside className="workspace-inspector"><div className="inspector-heading"><span>CONTENT SETTINGS</span><h2>资料属性</h2></div><label>标题<input value={draft.title} onChange={(event) => update({ title: event.target.value })} /></label><label>简介<textarea value={draft.summary} onChange={(event) => update({ summary: event.target.value })} placeholder="用于列表和搜索结果" /></label><label>分类<select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="inspector-grid"><label>排序<input type="number" value={draft.sortOrder} onChange={(event) => update({ sortOrder: Number(event.target.value) })} /></label><label>路径<input value={draft.slug} onChange={(event) => update({ slug: slugify(event.target.value) })} /></label></div><label>标签<input value={draft.tags.join(", ")} onChange={(event) => update({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 20) })} placeholder="BOSS图, 城镇图" /></label><label>来源记录<textarea value={draft.sourceRecord} onChange={(event) => update({ sourceRecord: event.target.value })} placeholder="仅后台可见" /></label>{canPublish(profile.role) && <label className="checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => update({ featured: event.target.checked })} />首页精选</label>}</aside></div>
+  </div>;
+}
+
+function DraftPreview({ draft, item }: { draft: ContentDraft; item: ContentItem }) {
+  return <article className="draft-preview"><header><span>{item.categoryName}</span><h1>{draft.title}</h1><p>{draft.summary}</p></header><div className="reader-body" dangerouslySetInnerHTML={{ __html: draft.bodyHtml }} />{item.media.map((media) => <figure key={media.id}>{media.kind === "video" ? <video controls src={media.src} /> : <img src={media.src} alt={media.altText || media.title} />}<figcaption><strong>{media.title}</strong>{media.note && <p>{media.note}</p>}</figcaption></figure>)}</article>;
+}
+
+type MediaRow = Record<string, unknown> & { id: string; storage_bucket: string | null; storage_path: string | null; external_url: string | null; previewUrl?: string };
+
+async function loadMediaRecords(contentId: string) {
+  const [media, attachments] = await Promise.all([supabase.from("content_media").select("*").eq("content_id", contentId).order("sort_order"), supabase.from("attachments").select("*").eq("content_id", contentId).order("sort_order")]);
+  if (media.error) throw media.error; if (attachments.error) throw attachments.error;
+  const withUrls = await Promise.all((media.data || []).map(async (row) => {
+    let previewUrl = row.external_url || "";
+    if (row.storage_bucket === publicMediaBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path);
+    if (row.storage_bucket === privateMediaBucket && row.storage_path) previewUrl = (await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600)).data?.signedUrl || "";
+    return { ...row, previewUrl } as MediaRow;
+  }));
+  return { media: withUrls, attachments: (attachments.data || []) as MediaRow[] };
+}
+
+export function ContentMediaManager({ contentId, profile, onChanged }: { contentId: string; profile: Profile; onChanged(): void | Promise<void> }) {
+  const client = useQueryClient(); const records = useQuery({ queryKey: ["admin-media", contentId], queryFn: () => loadMediaRecords(contentId), enabled: Boolean(contentId) });
+  const [progress, setProgress] = useState(0); const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const controller = useRef<AbortController | null>(null); const [dragging, setDragging] = useState<string | null>(null);
+  const refresh = async () => { await client.invalidateQueries({ queryKey: ["admin-media", contentId] }); await onChanged(); };
+  const notify = (value: string, error = false) => { setMessage(value); setErrorState(error); };
+  const upload = async (files: File[]) => { controller.current = new AbortController(); try { for (const [index, file] of files.entries()) { const type = validateUpload(file); const prepared = type.image ? await imageToWebp(file) : file; const path = `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; const stored = await uploadWithProgress(prepared, path, (value) => setProgress(Math.round(((index + value.percent / 100) / files.length) * 100)), controller.current.signal); const base = { content_id: contentId, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: ((records.data?.media.length || 0) + index + 1) * 10, created_by: profile.id, mime_type: prepared.type, size_bytes: prepared.size }; const dimensions = type.image ? await imageDimensions(prepared) : {}; const result = type.document ? await supabase.from("attachments").insert({ ...base, name: file.name }) : await supabase.from("content_media").insert({ ...base, kind: type.video ? "video" : "image", title: file.name.replace(/\.[^.]+$/, ""), alt_text: file.name, ...dimensions }); if (result.error) { await supabase.storage.from(stored.bucket).remove([stored.path]); throw result.error; } } notify(`已上传 ${files.length} 个文件。`); await refresh(); } catch (error) { notify(error instanceof DOMException && error.name === "AbortError" ? "上传已取消。" : messageOf(error, "上传失败"), true); } finally { controller.current = null; setProgress(0); } };
+  const remove = async (table: "content_media" | "attachments", row: MediaRow) => { if (!window.confirm("确定删除这个文件吗？此操作无法撤销。")) return; const { error } = await supabase.from(table).delete().eq("id", row.id); if (error) return notify(error.message, true); if (row.storage_bucket && row.storage_path) await supabase.storage.from(row.storage_bucket).remove([row.storage_path]); notify("文件已删除。"); refresh(); };
+  const reorder = async (targetId: string) => { if (!dragging || dragging === targetId || !records.data) return; const rows = [...records.data.media]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); try { await Promise.all(rows.map((row, index) => supabase.from("content_media").update({ sort_order: (index + 1) * 10 }).eq("id", row.id).then(({ error }) => { if (error) throw error; }))); notify("媒体顺序已保存。"); refresh(); } catch (error) { notify(messageOf(error, "排序失败"), true); } };
+  if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
+  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>图片自动转 WebP，单个文件最大 100MB</span><input type="file" multiple accept="image/*,video/mp4,video/webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div>}
+    <div className="media-library-grid">{records.data?.media.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onMessage={notify} />)}{!records.data?.media.length && <AdminEmpty icon={<ImagePlus />} title="暂无图片或视频" detail="上传后可编辑名称、标注和多级路径。" />}</div>
+    <section className="attachment-section"><div className="panel-heading"><div><h2>附件</h2><p>Word、PDF、压缩包和文本文件</p></div></div>{records.data?.attachments.map((row) => <div className="attachment-row" key={row.id}><FileText /><div><strong>{String(row.name || "附件")}</strong><span>{String(row.mime_type || "文件")} · {formatBytes(Number(row.size_bytes || 0))}</span></div>{canEdit(profile.role) && <button className="icon-only danger" onClick={() => remove("attachments", row)}><Trash2 /></button>}</div>)}{!records.data?.attachments.length && <AdminEmpty title="暂无附件" />}</section></div>;
+}
+
+function MediaCard({ row, editable, dragging, onDrag, onDrop, onSaved, onRemove, onMessage }: { row: MediaRow; editable: boolean; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onRemove(): void; onMessage(value: string, error?: boolean): void }) {
+  const [title, setTitle] = useState(String(row.title || "")); const [note, setNote] = useState(String(row.note || "")); const [path, setPath] = useState(Array.isArray(row.hierarchy_path) ? row.hierarchy_path.join(" / ") : "");
+  const save = async () => { const { error } = await supabase.from("content_media").update({ title: title.trim(), note: note.trim(), hierarchy_path: path.split("/").map((part) => part.trim()).filter(Boolean), alt_text: title.trim() }).eq("id", row.id); if (error) onMessage(error.message, true); else { onMessage("媒体信息已保存。"); onSaved(); } };
+  return <article className={`media-card${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="media-card-preview">{row.kind === "video" ? <video src={row.previewUrl} controls preload="metadata" /> : row.previewUrl ? <img src={row.previewUrl} alt={title} /> : <FileImage />}</div><div className="media-card-fields"><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="图片名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="图片标注或说明" /></div>{editable && <div className="media-card-actions"><span>拖动排序</span><button title="保存" onClick={save}><Save /></button><button className="danger" title="删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
+}
+
+export function CategoriesPage({ profile }: { profile: Profile }) {
+  const client = useQueryClient(); const categories = useAdminCategories(); const contents = useQuery({ queryKey: ["admin-contents"], queryFn: loadAdminContents });
+  const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [dragging, setDragging] = useState<string | null>(null);
+  const refresh = () => { client.invalidateQueries({ queryKey: ["admin-categories"] }); client.invalidateQueries({ queryKey: ["public-site"] }); };
+  const notify = (value: string, error = false) => { setMessage(value); setErrorState(error); };
+  const create = async (event: React.FormEvent) => { event.preventDefault(); const { error } = await supabase.from("categories").insert({ name: name.trim(), slug: slugify(name), description, sort_order: ((categories.data?.length || 0) + 1) * 10, created_by: profile.id, updated_by: profile.id }); if (error) return notify(error.message, true); setName(""); setDescription(""); notify("分类已创建。"); refresh(); };
+  const reorder = async (targetId: string) => { if (!dragging || dragging === targetId || !categories.data) return; const rows = [...categories.data]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); try { await Promise.all(rows.map((row, index) => supabase.from("categories").update({ sort_order: (index + 1) * 10, updated_by: profile.id }).eq("id", row.id).then(({ error }) => { if (error) throw error; }))); notify("分类顺序已保存。"); refresh(); } catch (error) { notify(messageOf(error, "排序失败"), true); } };
+  return <div className="admin-page-stack"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><header className="admin-page-heading"><div><span>CATALOG STRUCTURE</span><h1>分类管理</h1><p>拖动排序，管理封面、文字和显示状态。</p></div></header>{canPublish(profile.role) && <form className="admin-inline-create" onSubmit={create}><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="新分类名称" /><input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="分类说明" /><button className="button primary"><Plus />创建分类</button></form>}<section className="category-manager">{categories.data?.map((category) => <CategoryManagerRow key={category.id} category={category} count={(contents.data || []).filter((item) => item.categoryId === category.id && item.status !== "trashed").length} profile={profile} dragging={dragging === category.id} onDrag={() => setDragging(category.id)} onDrop={() => reorder(category.id)} onSaved={refresh} onMessage={notify} />)}{!categories.data?.length && <AdminEmpty title="尚未创建分类" />}</section></div>;
+}
+
+function CategoryManagerRow({ category, count, profile, dragging, onDrag, onDrop, onSaved, onMessage }: { category: Category; count: number; profile: Profile; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onMessage(value: string, error?: boolean): void }) {
+  const [name, setName] = useState(category.name); const [description, setDescription] = useState(category.description); const [uploading, setUploading] = useState(false); const editable = canPublish(profile.role);
+  const save = async (patch: Record<string, unknown>) => { const { error } = await supabase.from("categories").update({ ...patch, updated_by: profile.id }).eq("id", category.id); if (error) onMessage(error.message, true); else { onMessage("分类已保存。"); onSaved(); } };
+  const upload = async (file: File) => { setUploading(true); try { const prepared = await imageToWebp(file); const path = `categories/${category.id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; await uploadWithProgress(prepared, path, () => undefined, undefined, publicMediaBucket); await save({ image_path: path }); } catch (error) { onMessage(messageOf(error, "封面上传失败"), true); } finally { setUploading(false); } };
+  const remove = async () => { if (count > 0) return onMessage("请先移动或删除分类中的资料。", true); if (!window.confirm(`确定删除空分类“${category.name}”吗？`)) return; const { error } = await supabase.from("categories").delete().eq("id", category.id); if (error) onMessage(error.message, true); else { onMessage("分类已删除。"); onSaved(); } };
+  return <article className={`category-manager-row${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="category-manager-cover">{category.imageUrl ? <img src={category.imageUrl} alt="" /> : <FolderOpen />}</div><div className="category-manager-fields"><input disabled={!editable} value={name} onChange={(event) => setName(event.target.value)} /><textarea disabled={!editable} value={description} onChange={(event) => setDescription(event.target.value)} /></div><div className="category-manager-meta"><strong>{count}</strong><span>篇资料</span><small>拖动排序</small></div>{editable && <div className="category-manager-actions"><label className="button quiet"><ImagePlus />{uploading ? "上传中" : "替换封面"}<input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label><button className={`status ${category.visible ? "published" : "hidden"}`} onClick={() => save({ is_visible: !category.visible })}>{category.visible ? "显示" : "隐藏"}</button><button className="icon-only" onClick={() => save({ name: name.trim(), slug: slugify(name), description })}><Save /></button>{profile.role === "super_admin" && <button className="icon-only danger" onClick={remove}><Trash2 /></button>}</div>}</article>;
+}
+
+export function MediaLibraryPage({ profile }: { profile: Profile }) {
+  const contents = useQuery({ queryKey: ["admin-contents"], queryFn: loadAdminContents }); const [contentId, setContentId] = useState("");
+  const eligible = (contents.data || []).filter((item) => item.status !== "trashed" && (profile.role !== "uploader" || (item.status === "draft" && item.createdBy === profile.id)));
+  return <div className="admin-page-stack"><header className="admin-page-heading"><div><span>MEDIA LIBRARY</span><h1>媒体与附件</h1><p>按资料管理图片、视频和下载文件。</p></div></header><div className="media-content-picker"><label>选择资料<Search /><select value={contentId} onChange={(event) => setContentId(event.target.value)}><option value="">请选择一篇资料</option>{eligible.map((item) => <option value={item.id} key={item.id}>{item.title} · {statusText[item.status]}</option>)}</select></label>{contentId && <Link to={`/admin/contents/${contentId}`}>进入完整编辑器<ChevronRight /></Link>}</div>{contentId ? <ContentMediaManager contentId={contentId} profile={profile} onChanged={() => undefined} /> : <AdminEmpty icon={<Layers3 />} title="选择资料后管理媒体" detail="媒体会与资料状态一起发布或保持私有。" />}</div>;
+}

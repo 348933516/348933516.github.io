@@ -1,6 +1,5 @@
 import type { User } from "@supabase/supabase-js";
 import { publicMediaBucket } from "./config";
-import { isOfficialAssetPath, officialAssetUrl } from "./official-assets";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
 import type { Attachment, Category, ContentDraft, ContentItem, ContentMedia, Profile, PublicData, SiteSettings } from "../types";
@@ -20,7 +19,6 @@ function isMissingSchema(error: { code?: string; message?: string } | null) {
 
 function storageUrl(bucket?: string | null, path?: string | null, external?: string | null) {
   if (external) return safeUrl(external);
-  if (path && isOfficialAssetPath(path)) return officialAssetUrl(path);
   if (!bucket || !path || bucket !== publicMediaBucket) return "";
   return safeUrl(supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl);
 }
@@ -37,7 +35,6 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
     topLogoUrl: storageUrl(publicMediaBucket, row.top_logo_path as string),
     heroLogoUrl: storageUrl(publicMediaBucket, row.hero_logo_path as string),
     pageBackgroundUrl: storageUrl(publicMediaBucket, row.page_background_path as string),
-    heroBackgroundUrl: storageUrl(publicMediaBucket, row.hero_background_path as string),
     tileBackgroundUrl: storageUrl(publicMediaBucket, row.tile_background_path as string)
   };
 }
@@ -66,6 +63,14 @@ function mapAttachment(row: Record<string, unknown>): Attachment {
     sizeBytes: row.size_bytes ? Number(row.size_bytes) : undefined,
     sortOrder: Number(row.sort_order || 100)
   };
+}
+
+async function adminStorageUrl(bucket?: string | null, path?: string | null, external?: string | null) {
+  if (external) return safeUrl(external);
+  if (!bucket || !path) return "";
+  if (bucket === publicMediaBucket) return storageUrl(bucket, path);
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+  return error ? "" : safeUrl(data.signedUrl);
 }
 
 async function loadStructuredPublicData(): Promise<PublicData | null> {
@@ -213,7 +218,6 @@ async function loadLegacyPublicData(): Promise<PublicData> {
     topLogoUrl: safeUrl(String(appearance.topLogo || "")),
     heroLogoUrl: safeUrl(String(appearance.heroLogo || "")),
     pageBackgroundUrl: safeUrl(String(appearance.pageBg || "")),
-    heroBackgroundUrl: safeUrl(String(appearance.heroBg || "")),
     tileBackgroundUrl: safeUrl(String(appearance.tileBg || ""))
   };
   return { settings, categories, contents, backendMode: "legacy" };
@@ -232,7 +236,7 @@ export async function loadProfile(user: User): Promise<Profile | null> {
 }
 
 export async function loadAdminContents(): Promise<ContentItem[]> {
-  const { data, error } = await supabase.from("contents").select("*, categories!inner(id, slug, name)").order("updated_at", { ascending: false });
+  const { data, error } = await supabase.from("contents").select("*, categories!inner(id, slug, name), content_media(*)").order("updated_at", { ascending: false });
   if (error) throw error;
   return (data || []).map((row) => {
     const category = row.categories as { id: string; slug: string; name: string };
@@ -240,11 +244,36 @@ export async function loadAdminContents(): Promise<ContentItem[]> {
       id: row.id, slug: row.slug, categoryId: category.id, categorySlug: category.slug, categoryName: category.name,
       title: row.title, summary: row.summary || "", bodyHtml: sanitizeHtml(row.body_html), bodyJson: row.body_json || {},
       bodyText: row.body_text || "", sourceRecord: row.source_record || "", status: row.status, featured: row.is_featured,
-      sortOrder: row.sort_order, version: row.version, tags: [], media: [], createdAt: row.created_at, updatedAt: row.updated_at,
+      sortOrder: row.sort_order, version: row.version, tags: [], media: (row.content_media || []).map(mapMedia), createdAt: row.created_at, updatedAt: row.updated_at,
       attachments: [], createdBy: row.created_by,
       publishedAt: row.published_at
     };
   });
+}
+
+export async function loadAdminContent(id: string): Promise<ContentItem> {
+  const [contentResult, mediaResult, attachmentResult, tagResult] = await Promise.all([
+    supabase.from("contents").select("*, categories!inner(id, slug, name)").eq("id", id).single(),
+    supabase.from("content_media").select("*").eq("content_id", id).order("sort_order"),
+    supabase.from("attachments").select("*").eq("content_id", id).order("sort_order"),
+    supabase.from("content_tags").select("tags(name)").eq("content_id", id)
+  ]);
+  if (contentResult.error) throw contentResult.error;
+  if (mediaResult.error) throw mediaResult.error;
+  if (attachmentResult.error) throw attachmentResult.error;
+  if (tagResult.error) throw tagResult.error;
+  const row = contentResult.data;
+  const category = row.categories as { id: string; slug: string; name: string };
+  return {
+    id: row.id, slug: row.slug, categoryId: category.id, categorySlug: category.slug, categoryName: category.name,
+    title: row.title, summary: row.summary || "", bodyHtml: sanitizeHtml(row.body_html), bodyJson: row.body_json || {},
+    bodyText: row.body_text || "", sourceRecord: row.source_record || "", status: row.status, featured: row.is_featured,
+    sortOrder: row.sort_order, version: row.version,
+    tags: (tagResult.data || []).flatMap((entry) => { const tag = Array.isArray(entry.tags) ? entry.tags[0] : entry.tags; return tag && typeof tag === "object" && "name" in tag ? [String(tag.name)] : []; }),
+    media: await Promise.all((mediaResult.data || []).map(async (mediaRow) => ({ ...mapMedia(mediaRow), src: await adminStorageUrl(mediaRow.storage_bucket, mediaRow.storage_path, mediaRow.external_url) }))),
+    attachments: await Promise.all((attachmentResult.data || []).map(async (attachmentRow) => ({ ...mapAttachment(attachmentRow), url: await adminStorageUrl(attachmentRow.storage_bucket, attachmentRow.storage_path, attachmentRow.external_url) }))),
+    createdAt: row.created_at, updatedAt: row.updated_at, createdBy: row.created_by, publishedAt: row.published_at
+  };
 }
 
 export async function saveContent(draft: ContentDraft, userId: string) {
@@ -268,4 +297,16 @@ export async function publishContent(id: string, version: number) {
   const { data, error } = await supabase.functions.invoke("publish-content", { body: { contentId: id, version } });
   if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message);
   return data;
+}
+
+export async function batchContent(items: Array<{ id: string; version: number }>, action: "move" | "draft" | "hidden" | "trashed", categoryId?: string) {
+  const { data, error } = await supabase.functions.invoke("batch-content", { body: { items, action, categoryId } });
+  if (error || data?.error) throw new Error(data?.error || error?.message);
+  return data as { succeeded: number; results: Array<{ id: string; ok: boolean; error?: string }> };
+}
+
+export async function duplicateContent(id: string) {
+  const { data, error } = await supabase.functions.invoke("duplicate-content", { body: { contentId: id } });
+  if (error || data?.error) throw new Error(data?.error || error?.message);
+  return data as { id: string; title: string; version: number };
 }

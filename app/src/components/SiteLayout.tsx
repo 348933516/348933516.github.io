@@ -62,7 +62,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
       </header>
       {backendMode === "legacy" && <div className="preview-banner"><BookOpen />新版预览正在读取旧站数据；执行数据库迁移后会自动启用正式后台。</div>}
       <main>{children}</main>
-      <footer className="site-footer"><span>{settings.brandTitle}</span><span>非官方资料站 · 素材版权归原权利人所有</span></footer>
+      <footer className="site-footer"><span>{settings.brandTitle}</span><span>非官方资料站 · 内容由管理员维护</span></footer>
     </div>
   );
 }

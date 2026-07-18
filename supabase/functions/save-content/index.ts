@@ -1,4 +1,5 @@
 import sanitizeHtml from "npm:sanitize-html@2.17.0";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
 
 const allowedStatuses = ["draft", "published", "hidden", "trashed"];
@@ -15,6 +16,22 @@ function cleanBody(value: string) {
     allowProtocolRelative: false,
     transformTags: { a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }) }
   });
+}
+
+async function syncTags(client: SupabaseClient, contentId: string, value: unknown) {
+  const names = Array.isArray(value)
+    ? [...new Set(value.map((item) => String(item).trim()).filter(Boolean))].slice(0, 20)
+    : [];
+  const { error: clearError } = await client.from("content_tags").delete().eq("content_id", contentId);
+  if (clearError) throw clearError;
+  if (!names.length) return;
+  const rows = names.map((name) => ({ name: name.slice(0, 80), slug: cleanSlug(name).slice(0, 100) || `tag-${crypto.randomUUID().slice(0, 8)}` }));
+  const { error: upsertError } = await client.from("tags").upsert(rows, { onConflict: "name", ignoreDuplicates: true });
+  if (upsertError) throw upsertError;
+  const { data: tags, error: tagsError } = await client.from("tags").select("id, name").in("name", rows.map((row) => row.name));
+  if (tagsError) throw tagsError;
+  const { error: linkError } = await client.from("content_tags").insert((tags ?? []).map((tag) => ({ content_id: contentId, tag_id: tag.id })));
+  if (linkError) throw linkError;
 }
 
 Deno.serve((request) => edgeHandler(request, async () => {
@@ -83,9 +100,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (!existing) {
     const { data, error } = await client.from("contents").insert({ ...payload, created_by: user.id }).select("*").single();
     if (error) return json({ error: error.message }, 400);
-    return json(data);
+    try { await syncTags(client, data.id, body.tags); return json(data); }
+    catch (tagError) { console.error(tagError); return json({ ...data, tagWarning: "正文已保存，但标签暂时无法同步" }); }
   }
   const { data, error } = await client.from("contents").update(payload).eq("id", existing.id).eq("version", expectedVersion).select("*").maybeSingle();
   if (error || !data) return json({ error: error?.message ?? "Content version changed", code: "VERSION_CONFLICT" }, 409);
-  return json(data);
+  try { await syncTags(client, data.id, body.tags); return json(data); }
+  catch (tagError) { console.error(tagError); return json({ ...data, tagWarning: "正文已保存，但标签暂时无法同步" }); }
 }));

@@ -7,11 +7,12 @@ type StoredRow = {
   [key: string]: unknown;
 };
 
-function copyFields(row: StoredRow, contentId: string, storagePath?: string) {
+function copyFields(row: StoredRow, contentId: string, createdBy: string, storagePath?: string) {
   const { id: _id, created_at: _createdAt, content_id: _contentId, ...fields } = row;
   return {
     ...fields,
     content_id: contentId,
+    created_by: createdBy,
     storage_bucket: storagePath ? "maplestorynk-private" : row.storage_bucket,
     storage_path: storagePath ?? row.storage_path
   };
@@ -70,7 +71,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
           if (uploadError) throw new Error(uploadError.message);
           uploadedPaths.push(destination);
         }
-        records.push(copyFields(row, duplicate.id, destination));
+        records.push(copyFields(row, duplicate.id, user.id, destination));
       }
       if (records.length) {
         const { error } = await client.from(table).insert(records);

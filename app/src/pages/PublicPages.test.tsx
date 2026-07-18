@@ -32,4 +32,13 @@ describe("public home", () => {
     expect(screen.queryByText("RECENT")).not.toBeInTheDocument();
     expect(screen.queryByText("第一篇资料")).not.toBeInTheDocument();
   });
+
+  it("uses the first content image when a category has no cover", () => {
+    const withMedia: PublicData = {
+      ...data,
+      contents: [{ ...data.contents[0], media: [{ id: "m1", kind: "image", src: "https://example.com/cover.webp", title: "封面", note: "", path: [], altText: "封面", sortOrder: 10 }] }]
+    };
+    const { container } = render(<MemoryRouter><DataProvider data={withMedia}><HomePage /></DataProvider></MemoryRouter>);
+    expect(container.querySelector('.category-entry[href="/category/wz"] .category-visual img')).toHaveAttribute("src", "https://example.com/cover.webp");
+  });
 });

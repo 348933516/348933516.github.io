@@ -20,7 +20,6 @@ export interface SiteSettings {
   topLogoUrl?: string;
   heroLogoUrl?: string;
   pageBackgroundUrl?: string;
-  heroBackgroundUrl?: string;
   tileBackgroundUrl?: string;
 }
 

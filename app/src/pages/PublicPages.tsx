@@ -9,14 +9,12 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
-function cover(item: ContentItem) {
-  return item.media.find((media) => media.kind === "image")?.src || "https://images.unsplash.com/photo-1535378620166-273708d44e4c?auto=format&fit=crop&w=1200&q=80";
-}
+function cover(item: ContentItem) { return item.media.find((media) => media.kind === "image")?.src || ""; }
 
 function ContentCard({ item }: { item: ContentItem }) {
   return (
     <article className="content-card">
-      <Link className="card-cover" to={`/content/${item.slug}`}><img src={cover(item)} alt={item.title} loading="lazy" /></Link>
+      <Link className="card-cover" to={`/content/${item.slug}`}>{cover(item) ? <img src={cover(item)} alt={item.title} loading="lazy" /> : <span className="media-placeholder"><FileImage /></span>}</Link>
       <div className="card-content">
         <div className="card-meta"><span>{item.categoryName}</span><span>{formatDate(item.publishedAt || item.updatedAt)}</span></div>
         <h3><Link to={`/content/${item.slug}`}>{item.title}</Link></h3>
@@ -34,7 +32,7 @@ export function HomePage() {
   const [query, setQuery] = useState("");
   return (
     <>
-      <section className="hero-band" style={settings.heroBackgroundUrl ? { backgroundImage: `linear-gradient(90deg, rgba(8,13,16,.9), rgba(8,13,16,.58)), url(${settings.heroBackgroundUrl})` } : undefined}>
+      <section className="hero-band">
         <div className="page-width hero-content">
           {settings.heroLogoUrl && <img className="hero-logo" src={settings.heroLogoUrl} alt="" />}
           <span className="eyebrow">MapleStoryNK Knowledge Base</span>
@@ -50,8 +48,10 @@ export function HomePage() {
         <div className="category-grid">
           {categories.map((category) => {
             const count = contents.filter((item) => item.categoryId === category.id).length;
+            const firstContentImage = contents.find((item) => item.categoryId === category.id && item.media.some((media) => media.kind === "image" && media.src))?.media.find((media) => media.kind === "image" && media.src)?.src;
+            const categoryCover = category.imageUrl || settings.tileBackgroundUrl || firstContentImage;
             return <Link className="category-entry" key={category.id} to={`/category/${category.slug}`}>
-              <div className="category-visual">{category.imageUrl || settings.tileBackgroundUrl ? <img src={category.imageUrl || settings.tileBackgroundUrl} alt="" loading="lazy" /> : <FolderOpen />}</div>
+              <div className="category-visual">{categoryCover ? <img src={categoryCover} alt="" loading="lazy" /> : <FolderOpen />}</div>
               <div><span>{String(count).padStart(2, "0")} 篇资料</span><h3>{category.name}</h3><p>{category.description}</p></div><ChevronRight />
             </Link>;
           })}

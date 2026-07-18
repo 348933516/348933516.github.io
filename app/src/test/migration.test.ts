@@ -6,6 +6,7 @@ const migration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migratio
 const freezeLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/manual/freeze-legacy-after-cutover.sql"), "utf8");
 const migrateLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/migrate-legacy/index.ts"), "utf8");
 const removeOfficialAssets = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719020000_remove_official_assets.sql"), "utf8");
+const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719030000_remove_stock_media.sql"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -46,5 +47,10 @@ describe("Supabase security migration", () => {
     expect(removeOfficialAssets).toContain("like 'official/%'");
     expect(removeOfficialAssets).toContain("drop column if exists hero_background_path");
     expect(removeOfficialAssets).not.toContain("page_background_path = null");
+  });
+
+  it("removes only the prototype Unsplash media records", () => {
+    expect(removeStockMedia).toContain("external_url like 'https://images.unsplash.com/%'");
+    expect(removeStockMedia).not.toContain("storage_path");
   });
 });
