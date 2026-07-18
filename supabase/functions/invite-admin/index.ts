@@ -10,7 +10,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const role = String(body.role ?? "viewer");
   if (!email.includes("@") || !allowedRoles.includes(role)) return json({ error: "Invalid account data" }, 400);
 
-  const redirectTo = `${Deno.env.get("PUBLIC_SITE_URL") ?? "https://maplestorynk.online"}/preview/`;
+  const publicSiteUrl = (Deno.env.get("PUBLIC_SITE_URL") ?? "https://348933516.github.io").replace(/\/+$/, "");
+  const redirectTo = `${publicSiteUrl}/preview/`;
   const { data, error } = await client.auth.admin.inviteUserByEmail(email, {
     redirectTo,
     data: { username: displayName || email }

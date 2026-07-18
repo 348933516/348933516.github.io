@@ -23,11 +23,13 @@ const data: PublicData = {
 };
 
 describe("public home", () => {
-  it("renders category counts and recent content", () => {
+  it("renders categories without the recent-content section", () => {
     render(<MemoryRouter><DataProvider data={data}><HomePage /></DataProvider></MemoryRouter>);
     expect(screen.getByRole("heading", { name: "资料类目" })).toBeInTheDocument();
     expect(screen.getAllByText("WZ业务目录").length).toBeGreaterThan(0);
     expect(screen.getByText("01 篇资料")).toBeInTheDocument();
-    expect(screen.getByText("第一篇资料")).toBeInTheDocument();
+    expect(screen.queryByText("最近更新")).not.toBeInTheDocument();
+    expect(screen.queryByText("RECENT")).not.toBeInTheDocument();
+    expect(screen.queryByText("第一篇资料")).not.toBeInTheDocument();
   });
 });

@@ -29,7 +29,6 @@ function ContentCard({ item }: { item: ContentItem }) {
 
 export function HomePage() {
   const { settings, categories, contents } = useSiteData();
-  const recent = [...contents].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6);
   const featured = contents.filter((item) => item.featured).slice(0, 4);
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -57,10 +56,6 @@ export function HomePage() {
           })}
         </div>
       </section>
-      <section className="section-band"><div className="page-width section-block">
-        <div className="section-heading"><div><span>RECENT</span><h2>最近更新</h2></div><Link to="/search">查看全部<ArrowRight /></Link></div>
-        <div className="content-list">{recent.map((item) => <ContentCard item={item} key={item.id} />)}</div>
-      </div></section>
       {featured.length > 0 && <section className="page-width section-block"><div className="section-heading"><div><span>FEATURED</span><h2>精选资料</h2></div></div><div className="content-list">{featured.map((item) => <ContentCard item={item} key={item.id} />)}</div></section>}
     </>
   );

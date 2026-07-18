@@ -12,6 +12,7 @@ interface AuthContextValue {
   profileError: string;
   signIn(email: string, password: string): Promise<void>;
   signOut(): Promise<void>;
+  refreshProfile(): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -26,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     const applySession = async (nextSession: Session | null) => {
       if (!active) return;
+      setLoading(true);
       setSession(nextSession);
       setProfile(null);
       setProfileError("");
@@ -62,6 +64,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async signOut() {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+    },
+    async refreshProfile() {
+      setLoading(true);
+      setProfileError("");
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setSession(data.session);
+        if (!data.session?.user) {
+          setProfile(null);
+          return;
+        }
+        const nextProfile = await loadProfile(data.session.user);
+        setProfile(nextProfile);
+        if (!nextProfile) setProfileError("正式权限表尚未部署，或者这个账号还没有管理员权限。");
+      } catch (error) {
+        setProfile(null);
+        setProfileError(error instanceof Error ? error.message : "账号权限读取失败");
+      } finally {
+        setLoading(false);
+      }
     }
   }), [session, profile, loading, profileError]);
 
