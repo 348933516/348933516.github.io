@@ -409,6 +409,96 @@
         padding-left: 22px;
       }
 
+      .detail-layout {
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+        gap: 22px;
+        align-items: start;
+      }
+
+      .outline-panel {
+        position: sticky;
+        top: 92px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .outline-panel h2 {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .outline-link {
+        width: 100%;
+        min-height: 32px;
+        border: 0;
+        padding: 0 6px;
+        display: flex;
+        align-items: center;
+        color: var(--soft);
+        background: transparent;
+        text-align: left;
+      }
+
+      .outline-link:hover {
+        color: var(--teal);
+      }
+
+      .media-stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .media-entry {
+        position: relative;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .media-entry img,
+      .media-entry video {
+        width: 100%;
+        height: auto;
+        max-height: none;
+        object-fit: contain;
+        background: #05080a;
+      }
+
+      .media-entry-body {
+        padding: 14px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .media-entry-body h3 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .media-path {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .annotation {
+        border-left: 3px solid var(--teal);
+        padding: 8px 0 8px 12px;
+        color: var(--soft);
+        line-height: 1.7;
+      }
+
+      .lightbox-image {
+        width: 100%;
+        max-height: calc(100vh - 150px);
+        object-fit: contain;
+        background: #030506;
+      }
+
       .detail-section-title {
         margin: 30px 0 14px;
         font-size: 20px;
@@ -746,8 +836,13 @@
       }
 
       @media (max-width: 1040px) {
-        .admin-layout {
+        .admin-layout,
+        .detail-layout {
           grid-template-columns: 1fr;
+        }
+
+        .outline-panel {
+          position: static;
         }
 
         .metric-grid,
@@ -1076,8 +1171,8 @@
               <input class="input" id="contentOrder" type="number" value="100">
             </div>
             <div class="form-field full">
-              <label for="contentImages">图片列表</label>
-              <textarea class="textarea" id="contentImages" placeholder="每行一张图片地址；上传多张图片后会自动追加到这里。"></textarea>
+              <label for="contentImages">图片结构</label>
+              <textarea class="textarea" id="contentImages" placeholder="每行一张图：层级路径 | 图片名称 | 标注说明 | 图片地址&#10;例：多种主题小地图展示/可爱风 | 入口展示 | 这里标注入口位置 | https://..."></textarea>
             </div>
             <div class="form-field full">
               <label for="contentVideos">视频列表</label>
@@ -1090,6 +1185,10 @@
             <div class="form-field">
               <label for="contentVideoFile">上传视频</label>
               <input class="input" id="contentVideoFile" type="file" accept="video/*" multiple>
+            </div>
+            <div class="form-field full">
+              <label>图片结构预览</label>
+              <div class="preview-body" id="mediaEditorPreview">暂无图片。</div>
             </div>
             <div class="form-field full">
               <label for="contentAttachments">附件</label>
@@ -1156,6 +1255,18 @@
             </div>
             <button class="text-button primary" type="submit"><i data-lucide="save"></i>保存账号</button>
           </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="imageModal" aria-hidden="true">
+      <div class="modal-box">
+        <div class="modal-head">
+          <h3 id="imageModalTitle">图片预览</h3>
+          <button class="icon-button" data-close="imageModal" aria-label="关闭"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-content">
+          <img class="lightbox-image" id="imageModalImg" alt="图片预览">
         </div>
       </div>
     </div>
@@ -1267,6 +1378,9 @@
         const status = item.status === "visible" ? "published" : item.status || "published";
         const images = uniqueList([...(Array.isArray(item.images) ? item.images : []), item.image].filter(Boolean));
         const videos = uniqueList([...(Array.isArray(item.videos) ? item.videos : []), item.video].filter(Boolean));
+        const mediaItems = Array.isArray(item.mediaItems) && item.mediaItems.length
+          ? item.mediaItems.map((media, index) => normalizeMediaItem(media, index)).filter((media) => media.src)
+          : images.map((src, index) => normalizeMediaItem({ src, title: `图片 ${index + 1}`, path: item.category, note: "" }, index));
         return {
           id: item.id || `content-${Date.now()}-${Math.random()}`,
           title: item.title || "未命名内容",
@@ -1277,6 +1391,7 @@
           images: images.length ? images : [item.image || fallbackImage],
           video: videos[0] || item.video || "",
           videos,
+          mediaItems,
           attachments: Array.isArray(item.attachments) ? item.attachments : [],
           source: item.source || "",
           order: Number(item.order || item.hot || 100),
@@ -1376,6 +1491,16 @@
         return (attachments || []).map((item) => item.url ? `${item.name} | ${item.url}` : item.name).join("\n");
       }
 
+      function normalizeMediaItem(media, index) {
+        return {
+          src: media.src || media.url || media.image || "",
+          title: media.title || media.name || `图片 ${index + 1}`,
+          path: media.path || media.categoryPath || "默认",
+          note: media.note || media.description || media.caption || "",
+          type: media.type || "image"
+        };
+      }
+
       function uniqueList(items) {
         return [...new Set((items || []).map((item) => String(item || "").trim()).filter(Boolean))];
       }
@@ -1389,7 +1514,67 @@
       }
 
       function coverImage(item) {
-        return item.images?.[0] || item.image || fallbackImage;
+        return item.mediaItems?.[0]?.src || item.images?.[0] || item.image || fallbackImage;
+      }
+
+      function parseMediaItems(value) {
+        return String(value || "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line, index) => {
+            const parts = line.split("|").map((part) => part.trim());
+            if (parts.length >= 4) return normalizeMediaItem({ path: parts[0], title: parts[1], note: parts[2], src: parts.slice(3).join("|") }, index);
+            if (parts.length === 3) return normalizeMediaItem({ path: parts[0], title: parts[1], src: parts[2] }, index);
+            if (parts.length === 2) return normalizeMediaItem({ title: parts[0], src: parts[1] }, index);
+            return normalizeMediaItem({ src: parts[0], title: `图片 ${index + 1}` }, index);
+          })
+          .filter((media) => media.src);
+      }
+
+      function mediaItemsToText(items) {
+        return (items || []).map((media, index) => {
+          const item = normalizeMediaItem(media, index);
+          return `${item.path} | ${item.title} | ${item.note} | ${item.src}`;
+        }).join("\n");
+      }
+
+      function buildOutline(items) {
+        const paths = [];
+        (items || []).forEach((media, index) => {
+          const levels = String(media.path || "默认").split("/").map((level) => level.trim()).filter(Boolean);
+          levels.forEach((_, levelIndex) => {
+            const path = levels.slice(0, levelIndex + 1).join("/");
+            if (!paths.some((entry) => entry.path === path)) {
+              paths.push({ path, label: levels[levelIndex], depth: levelIndex, target: index + 1 });
+            }
+          });
+        });
+        const outlinePaths = paths.map((entry) => `
+          <button class="outline-link" data-scroll-media="${entry.target}" style="padding-left:${entry.depth * 18 + 6}px">${escapeHtml(entry.label)}</button>
+        `).join("");
+        const imageLinks = (items || []).map((media, index) => `
+          <button class="outline-link" data-scroll-media="${index + 1}" style="padding-left:24px">${escapeHtml(media.title || `图片 ${index + 1}`)}</button>
+        `).join("");
+        return outlinePaths + imageLinks || `<span class="badge">暂无图片</span>`;
+      }
+
+      function renderMediaEditorPreview() {
+        const items = parseMediaItems($("#contentImages")?.value || "");
+        const html = items.map((media, index) => `
+          <div class="content-card" style="grid-template-columns:96px 1fr;min-height:112px;margin-bottom:10px">
+            <img src="${media.src}" alt="${escapeHtml(media.title)}" style="width:96px">
+            <div class="card-body">
+              <div>
+                <span class="media-path">${escapeHtml(media.path)}</span>
+                <h3>${escapeHtml(media.title)}</h3>
+                <p>${escapeHtml(media.note || "暂无标注")}</p>
+              </div>
+            </div>
+          </div>
+        `).join("");
+        $("#mediaEditorPreview").innerHTML = html || "暂无图片。";
+        icon();
       }
 
       function categoryIcon(category) {
@@ -1447,7 +1632,7 @@
                   <p>${escapeHtml(item.summary)}</p>
                 </div>
                 <div class="actions">
-                  <span class="media-count"><i data-lucide="images"></i>${item.images?.length || 0} 图</span>
+                  <span class="media-count"><i data-lucide="images"></i>${item.mediaItems?.length || item.images?.length || 0} 图</span>
                   <button class="text-button" data-detail="${item.id}"><i data-lucide="eye"></i>查看详情</button>
                 </div>
               </div>
@@ -1476,13 +1661,27 @@
           setView("catalog");
           return;
         }
-        const images = uniqueList(item.images?.length ? item.images : [item.image || fallbackImage]);
+        const mediaItems = item.mediaItems?.length
+          ? item.mediaItems.map((media, index) => normalizeMediaItem(media, index))
+          : (item.images?.length ? item.images : [item.image || fallbackImage]).map((src, index) => normalizeMediaItem({ src, title: `图片 ${index + 1}`, path: item.category }, index));
+        const images = uniqueList(mediaItems.map((media) => media.src));
         const videos = uniqueList(item.videos?.length ? item.videos : [item.video].filter(Boolean));
         const media = videos[0]
           ? `<video controls src="${videos[0]}"></video>`
           : `<img src="${images[0] || fallbackImage}" alt="${escapeHtml(item.title)}">`;
-        const gallery = images.map((image, index) => `<img src="${image}" alt="${escapeHtml(item.title)} 图片 ${index + 1}">`).join("");
-        const videoGallery = videos.map((video) => `<video controls src="${video}"></video>`).join("");
+        const outline = buildOutline(mediaItems);
+        const mediaStack = mediaItems.map((media, index) => `
+          <section class="media-entry" id="media-${index + 1}">
+            <button class="icon-button" data-lightbox="${index}" style="position:absolute;margin:12px" aria-label="放大图片"><i data-lucide="maximize-2"></i></button>
+            <img src="${media.src}" alt="${escapeHtml(media.title)}" data-lightbox="${index}">
+            <div class="media-entry-body">
+              <span class="media-path">${escapeHtml(media.path)}</span>
+              <h3>${escapeHtml(media.title)}</h3>
+              ${media.note ? `<div class="annotation">${escapeHtml(media.note)}</div>` : ""}
+            </div>
+          </section>
+        `).join("");
+        const videoGallery = videos.map((video) => `<div class="media-entry"><video controls src="${video}"></video></div>`).join("");
         const attachments = (item.attachments || []).map((attachment) => {
           const label = escapeHtml(attachment.name || "附件");
           return attachment.url
@@ -1501,9 +1700,17 @@
                 <span class="detail-kicker"><i data-lucide="${categoryIcon(item.category)}"></i>${item.category}</span>
                 <h1>${escapeHtml(item.title)}</h1>
                 <p class="detail-summary">${escapeHtml(item.summary)}</p>
-                <div class="reader-body">${item.bodyHtml || textToHtml(item.summary)}</div>
-                ${gallery ? `<h2 class="detail-section-title">图片内容</h2><div class="gallery-grid">${gallery}</div>` : ""}
-                ${videoGallery ? `<h2 class="detail-section-title">视频内容</h2><div class="gallery-grid">${videoGallery}</div>` : ""}
+                <div class="detail-layout">
+                  <aside class="outline-panel">
+                    <h2>大纲</h2>
+                    ${outline}
+                  </aside>
+                  <div>
+                    <div class="reader-body">${item.bodyHtml || textToHtml(item.summary)}</div>
+                    ${mediaStack ? `<h2 class="detail-section-title">图片内容</h2><div class="media-stack">${mediaStack}</div>` : ""}
+                    ${videoGallery ? `<h2 class="detail-section-title">视频内容</h2><div class="media-stack">${videoGallery}</div>` : ""}
+                  </div>
+                </div>
                 ${attachments ? `<div class="attachment-list">${attachments}</div>` : ""}
               </div>
             </article>
@@ -1557,7 +1764,7 @@
             <td>${escapeHtml(item.title)}</td>
             <td>${item.category}</td>
             <td>${escapeHtml(item.source || "手动录入")}</td>
-            <td>${item.images?.length || 0} 图 / ${item.videos?.length || 0} 视频</td>
+            <td>${item.mediaItems?.length || item.images?.length || 0} 图 / ${item.videos?.length || 0} 视频</td>
             <td><span class="status ${item.status !== "published" ? "offline" : ""}">${statusText(item.status)}</span></td>
             <td>${item.order || 100}</td>
             <td>
@@ -1595,7 +1802,7 @@
         $("#contentCategory").value = item?.category || categories[0];
         $("#contentSummary").value = item?.summary || "";
         $("#contentOrder").value = item?.order || 100;
-        $("#contentImages").value = listToLines(item?.images || [item?.image].filter(Boolean));
+        $("#contentImages").value = mediaItemsToText(item?.mediaItems || (item?.images || [item?.image].filter(Boolean)).map((src, index) => ({ src, title: `图片 ${index + 1}`, path: item?.category || categories[0] })));
         $("#contentVideos").value = listToLines(item?.videos || [item?.video].filter(Boolean));
         $("#contentAttachments").value = attachmentsToText(item?.attachments || []);
         $("#contentBody").value = htmlToText(item?.bodyHtml || "");
@@ -1604,6 +1811,7 @@
         $("#contentImageFile").value = "";
         $("#contentVideoFile").value = "";
         showModal("contentModal");
+        renderMediaEditorPreview();
       }
 
       function openAdminEditor(id) {
@@ -1725,7 +1933,7 @@
       }
 
       document.addEventListener("click", (event) => {
-        const target = event.target.closest("button, a");
+        const target = event.target.closest("button, a, img[data-lightbox]");
         if (!target) return;
 
         if (target.dataset.close) closeModal(target.dataset.close);
@@ -1742,6 +1950,20 @@
 
         if (target.dataset.detail) setView("detail", target.dataset.detail);
         if (target.id === "returnCatalogButton") setView("catalog");
+
+        if (target.dataset.scrollMedia) {
+          $("#media-" + target.dataset.scrollMedia)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        if (target.dataset.lightbox) {
+          const item = contents.find((entry) => entry.id === selectedContentId);
+          const media = item?.mediaItems?.[Number(target.dataset.lightbox)];
+          if (media?.src) {
+            $("#imageModalTitle").textContent = media.title || "图片预览";
+            $("#imageModalImg").src = media.src;
+            showModal("imageModal");
+          }
+        }
 
         if (target.dataset.authTab) {
           $$(".seg-button[data-auth-tab]").forEach((button) => button.classList.toggle("active", button.dataset.authTab === target.dataset.authTab));
@@ -1803,6 +2025,12 @@
           const manualText = $("#manualBody").value.trim();
           const importedText = htmlToText(pendingImport?.bodyHtml || "").trim();
           const bodyHtml = manualText === importedText ? pendingImport?.bodyHtml : textToHtml(manualText);
+          const importedMediaItems = (pendingImport?.images || []).map((src, index) => normalizeMediaItem({
+            src,
+            title: `导入图片 ${index + 1}`,
+            path: $("#previewCategory").value,
+            note: ""
+          }, index));
           if (!$("#previewTitle").value.trim() || !bodyHtml) {
             toast("标题和正文不能为空");
             return;
@@ -1813,8 +2041,9 @@
             category: $("#previewCategory").value,
             summary: htmlToText(bodyHtml).slice(0, 70) || "导入内容",
             bodyHtml,
-            images: pendingImport?.images?.length ? pendingImport.images : [fallbackImage],
-            image: pendingImport?.images?.[0] || fallbackImage,
+            images: importedMediaItems.length ? importedMediaItems.map((media) => media.src) : [fallbackImage],
+            image: importedMediaItems[0]?.src || fallbackImage,
+            mediaItems: importedMediaItems.length ? importedMediaItems : [normalizeMediaItem({ src: fallbackImage, title: "默认图片", path: $("#previewCategory").value }, 0)],
             video: "",
             videos: [],
             attachments: [],
@@ -1876,16 +2105,20 @@
         event.preventDefault();
         const id = $("#contentId").value || `content-${Date.now()}`;
         const existing = contents.find((item) => item.id === id);
+        const mediaItems = parseMediaItems($("#contentImages").value);
+        const images = mediaItems.map((media) => media.src);
+        const videos = linesToList($("#contentVideos").value);
         const next = {
           id,
           title: $("#contentTitle").value.trim(),
           category: $("#contentCategory").value,
           summary: $("#contentSummary").value.trim(),
           bodyHtml: textToHtml($("#contentBody").value.trim()),
-          images: linesToList($("#contentImages").value),
-          image: linesToList($("#contentImages").value)[0] || fallbackImage,
-          videos: linesToList($("#contentVideos").value),
-          video: linesToList($("#contentVideos").value)[0] || "",
+          images,
+          image: images[0] || fallbackImage,
+          videos,
+          video: videos[0] || "",
+          mediaItems,
           attachments: parseAttachments($("#contentAttachments").value),
           source: $("#contentSource").value.trim(),
           order: Number($("#contentOrder").value || 100),
@@ -1981,7 +2214,11 @@
         const files = event.target.files;
         if (!files?.length) return;
         filesToDataUrls(files).then((urls) => {
-          appendLines("contentImages", urls);
+          const existingCount = parseMediaItems($("#contentImages").value).length;
+          const category = $("#contentCategory").value || categories[0];
+          const rows = urls.map((url, index) => `${category} | 图片 ${existingCount + index + 1} | 在这里填写标注说明 | ${url}`);
+          appendLines("contentImages", rows);
+          renderMediaEditorPreview();
           toast(`已追加 ${urls.length} 张图片`);
         }).catch(() => toast("图片读取失败"));
       });
@@ -1993,6 +2230,8 @@
         appendLines("contentVideos", urls);
         toast(`已追加 ${urls.length} 个视频预览`);
       });
+
+      $("#contentImages").addEventListener("input", renderMediaEditorPreview);
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
