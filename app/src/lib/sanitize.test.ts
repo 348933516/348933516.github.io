@@ -39,6 +39,16 @@ describe("content sanitization", () => {
     expect(result).not.toContain('data-table-border="99"');
   });
 
+  it("keeps safe office-style colors, font sizes and table border colors", () => {
+    const result = sanitizeHtml('<span data-font-size="72" data-text-color="#ef4444" style="color:#ef4444;font-size:72px;position:fixed"><mark data-highlight="#fef9c3" style="background-color:#fef9c3">内容</mark></span><table data-table-color="#65e3c2" data-table-border="4"><tr><td>值</td></tr></table>');
+    expect(result).toContain('data-font-size="72"');
+    expect(result).toContain('data-text-color="#ef4444"');
+    expect(result).toContain("color: #ef4444");
+    expect(result).toContain('data-highlight="#fef9c3"');
+    expect(result).toContain('data-table-color="#65e3c2"');
+    expect(result).not.toContain("position");
+  });
+
   it("keeps table spans and editor column widths", () => {
     const result = sanitizeHtml('<table><tr><td colspan="2" rowspan="2" colwidth="120,120">值</td></tr></table>');
     expect(result).toContain('colspan="2"');

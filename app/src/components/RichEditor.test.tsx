@@ -8,9 +8,11 @@ describe("professional rich editor", () => {
     expect(screen.getByRole("combobox", { name: "段落格式" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "字体" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "字号" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "文字颜色" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "文字颜色" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "背景高亮" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "两端对齐" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上传本地图片" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "插入表格" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "清除格式" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清除选区格式" })).toBeInTheDocument();
   });
 });

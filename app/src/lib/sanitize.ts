@@ -1,22 +1,41 @@
 import DOMPurify from "dompurify";
 
 const allowedProtocols = new Set(["https:"]);
+const colorTokens = new Set(["teal", "gold", "red", "blue", "green", "muted", "surface", "none"]);
+const safeHex = /^#[0-9a-f]{6}$/i;
+const safeFontSize = /^(?:[8-9]|[1-6][0-9]|7[0-2])$/;
 const controlledAttributes: Record<string, Set<string>> = {
   "data-font-family": new Set(["default", "noto-sans", "noto-serif", "yahei", "pingfang", "simsun", "simhei", "kaiti", "fangsong", "arial", "georgia"]),
-  "data-font-size": new Set(["12", "14", "16", "18", "20", "24", "28", "32", "36"]),
-  "data-text-color": new Set(["default", "teal", "gold", "red", "blue", "green", "muted"]),
-  "data-highlight": new Set(["teal", "gold", "red", "blue", "green"]),
   "data-table-border": new Set(["0", "1", "2", "3", "4"]),
   "data-table-style": new Set(["solid", "dashed", "dotted"]),
   "data-cell-background": new Set(["none", "teal", "gold", "red", "blue", "green", "surface"]),
-  "data-cell-align": new Set(["left", "center", "right", "justify"])
+  "data-cell-align": new Set(["left", "center", "right", "justify"]),
+  "data-editor-image": new Set(["true"])
 };
 
 DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
   if (data.attrName === "style") {
-    const alignment = data.attrValue.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase();
-    if (alignment) data.attrValue = `text-align: ${alignment}`;
+    const safeDeclarations: string[] = [];
+    for (const declaration of data.attrValue.split(";")) {
+      const [rawName, ...rawValue] = declaration.split(":");
+      const name = rawName?.trim().toLowerCase();
+      const value = rawValue.join(":").trim().toLowerCase();
+      if (name === "text-align" && /^(left|center|right|justify)$/.test(value)) safeDeclarations.push(`text-align: ${value}`);
+      if (name === "color" && safeHex.test(value)) safeDeclarations.push(`color: ${value}`);
+      if (name === "background-color" && safeHex.test(value)) safeDeclarations.push(`background-color: ${value}`);
+      if (name === "font-size" && /^(\d{1,2})px$/.test(value) && safeFontSize.test(value.replace("px", ""))) safeDeclarations.push(`font-size: ${value}`);
+    }
+    if (safeDeclarations.length) data.attrValue = safeDeclarations.join("; ");
     else data.keepAttr = false;
+    return;
+  }
+  if (data.attrName === "data-font-size") {
+    if (!safeFontSize.test(data.attrValue)) data.keepAttr = false;
+    return;
+  }
+  if (["data-text-color", "data-highlight", "data-table-color"].includes(data.attrName)) {
+    const value = data.attrValue.toLowerCase();
+    if (!safeHex.test(value) && !colorTokens.has(value)) data.keepAttr = false;
     return;
   }
   const controlled = controlledAttributes[data.attrName];
@@ -55,7 +74,7 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
       "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-cell-background", "data-cell-align"
+      "data-table-color", "data-cell-background", "data-cell-align", "data-editor-image"
     ],
     ALLOW_DATA_ATTR: true
   });
