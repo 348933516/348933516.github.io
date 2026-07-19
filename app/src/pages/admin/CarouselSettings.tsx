@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ImagePlus, LoaderCircle, Plus, Save, Trash2, Upload } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, CheckCircle2, ExternalLink, ImagePlus, LoaderCircle, Plus, Save, Trash2, Upload } from "lucide-react";
 import { publicMediaBucket } from "../../lib/config";
 import { randomId } from "../../lib/id";
 import { normalizeCarouselTarget } from "../../lib/carousel";
+import { buildShareUrl } from "../../lib/share";
 import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
 import { supabase } from "../../lib/supabase";
 import { AdminLoading, messageOf, publicAssetUrl } from "./shared";
@@ -31,7 +32,7 @@ export function CarouselSettings({
   profile: Profile;
   settings: Record<string, unknown>;
   onMessage(value: string, error?: boolean): void;
-  onSaved(): void;
+  onSaved(): void | Promise<void>;
 }) {
   const client = useQueryClient();
   const slides = useQuery({
@@ -61,8 +62,12 @@ export function CarouselSettings({
   };
 
   const refresh = async () => {
-    await client.invalidateQueries({ queryKey: ["carousel-slides"] });
-    onSaved();
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["carousel-slides"] }),
+      client.invalidateQueries({ queryKey: ["preview-carousel-slides"] }),
+      client.invalidateQueries({ queryKey: ["public-site"] })
+    ]);
+    await onSaved();
   };
 
   const slideRows = slides.data || [];
@@ -89,14 +94,14 @@ export function CarouselSettings({
       {slides.isLoading && <AdminLoading label="正在读取轮播图" />}
       <CarouselCreator slides={slideRows} onSaved={refresh} onMessage={onMessage} actorId={profile.id} />
       <div className="carousel-slide-list">
-        {slideRows.map((slide, index) => <CarouselSlideRow key={slide.id} slide={slide} index={index} total={slideRows.length} onSaved={refresh} onMessage={onMessage} actorId={profile.id} />)}
+        {slideRows.map((slide, index) => <CarouselSlideRow key={slide.id} slide={slide} rows={slideRows} index={index} onSaved={refresh} onMessage={onMessage} actorId={profile.id} />)}
         {!slideRows.length && !slideError && !slides.isLoading && <div className="admin-empty"><ImagePlus /><strong>还没有轮播图</strong><span>先新增一张首页轮播图。</span></div>}
       </div>
     </section>
   </div>;
 }
 
-function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: CarouselRow[]; onSaved(): void; onMessage(value: string, error?: boolean): void; actorId: string }) {
+function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: CarouselRow[]; onSaved(): void | Promise<void>; onMessage(value: string, error?: boolean): void; actorId: string }) {
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -165,7 +170,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
   return <form className="carousel-create-form" id="carousel-create-form" onSubmit={create}>
     <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="轮播标题" /></label>
     <label>说明<textarea value={subtitle} onChange={(event) => setSubtitle(event.target.value)} placeholder="轮播说明" /></label>
-    <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="/content/xxx 或 /category/xxx" /></label>
+    <CarouselTargetField value={linkUrl} onChange={setLinkUrl} />
     <label>按钮文案<input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} placeholder="查看详情" /></label>
     <label className="checkbox"><input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} />显示轮播</label>
     <div className="carousel-upload-box">{imagePath ? <img src={publicAssetUrl(imagePath)} alt="" /> : <span><ImagePlus /><strong>未上传图片</strong></span>}</div>
@@ -176,16 +181,16 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
 
 function CarouselSlideRow({
   slide,
+  rows,
   index,
-  total,
   onSaved,
   onMessage,
   actorId
 }: {
   slide: CarouselRow;
+  rows: CarouselRow[];
   index: number;
-  total: number;
-  onSaved(): void;
+  onSaved(): void | Promise<void>;
   onMessage(value: string, error?: boolean): void;
   actorId: string;
 }) {
@@ -239,9 +244,15 @@ function CarouselSlideRow({
   };
 
   const move = async (direction: -1 | 1) => {
-    const { error } = await supabase.from("carousel_slides").update({ sort_order: slide.sort_order + direction * 10, updated_by: actorId }).eq("id", slide.id);
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= rows.length) return;
+    const reordered = [...rows];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const results = await Promise.all(reordered.map((row, rowIndex) => supabase.from("carousel_slides").update({ sort_order: (rowIndex + 1) * 10, updated_by: actorId }).eq("id", row.id)));
+    const error = results.find((result) => result.error)?.error;
     if (error) onMessage(error.message, true);
-    else onSaved();
+    else await onSaved();
   };
 
   const remove = async () => {
@@ -258,17 +269,43 @@ function CarouselSlideRow({
     <div className="carousel-slide-fields">
       <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>说明<textarea value={subtitle} onChange={(event) => setSubtitle(event.target.value)} /></label>
-      <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="/content/xxx 或 /category/xxx" /></label>
+      <CarouselTargetField value={linkUrl} onChange={setLinkUrl} />
       <label>按钮文案<input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} /></label>
       <label>排序<input type="number" value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} /></label>
       <label className="checkbox"><input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} />显示</label>
       <div className="carousel-slide-actions">
         <button type="button" className="button quiet" onClick={() => move(-1)} disabled={index === 0}><ArrowUp />上移</button>
-        <button type="button" className="button quiet" onClick={() => move(1)} disabled={index === total - 1}><ArrowDown />下移</button>
+        <button type="button" className="button quiet" onClick={() => move(1)} disabled={index === rows.length - 1}><ArrowDown />下移</button>
         <label className="button quiet upload-button"><Upload />{uploading ? `上传中 ${progress}%` : "替换图片"}<input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label>
         <button type="button" className="button primary" onClick={save} disabled={saving}>{saving ? <LoaderCircle className="spin" /> : <Save />}保存</button>
         <button type="button" className="icon-only danger" onClick={remove} aria-label="删除轮播"><Trash2 /></button>
       </div>
     </div>
   </article>;
+}
+
+function CarouselTargetField({ value, onChange }: { value: string; onChange(value: string): void }) {
+  const normalized = normalizeCarouselTarget(value);
+  const target = useQuery({
+    queryKey: ["carousel-target", normalized],
+    enabled: Boolean(normalized),
+    queryFn: async () => {
+      const [kind, slug] = normalized.split("/").filter(Boolean);
+      if (kind === "content") {
+        const { data, error } = await supabase.from("contents").select("id,title,slug,status").eq("slug", slug).maybeSingle();
+        if (error) throw error;
+        return data ? { label: data.title || slug, status: data.status || "draft" } : null;
+      }
+      const { data, error } = await supabase.from("categories").select("id,name,slug").eq("slug", slug).maybeSingle();
+      if (error) throw error;
+      return data ? { label: data.name || slug, status: "published" } : null;
+    }
+  });
+  const invalid = Boolean(value.trim() && !normalized);
+  return <label className="carousel-target-field">跳转链接
+    <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="粘贴复制链接，或输入 /content/xxx" />
+    <span className={`carousel-target-status${invalid || target.error ? " error" : normalized ? " valid" : ""}`}>
+      {invalid ? <><AlertCircle />无法识别，请粘贴本站内容页或分类页链接</> : target.isLoading ? <><LoaderCircle className="spin" />正在验证链接</> : target.error ? <><AlertCircle />链接验证失败</> : normalized ? <><CheckCircle2 />{target.data ? `${target.data.label} · ${normalized}` : `路径有效 · ${normalized}`}{target.data?.status && target.data.status !== "published" ? "（内容尚未发布）" : ""}<a href={buildShareUrl(normalized)} target="_blank" rel="noreferrer" title="打开链接预览"><ExternalLink /></a></> : <>不设置链接时轮播仅展示图片和文字</>}
+    </span>
+  </label>;
 }

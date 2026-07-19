@@ -5,6 +5,8 @@ describe("carousel target safety", () => {
   it("allows only public internal content and category routes", () => {
     expect(normalizeCarouselTarget("/content/first")).toBe("/content/first");
     expect(normalizeCarouselTarget("/category/wz?from=home")).toBe("/category/wz?from=home");
+    expect(normalizeCarouselTarget("http://maplestorynk.online/preview/?v=626861f#/content/first")).toBe("/content/first");
+    expect(normalizeCarouselTarget("https://348933516.github.io/preview/#/category/wz")).toBe("/category/wz");
   });
 
   it("blocks admin, login, preview and external targets", () => {
@@ -14,4 +16,3 @@ describe("carousel target safety", () => {
     expect(normalizeCarouselTarget("https://example.com/content/first")).toBe("");
   });
 });
-

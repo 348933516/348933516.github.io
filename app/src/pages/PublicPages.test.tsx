@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { DataProvider } from "../data";
 import type { PublicData } from "../types";
-import { HomePage } from "./PublicPages";
+import { DetailPage, HomePage } from "./PublicPages";
 
 const data: PublicData = {
   backendMode: "structured",
@@ -65,13 +65,28 @@ const data: PublicData = {
 
 describe("public home", () => {
   it("renders the carousel and category catalog without search", () => {
-    render(<MemoryRouter><DataProvider data={data}><HomePage /></DataProvider></MemoryRouter>);
+    const { container } = render(<MemoryRouter><DataProvider data={data}><HomePage /></DataProvider></MemoryRouter>);
     expect(screen.getByRole("region", { name: "首页轮播" })).toBeInTheDocument();
+    expect(container.querySelector(".hero-carousel-slide-static .hero-carousel-overlay")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "首页轮播" })).toBeInTheDocument();
+    expect(screen.getByText("轮播图内容")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "资料目录" })).toBeInTheDocument();
     expect(screen.getAllByText("WZ业务目录").length).toBeGreaterThan(0);
     expect(screen.getByText("01 篇资料")).toBeInTheDocument();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByText("最近更新")).not.toBeInTheDocument();
+  });
+
+  it("uses a full-width reader layout when there is no media outline", () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={["/content/first"]}>
+        <DataProvider data={data}>
+          <Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes>
+        </DataProvider>
+      </MemoryRouter>
+    );
+    expect(container.querySelector(".reader-layout")).toHaveClass("without-outline");
+    expect(container.querySelector(".reader-main")).toBeInTheDocument();
   });
 
   it("only makes the carousel clickable for public internal targets", () => {

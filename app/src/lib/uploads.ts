@@ -60,7 +60,7 @@ export async function imageDimensions(file: File) {
 export function validateUpload(file: File) {
   const image = file.type.startsWith("image/");
   const video = ["video/mp4", "video/webm"].includes(file.type);
-  const document = ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"].includes(file.type);
+  const document = ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/markdown", "text/html"].includes(file.type);
   if (!image && !video && !document) throw new Error(`不支持的文件类型：${file.type || file.name}`);
   if (file.size > 100 * 1024 * 1024) throw new Error("单个文件不能超过 100MB");
   return { image, video, document };

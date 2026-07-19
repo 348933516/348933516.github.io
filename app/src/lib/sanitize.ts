@@ -1,8 +1,33 @@
 import DOMPurify from "dompurify";
 
 const allowedProtocols = new Set(["https:"]);
+const controlledAttributes: Record<string, Set<string>> = {
+  "data-font-family": new Set(["default", "noto-sans", "noto-serif", "yahei", "pingfang", "simsun", "simhei", "kaiti", "fangsong", "arial", "georgia"]),
+  "data-font-size": new Set(["12", "14", "16", "18", "20", "24", "28", "32", "36"]),
+  "data-text-color": new Set(["default", "teal", "gold", "red", "blue", "green", "muted"]),
+  "data-highlight": new Set(["teal", "gold", "red", "blue", "green"]),
+  "data-table-border": new Set(["0", "1", "2", "3", "4"]),
+  "data-table-style": new Set(["solid", "dashed", "dotted"]),
+  "data-cell-background": new Set(["none", "teal", "gold", "red", "blue", "green", "surface"]),
+  "data-cell-align": new Set(["left", "center", "right", "justify"])
+};
 
 DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName === "style") {
+    const alignment = data.attrValue.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase();
+    if (alignment) data.attrValue = `text-align: ${alignment}`;
+    else data.keepAttr = false;
+    return;
+  }
+  const controlled = controlledAttributes[data.attrName];
+  if (data.attrName.startsWith("data-")) {
+    if (!controlled || !controlled.has(data.attrValue.toLowerCase())) data.keepAttr = false;
+    return;
+  }
+  if (controlled) {
+    if (!controlled.has(data.attrValue.toLowerCase())) data.keepAttr = false;
+    return;
+  }
   if (!["href", "src"].includes(data.attrName)) return;
   if (!/^(?:https:\/\/|#)/i.test(data.attrValue)) data.keepAttr = false;
 });
@@ -25,11 +50,14 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_TAGS: [
       "p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li",
       "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td",
-      "img", "figure", "figcaption", "code", "pre", "hr", "span"
+      "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"
     ],
-    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class"],
-    ALLOW_DATA_ATTR: false,
-    ALLOWED_URI_REGEXP: /^(?:https:\/\/|#)/i
+    ALLOWED_ATTR: [
+      "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
+      "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
+      "data-cell-background", "data-cell-align"
+    ],
+    ALLOW_DATA_ATTR: true
   });
 }
 

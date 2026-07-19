@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { RichContent } from "../components/RichContent";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
+import { buildShareUrl, copyShareUrl } from "../lib/share";
 import type { ContentItem } from "../types";
 
 function formatDate(value?: string) {
@@ -26,6 +28,16 @@ function ContentCard({ item }: { item: ContentItem }) {
       </div>
     </article>
   );
+}
+
+function ShareButton({ route }: { route: string }) {
+  const [copyState, setCopyState] = useState<"" | "success" | "error">("");
+  const copyLink = async () => {
+    const copied = await copyShareUrl(buildShareUrl(route));
+    setCopyState(copied ? "success" : "error");
+    window.setTimeout(() => setCopyState(""), 2400);
+  };
+  return <div className="share-action"><button className="button quiet" type="button" onClick={copyLink}><Copy />{copyState === "success" ? "已复制" : "复制链接"}</button>{copyState === "error" && <span role="status">复制失败，请复制浏览器地址栏。</span>}</div>;
 }
 
 function HomepageCarousel() {
@@ -67,26 +79,18 @@ function HomepageCarousel() {
   return (
     <section className="hero-carousel-band">
       <div className="page-width hero-carousel-shell" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={() => setPaused(false)}>
-        <div className="hero-carousel-frame" role="region" aria-roledescription="carousel" aria-label="首页轮播">
-          <div className="hero-carousel-track" style={{ transform: `translateX(-${active * 100}%)` }}>
+        <div className={`hero-carousel-frame is-${settings.carouselTransition}`} role="region" aria-roledescription="carousel" aria-label="首页轮播">
+          <div className="hero-carousel-track" style={settings.carouselTransition === "slide" ? { transform: `translateX(-${active * 100}%)` } : undefined}>
             {slides.map((slide, index) => (
-              <div className="hero-carousel-slide" key={slide.id}>
+              <div className={`hero-carousel-slide${index === active ? " active" : ""}`} key={slide.id} aria-hidden={index !== active}>
                 {(() => {
                   const image = slide.imageUrl || settings.pageBackgroundUrl || settings.tileBackgroundUrl || "";
                   const target = normalizeCarouselTarget(slide.linkUrl);
                   const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
-                  if (!image) return <div className="hero-carousel-placeholder">{overlay}</div>;
-                  return target ? (
-                    <Link to={target}>
-                      <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />
-                      {overlay}
-                    </Link>
-                  ) : (
-                    <>
-                      <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />
-                      {overlay}
-                    </>
-                  );
+                  const content = <>{image ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
+                  return target
+                    ? <Link className="hero-carousel-slide-link" to={target} tabIndex={index === active ? 0 : -1}>{content}</Link>
+                    : <div className="hero-carousel-slide-static">{content}</div>;
                 })()}
               </div>
             ))}
@@ -131,7 +135,7 @@ export function CategoryPage() {
   const category = categories.find((item) => item.slug === slug);
   if (!category) return <NotFoundPage />;
   const items = contents.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
-  return <div className="page-width page-stack"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {items.length} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div></div>;
+  return <div className="page-width page-stack"><div className="detail-actions"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><ShareButton route={`/category/${category.slug}`} /></div><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {items.length} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div></div>;
 }
 
 export function DetailPage() {
@@ -147,9 +151,9 @@ export function DetailPage() {
   const next = position >= 0 && position < categoryItems.length - 1 ? categoryItems[position + 1] : null;
   const outline = item.media.map((media) => media.path).flat().filter((value, index, all) => value && all.indexOf(value) === index);
   return <div className="page-width detail-page">
-    <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><button className="button quiet" type="button" onClick={() => navigator.clipboard.writeText(window.location.href)}><Copy />复制链接</button></div>
+    <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
     <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
-      <div className="reader-layout">{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><div className="reader-body" dangerouslySetInnerHTML={{ __html: item.bodyHtml }} />
+      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><RichContent html={item.bodyHtml} />
       {item.media.map((media) => <figure className="media-row" key={media.id} id={`media-${encodeURIComponent(media.path.at(-1) || media.id)}`}>{media.kind === "video" ? <video controls preload="metadata" src={media.src} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
       {item.attachments.length > 0 && <section className="attachment-list"><h2>相关附件</h2>{item.attachments.map((attachment) => <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}><Download /><span><strong>{attachment.name}</strong><small>{attachment.sizeBytes ? `${(attachment.sizeBytes / 1024 / 1024).toFixed(1)} MB` : "下载附件"}</small></span></a>)}</section>}</div></div>
     </article>

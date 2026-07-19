@@ -268,9 +268,12 @@ export function SettingsPage({ profile }: { profile: Profile }) {
   if (settings.error) return <div className="admin-error"><Settings /><h1>首页设置读取失败</h1><p>{messageOf(settings.error)}</p></div>;
   if (!settings.data) return <AdminLoading label="正在读取首页设置" />;
 
-  const refresh = () => {
-    client.invalidateQueries({ queryKey: ["admin-settings"] });
-    client.invalidateQueries({ queryKey: ["public-site"] });
+  const refresh = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["admin-settings"] }),
+      client.invalidateQueries({ queryKey: ["public-site"] }),
+      client.invalidateQueries({ queryKey: ["preview-carousel-slides"] })
+    ]);
   };
   const notify = (value: string, error = false) => {
     setMessage(value);
@@ -368,7 +371,7 @@ function SettingAsset({
       await uploadWithProgress(prepared, path, (value) => setProgress(value.percent), undefined, publicMediaBucket);
       const { error } = await supabase.from("site_settings").update({ [field]: path, updated_by: userId }).eq("id", "main");
       if (error) throw error;
-      onSaved();
+      await onSaved();
     } catch (error) {
       onMessage(messageOf(error, "图片上传失败"), true);
     } finally {
