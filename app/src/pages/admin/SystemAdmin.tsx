@@ -335,7 +335,7 @@ export function SettingsPage({ profile }: { profile: Profile }) {
         </section>
       )}
       {tab === "carousel" && <CarouselSettings profile={profile} settings={settings.data} onMessage={notify} onSaved={refresh} />}
-      {tab === "preview" && <SiteMiniPreview settings={settings.data} />}
+      {tab === "preview" && <SiteMiniPreview settings={settings.data} onOpenCarousel={() => setTab("carousel")} />}
     </div>
   );
 }
@@ -387,14 +387,35 @@ function SettingAsset({
     <article className="setting-asset-row">
       {preview ? <img src={preview} alt="" /> : <span><ImagePlus /></span>}
       <div><strong>{label}</strong><p>{detail}</p><small>{current || "尚未设置"}</small></div>
-      {progress > 0 ? <div className="asset-upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div> : <div className="setting-asset-actions"><label className="button quiet"><Upload />替换<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label>{current && <button className="icon-only danger" onClick={clear}><Trash2 /></button>}</div>}
+      {progress > 0 ? <div className="asset-upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div> : <div className="setting-asset-actions"><label className="button quiet upload-button"><Upload />替换<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label>{current && <button className="icon-only danger" onClick={clear}><Trash2 /></button>}</div>}
     </article>
   );
 }
 
-function SiteMiniPreview({ settings }: { settings: Record<string, unknown> }) {
+type PreviewCarouselRow = {
+  id: string;
+  title: string;
+  subtitle: string;
+  image_path: string | null;
+  link_label: string;
+  sort_order: number;
+  is_visible: boolean;
+};
+
+export function SiteMiniPreview({ settings, onOpenCarousel }: { settings: Record<string, unknown>; onOpenCarousel?: () => void }) {
   const background = publicAssetUrl(String(settings.page_background_path || ""));
   const logo = publicAssetUrl(String(settings.top_logo_path || ""));
+  const slides = useQuery({
+    queryKey: ["preview-carousel-slides"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("carousel_slides").select("id,title,subtitle,image_path,link_label,sort_order,is_visible").order("sort_order");
+      if (error) throw error;
+      return (data || []) as PreviewCarouselRow[];
+    }
+  });
+  const visibleSlides = (slides.data || []).filter((slide) => slide.is_visible);
+  const slide = visibleSlides[0];
+  const slideImage = slide?.image_path ? publicAssetUrl(slide.image_path) : "";
   return (
     <section className="site-mini-preview" style={background ? { backgroundImage: `linear-gradient(rgba(8,13,16,.72), rgba(8,13,16,.86)), url(${background})` } : undefined}>
       <header>{logo ? <img src={logo} alt="" /> : <span>NK</span>}<div><strong>{String(settings.brand_title)}</strong><small>{String(settings.brand_subtitle)}</small></div></header>
@@ -405,8 +426,14 @@ function SiteMiniPreview({ settings }: { settings: Record<string, unknown> }) {
         <section className="mini-carousel-preview">
           <small>HOME CAROUSEL</small>
           <h3>轮播主视觉</h3>
-          <p>后台可以替换图片、标题和播放速度。</p>
-          <div><i /><i /><i /></div>
+          <p>预览当前启用的第一张轮播图、标题、说明和按钮效果。</p>
+          {slides.isLoading ? <div className="mini-carousel-state">正在读取轮播图</div> : slides.error ? <div className="mini-carousel-state error">轮播图读取失败</div> : slide ? (
+            <div className="mini-carousel-frame">
+              {slideImage ? <img src={slideImage} alt="" /> : <i />}
+              <div><span>MAPLESTORYNK</span><strong>{slide.title || "未命名轮播"}</strong>{slide.subtitle && <p>{slide.subtitle}</p>}{slide.link_label && <em>{slide.link_label}</em>}</div>
+              {visibleSlides.length > 1 && <nav>{visibleSlides.slice(0, 5).map((item, index) => <b className={index === 0 ? "active" : ""} key={item.id} />)}</nav>}
+            </div>
+          ) : <div className="mini-carousel-state empty"><strong>还没有轮播图</strong><span>去轮播图页新增图片、标题和说明。</span>{onOpenCarousel && <button className="button quiet" type="button" onClick={onOpenCarousel}>去新增轮播</button>}</div>}
         </section>
         <section><small>CATALOG</small><h3>{String(settings.category_title)}</h3><p>{String(settings.category_subtitle)}</p><div><i /><i /><i /><i /></div></section>
       </main>

@@ -6,7 +6,7 @@ const migration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migratio
 const freezeLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/manual/freeze-legacy-after-cutover.sql"), "utf8");
 const migrateLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/migrate-legacy/index.ts"), "utf8");
 const removeOfficialAssets = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719020000_remove_official_assets.sql"), "utf8");
-const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719030000_remove_stock_media.sql"), "utf8");
+const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719031000_remove_stock_media.sql"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
