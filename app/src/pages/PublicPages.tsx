@@ -5,7 +5,7 @@ import { RichContent } from "../components/RichContent";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
 import { buildShareUrl, copyShareUrl } from "../lib/share";
-import type { ContentItem } from "../types";
+import type { ContentItem, ContentMedia } from "../types";
 
 function formatDate(value?: string) {
   if (!value) return "";
@@ -27,6 +27,25 @@ function ContentCard({ item }: { item: ContentItem }) {
         <div className="card-footer"><span><FileImage />{item.media.length} 张媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
       </div>
     </article>
+  );
+}
+
+function VideoMedia({ media }: { media: ContentMedia }) {
+  const [failed, setFailed] = useState(false);
+  const type = media.mimeType || (media.src.endsWith(".webm") ? "video/webm" : "video/mp4");
+  return (
+    <div className="media-video-shell">
+      {failed ? (
+        <div className="media-video-error">
+          <strong>视频无法播放</strong>
+          <span>请确认文件是 MP4(H.264) 或 WebM，并重新上传。</span>
+        </div>
+      ) : (
+        <video controls preload="metadata" playsInline onError={() => setFailed(true)}>
+          <source src={media.src} type={type} />
+        </video>
+      )}
+    </div>
   );
 }
 
@@ -154,7 +173,7 @@ export function DetailPage() {
     <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
     <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
       <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><RichContent html={item.bodyHtml} />
-      {item.media.map((media) => <figure className="media-row" key={media.id} id={`media-${encodeURIComponent(media.path.at(-1) || media.id)}`}>{media.kind === "video" ? <video controls preload="metadata" src={media.src} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
+      {item.media.map((media) => <figure className="media-row" key={media.id} id={`media-${encodeURIComponent(media.path.at(-1) || media.id)}`}>{media.kind === "video" ? <VideoMedia media={media} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
       {item.attachments.length > 0 && <section className="attachment-list"><h2>相关附件</h2>{item.attachments.map((attachment) => <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}><Download /><span><strong>{attachment.name}</strong><small>{attachment.sizeBytes ? `${(attachment.sizeBytes / 1024 / 1024).toFixed(1)} MB` : "下载附件"}</small></span></a>)}</section>}</div></div>
     </article>
     <nav className="previous-next">{previous ? <Link to={`/content/${previous.slug}`}><ArrowLeft /><span>上一篇<strong>{previous.title}</strong></span></Link> : <span />}{next && <Link to={`/content/${next.slug}`}><span>下一篇<strong>{next.title}</strong></span><ArrowRight /></Link>}</nav>

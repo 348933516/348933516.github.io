@@ -61,6 +61,7 @@ export interface ContentMedia {
   sortOrder: number;
   width?: number;
   height?: number;
+  mimeType?: string;
 }
 
 export interface Attachment {

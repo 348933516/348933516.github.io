@@ -27,6 +27,8 @@ interface RichEditorProps {
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
 }
 
+type PopoverKey = "text-color" | "highlight" | "table-picker" | "table-border" | "cell-background" | null;
+
 const fontOptions = [
   ["default", "默认字体"], ["noto-sans", "Noto 黑体"], ["noto-serif", "Noto 宋体"],
   ["yahei", "微软雅黑"], ["pingfang", "苹方"], ["simsun", "宋体"], ["simhei", "黑体"],
@@ -45,7 +47,8 @@ function normalizeHex(value?: string | null) {
 
 function cssColor(value?: string | null) {
   const tokenMap: Record<string, string> = {
-    teal: "#65e3c2", gold: "#f2cc72", red: "#ff938d", blue: "#8fc7ff", green: "#9ee69b", muted: "#8d9aa2"
+    teal: "#65e3c2", gold: "#f2cc72", red: "#ff938d", blue: "#8fc7ff", green: "#9ee69b", muted: "#8d9aa2",
+    surface: "#111d22"
   };
   return normalizeHex(value) || tokenMap[String(value || "").toLowerCase()] || "";
 }
@@ -145,7 +148,7 @@ const FigureImage = Node.create({
     }];
   },
   renderHTML({ node }) {
-    return ["figure", { "data-editor-image": "true" }, ["img", { src: node.attrs.src, alt: node.attrs.alt || "" }], ["figcaption", 0]];
+    return ["figure", { "data-editor-image": "true" }, ["img", { src: node.attrs.src, alt: node.attrs.alt || "" }], ["figcaption", { "data-placeholder": "图片说明" }, 0]];
   }
 });
 
@@ -166,7 +169,10 @@ const StyledTable = Table.extend({
       borderColor: {
         default: "#2b3a40",
         parseHTML: (element) => element.getAttribute("data-table-color") || "#2b3a40",
-        renderHTML: (attributes) => ({ "data-table-color": cssColor(attributes.borderColor) || "#2b3a40" })
+        renderHTML: (attributes) => {
+          const color = cssColor(attributes.borderColor) || "#2b3a40";
+          return { "data-table-color": color, style: `--rich-table-color: ${color}; border-color: ${color}` };
+        }
       }
     };
   }
@@ -176,7 +182,10 @@ const cellAttributes = {
   background: {
     default: "none",
     parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-background") || "none",
-    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-background": attributes.background || "none" })
+    renderHTML: (attributes: Record<string, string>) => {
+      const color = cssColor(attributes.background);
+      return color ? { "data-cell-background": color, style: `background-color: ${color}` } : { "data-cell-background": "none" };
+    }
   },
   align: {
     default: "left",
@@ -192,18 +201,62 @@ function ToolButton({ title, active = false, disabled = false, onClick, children
   return <button type="button" className={active ? "active" : ""} title={title} aria-label={title} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={onClick}>{children}</button>;
 }
 
-function ColorPanel({ title, value, onChange, icon }: { title: string; value: string; onChange(value: string): void; icon: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function ColorDropdown({
+  panelKey, title, value, onChange, icon, activePopover, setActivePopover, allowDefault = true
+}: {
+  panelKey: Exclude<PopoverKey, null>;
+  title: string;
+  value: string;
+  onChange(value: string): void;
+  icon: React.ReactNode;
+  activePopover: PopoverKey;
+  setActivePopover(value: PopoverKey): void;
+  allowDefault?: boolean;
+}) {
+  const open = activePopover === panelKey;
   const [custom, setCustom] = useState(normalizeHex(value) || "#65e3c2");
   const swatches = [...themeColors, ...tintColors, ...standardColors];
+  const choose = (color: string) => {
+    onChange(color);
+    setActivePopover(null);
+  };
   return <div className="color-panel-wrap">
-    <button type="button" className="color-panel-trigger" title={title} aria-label={title} onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen((current) => !current)}>
+    <button type="button" className="color-panel-trigger" title={title} aria-label={title} onMouseDown={(event) => event.preventDefault()} onClick={() => setActivePopover(open ? null : panelKey)}>
       {icon}<span style={{ background: cssColor(value) || "transparent" }} /><ChevronDown />
     </button>
     {open && <div className="color-panel" role="dialog" aria-label={title}>
-      <button type="button" className="color-default" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); setOpen(false); }}>默认</button>
-      <div className="swatch-grid">{swatches.map((color) => <button type="button" key={color} title={color} style={{ background: color }} onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(color); setOpen(false); }} />)}</div>
-      <label className="custom-color-row"><span>更多颜色</span><input type="color" value={custom} onChange={(event) => setCustom(event.target.value)} /><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(custom); setOpen(false); }}>应用</button></label>
+      <div className="color-panel-head"><strong>{title}</strong>{allowDefault && <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose("")}>默认</button>}</div>
+      <div className="swatch-grid">{swatches.map((color) => <button type="button" key={color} title={color} style={{ background: color }} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(color)} />)}</div>
+      <label className="custom-color-row"><span>更多颜色</span><input type="color" value={custom} onChange={(event) => setCustom(event.target.value)} /><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(custom)}>应用</button></label>
+    </div>}
+  </div>;
+}
+
+function TableSizePicker({ open, setOpen, onInsert }: { open: boolean; setOpen(value: boolean): void; onInsert(rows: number, cols: number): void }) {
+  const [hover, setHover] = useState({ rows: 3, cols: 3 });
+  const [customRows, setCustomRows] = useState(3);
+  const [customCols, setCustomCols] = useState(3);
+  const insert = (rows: number, cols: number) => {
+    onInsert(Math.min(20, Math.max(1, rows)), Math.min(12, Math.max(1, cols)));
+    setOpen(false);
+  };
+  return <div className="table-picker-wrap">
+    <button type="button" className="table-picker-trigger" aria-label="插入表格" title="插入表格" onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen(!open)}><Table2 /><ChevronDown /></button>
+    {open && <div className="table-picker-popover" role="dialog" aria-label="选择表格尺寸">
+      <strong>{hover.rows} x {hover.cols} 表格</strong>
+      <div className="table-size-grid">
+        {Array.from({ length: 100 }, (_, index) => {
+          const rows = Math.floor(index / 10) + 1;
+          const cols = (index % 10) + 1;
+          const active = rows <= hover.rows && cols <= hover.cols;
+          return <button key={`${rows}-${cols}`} type="button" className={active ? "active" : ""} aria-label={`${rows} 行 ${cols} 列`} onMouseEnter={() => setHover({ rows, cols })} onMouseDown={(event) => event.preventDefault()} onClick={() => insert(rows, cols)} />;
+        })}
+      </div>
+      <div className="table-custom-size">
+        <label>行<input type="number" min="1" max="20" value={customRows} onChange={(event) => setCustomRows(Number(event.target.value) || 1)} /></label>
+        <label>列<input type="number" min="1" max="12" value={customCols} onChange={(event) => setCustomCols(Number(event.target.value) || 1)} /></label>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insert(customRows, customCols)}>插入</button>
+      </div>
     </div>}
   </div>;
 }
@@ -212,6 +265,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const internalHtml = useRef(sanitizeHtml(value));
+  const [activePopover, setActivePopover] = useState<PopoverKey>(null);
   const [tableToolsOpen, setTableToolsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -259,7 +313,10 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
-      if (!shellRef.current?.contains(event.target as globalThis.Node)) setTableToolsOpen(false);
+      if (!shellRef.current?.contains(event.target as globalThis.Node)) {
+        setTableToolsOpen(false);
+        setActivePopover(null);
+      }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -296,7 +353,8 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const insertImages = async (files: File[]) => {
     if (!files.length) return;
     if (!onUploadImages) return setMessage("当前页面没有开启正文图片上传。");
-    setUploadingImages(true); setMessage(`正在上传 ${files.length} 张图片...`);
+    setUploadingImages(true);
+    setMessage(`正在上传 ${files.length} 张图片...`);
     try {
       const uploaded = await onUploadImages(files);
       editor.chain().focus().insertContent(uploaded.flatMap((image) => [
@@ -315,12 +373,21 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     editor.chain().focus().updateAttributes("table", patch).run();
     setTableToolsOpen(true);
   };
+  const setCellBackground = (color: string) => {
+    if (!canUseTable) return;
+    editor.chain().focus().setCellAttribute("background", color || "none").run();
+    setTableToolsOpen(true);
+  };
+  const insertTable = (rows: number, cols: number) => {
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+    setTableToolsOpen(true);
+  };
 
   return (
     <div ref={shellRef} className={`editor-shell${fullscreen ? " editor-fullscreen" : ""}`}>
       <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={(event) => { insertImages([...(event.target.files || [])]); event.target.value = ""; }} />
       <div className="editor-toolbar" aria-label="正文编辑工具">
-        <div className="editor-ribbon-group">
+        <div className="editor-ribbon-group compact">
           <span>编辑</span>
           <ToolButton title="撤销" onClick={() => editor.chain().focus().undo().run()}><Undo2 /></ToolButton>
           <ToolButton title="重做" onClick={() => editor.chain().focus().redo().run()}><Redo2 /></ToolButton>
@@ -336,8 +403,8 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
           <ToolButton title="斜体" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic /></ToolButton>
           <ToolButton title="下划线" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><UnderlineIcon /></ToolButton>
           <ToolButton title="删除线" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough /></ToolButton>
-          <ColorPanel title="文字颜色" value={textStyle.color || ""} onChange={setColor} icon={<Palette />} />
-          <ColorPanel title="背景高亮" value={editor.getAttributes("highlight").color || ""} onChange={setHighlight} icon={<Highlighter />} />
+          <ColorDropdown panelKey="text-color" title="文字颜色" value={textStyle.color || ""} onChange={setColor} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} />
+          <ColorDropdown panelKey="highlight" title="背景高亮" value={editor.getAttributes("highlight").color || ""} onChange={setHighlight} icon={<Highlighter />} activePopover={activePopover} setActivePopover={setActivePopover} />
         </div>
         <div className="editor-ribbon-group">
           <span>段落</span>
@@ -355,22 +422,31 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
           <ToolButton title="分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()}><Minus /></ToolButton>
           <ToolButton title="链接" active={editor.isActive("link")} onClick={setLink}><Link2 /></ToolButton>
           <ToolButton title="上传本地图片" disabled={uploadingImages} onClick={() => fileRef.current?.click()}><ImagePlus /></ToolButton>
-          <ToolButton title="插入表格" onClick={() => { editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); setTableToolsOpen(true); }}><Table2 /></ToolButton>
+          <TableSizePicker open={activePopover === "table-picker"} setOpen={(open) => setActivePopover(open ? "table-picker" : null)} onInsert={insertTable} />
           <ToolButton title="清除选区格式" onClick={() => editor.chain().focus().unsetAllMarks().run()}><Eraser /></ToolButton>
         </div>
         {tableToolsOpen && <div className="editor-table-tools" aria-label="表格工具">
-          <strong>表格</strong>
-          <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addRowBefore().run()}>上方加行</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addRowAfter().run()}>下方加行</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteRow().run()}>删除行</button>
-          <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addColumnBefore().run()}>左侧加列</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addColumnAfter().run()}>右侧加列</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteColumn().run()}>删除列</button>
-          <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().mergeCells().run()}>合并单元格</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().splitCell().run()}>拆分单元格</button><button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>切换表头</button>
-          <label>线宽<select value={tableAttributes.borderWidth || "1"} disabled={!canUseTable} onChange={(event) => updateTable({ borderWidth: event.target.value })}>{tableWidths.map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
-          <label>线型<select value={tableAttributes.borderStyle || "solid"} disabled={!canUseTable} onChange={(event) => updateTable({ borderStyle: event.target.value })}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
-          <label>线色<input type="color" value={cssColor(tableAttributes.borderColor) || "#2b3a40"} disabled={!canUseTable} onChange={(event) => updateTable({ borderColor: event.target.value })} /></label>
-          <label>单元格背景<select value={cellStyle.background || "none"} disabled={!canUseTable} onChange={(event) => editor.chain().focus().setCellAttribute("background", event.target.value).run()}><option value="none">无</option><option value="surface">深色</option><option value="teal">青绿</option><option value="gold">金色</option><option value="red">红色</option><option value="blue">蓝色</option><option value="green">绿色</option></select></label>
-          <label>单元格对齐<select value={cellStyle.align || "left"} disabled={!canUseTable} onChange={(event) => editor.chain().focus().setCellAttribute("align", event.target.value).run()}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
-          <button type="button" disabled={!canUseTable} onClick={() => updateTable({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" })}>清除表格样式</button>
-          <button className="danger" type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
-          <button className="icon-only" type="button" aria-label="收起表格工具" onClick={() => setTableToolsOpen(false)}><X /></button>
+          <div className="table-tools-title"><strong>表格</strong><button className="icon-only" type="button" aria-label="收起表格工具" onClick={() => setTableToolsOpen(false)}><X /></button></div>
+          <div className="table-tools-row">
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addRowBefore().run()}>上方加行</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addRowAfter().run()}>下方加行</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteRow().run()}>删除行</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addColumnBefore().run()}>左侧加列</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().addColumnAfter().run()}>右侧加列</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteColumn().run()}>删除列</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().mergeCells().run()}>合并单元格</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().splitCell().run()}>拆分单元格</button>
+            <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>切换表头</button>
+          </div>
+          <div className="table-tools-row">
+            <label>线宽<select value={tableAttributes.borderWidth || "1"} disabled={!canUseTable} onChange={(event) => updateTable({ borderWidth: event.target.value })}>{tableWidths.map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
+            <label>线型<select value={tableAttributes.borderStyle || "solid"} disabled={!canUseTable} onChange={(event) => updateTable({ borderStyle: event.target.value })}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
+            <ColorDropdown panelKey="table-border" title="表格线色" value={tableAttributes.borderColor || "#2b3a40"} onChange={(color) => updateTable({ borderColor: color || "#2b3a40" })} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} allowDefault={false} />
+            <ColorDropdown panelKey="cell-background" title="单元格背景" value={cellStyle.background || ""} onChange={setCellBackground} icon={<Highlighter />} activePopover={activePopover} setActivePopover={setActivePopover} />
+            <label>单元格对齐<select value={cellStyle.align || "left"} disabled={!canUseTable} onChange={(event) => editor.chain().focus().setCellAttribute("align", event.target.value).run()}><option value="left">左对齐</option><option value="center">居中</option><option value="right">右对齐</option><option value="justify">两端对齐</option></select></label>
+            <button type="button" disabled={!canUseTable} onClick={() => updateTable({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" })}>清除表格样式</button>
+            <button className="danger" type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().deleteTable().run()}>删除表格</button>
+          </div>
         </div>}
       </div>
       {message && <div className="editor-message">{message}</div>}

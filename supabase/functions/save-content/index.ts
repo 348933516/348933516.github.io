@@ -10,8 +10,29 @@ function cleanSlug(value: string) {
 
 function cleanBody(value: string) {
   return sanitizeHtml(value, {
-    allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span"],
-    allowedAttributes: { a: ["href", "target", "rel", "title"], img: ["src", "alt", "title"], th: ["colspan", "rowspan"], td: ["colspan", "rowspan"], span: ["class"] },
+    allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
+    allowedAttributes: {
+      a: ["href", "target", "rel", "title"],
+      img: ["src", "alt", "title"],
+      figure: ["data-editor-image"],
+      figcaption: ["data-placeholder"],
+      table: ["data-table-border", "data-table-style", "data-table-color", "style"],
+      th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
+      td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
+      span: ["class", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "style"],
+      mark: ["data-highlight", "style"],
+      div: ["class"]
+    },
+    allowedStyles: {
+      "*": {
+        color: [/^#[0-9a-f]{6}$/i],
+        "background-color": [/^#[0-9a-f]{6}$/i],
+        "font-size": [/^(?:[8-9]|[1-6][0-9]|7[0-2])px$/],
+        "text-align": [/^(left|center|right|justify)$/],
+        "border-color": [/^#[0-9a-f]{6}$/i],
+        "--rich-table-color": [/^#[0-9a-f]{6}$/i]
+      }
+    },
     allowedSchemes: ["https"],
     allowProtocolRelative: false,
     transformTags: { a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }) }

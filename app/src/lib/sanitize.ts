@@ -8,9 +8,9 @@ const controlledAttributes: Record<string, Set<string>> = {
   "data-font-family": new Set(["default", "noto-sans", "noto-serif", "yahei", "pingfang", "simsun", "simhei", "kaiti", "fangsong", "arial", "georgia"]),
   "data-table-border": new Set(["0", "1", "2", "3", "4"]),
   "data-table-style": new Set(["solid", "dashed", "dotted"]),
-  "data-cell-background": new Set(["none", "teal", "gold", "red", "blue", "green", "surface"]),
   "data-cell-align": new Set(["left", "center", "right", "justify"]),
-  "data-editor-image": new Set(["true"])
+  "data-editor-image": new Set(["true"]),
+  "data-placeholder": new Set(["图片说明"])
 };
 
 DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
@@ -24,6 +24,8 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (name === "color" && safeHex.test(value)) safeDeclarations.push(`color: ${value}`);
       if (name === "background-color" && safeHex.test(value)) safeDeclarations.push(`background-color: ${value}`);
       if (name === "font-size" && /^(\d{1,2})px$/.test(value) && safeFontSize.test(value.replace("px", ""))) safeDeclarations.push(`font-size: ${value}`);
+      if (name === "border-color" && safeHex.test(value)) safeDeclarations.push(`border-color: ${value}`);
+      if (name === "--rich-table-color" && safeHex.test(value)) safeDeclarations.push(`--rich-table-color: ${value}`);
     }
     if (safeDeclarations.length) data.attrValue = safeDeclarations.join("; ");
     else data.keepAttr = false;
@@ -33,7 +35,7 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (!safeFontSize.test(data.attrValue)) data.keepAttr = false;
     return;
   }
-  if (["data-text-color", "data-highlight", "data-table-color"].includes(data.attrName)) {
+   if (["data-text-color", "data-highlight", "data-table-color", "data-cell-background"].includes(data.attrName)) {
     const value = data.attrValue.toLowerCase();
     if (!safeHex.test(value) && !colorTokens.has(value)) data.keepAttr = false;
     return;

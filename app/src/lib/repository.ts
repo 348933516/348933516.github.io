@@ -68,7 +68,8 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     altText: String(row.alt_text || row.title || ""),
     sortOrder: Number(row.sort_order || 100),
     width: row.width ? Number(row.width) : undefined,
-    height: row.height ? Number(row.height) : undefined
+    height: row.height ? Number(row.height) : undefined,
+    mimeType: row.mime_type ? String(row.mime_type) : undefined
   };
 }
 
@@ -386,4 +387,10 @@ export async function duplicateContent(id: string) {
   const { data, error } = await supabase.functions.invoke("duplicate-content", { body: { contentId: id } });
   if (error || data?.error) throw new Error(data?.error || error?.message);
   return data as { id: string; title: string; version: number };
+}
+
+export async function deleteContentForever(items: Array<{ id: string; version: number }>) {
+  const { data, error } = await supabase.functions.invoke("delete-content", { body: { items } });
+  if (error || data?.error) throw new Error(data?.error || error?.message);
+  return data as { succeeded: number; results: Array<{ id: string; ok: boolean; error?: string }>; storageWarnings?: string[] };
 }
