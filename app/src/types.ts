@@ -21,6 +21,23 @@ export interface SiteSettings {
   heroLogoUrl?: string;
   pageBackgroundUrl?: string;
   tileBackgroundUrl?: string;
+  carouselEnabled: boolean;
+  carouselAutoplay: boolean;
+  carouselIntervalMs: number;
+  carouselTransition: "slide" | "fade";
+}
+
+export interface CarouselSlide {
+  id: string;
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  linkUrl: string;
+  linkLabel: string;
+  sortOrder: number;
+  visible: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Category {
@@ -84,6 +101,7 @@ export interface PublicData {
   settings: SiteSettings;
   categories: Category[];
   contents: ContentItem[];
+  carouselSlides: CarouselSlide[];
   backendMode: "structured" | "legacy";
 }
 

@@ -5,7 +5,7 @@ import { Outlet, Route, Routes } from "react-router-dom";
 import { DataProvider } from "./data";
 import { loadPublicData } from "./lib/repository";
 import { SiteLayout } from "./components/SiteLayout";
-import { CategoryPage, DetailPage, HomePage, NotFoundPage, SearchPage } from "./pages/PublicPages";
+import { CategoryPage, DetailPage, HomePage, NotFoundPage } from "./pages/PublicPages";
 
 const AdminPage = lazy(() => import("./pages/AdminPage").then((module) => ({ default: module.AdminPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
@@ -20,7 +20,6 @@ export function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/category/:slug" element={<CategoryPage />} />
       <Route path="/content/:slug" element={<DetailPage />} />
-      <Route path="/search" element={<SearchPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>

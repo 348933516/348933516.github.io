@@ -2,15 +2,29 @@ import type { User } from "@supabase/supabase-js";
 import { publicMediaBucket } from "./config";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
-import type { Attachment, Category, ContentDraft, ContentItem, ContentMedia, Profile, PublicData, SiteSettings } from "../types";
+import type {
+  Attachment,
+  Category,
+  CarouselSlide,
+  ContentDraft,
+  ContentItem,
+  ContentMedia,
+  Profile,
+  PublicData,
+  SiteSettings
+} from "../types";
 
 const fallbackSettings: SiteSettings = {
   brandTitle: "MapleStoryNK",
-  brandSubtitle: "业务与地图资料中心",
+  brandSubtitle: "Content and map knowledge base",
   heroTitle: "MapleStoryNK",
-  heroSubtitle: "地图内容、WZ 业务与 BOSS 配套信息统一整理。",
-  categoryTitle: "资料类目",
-  categorySubtitle: "选择类目，浏览完整资料。"
+  heroSubtitle: "Maps, WZ business and BOSS pairing information in one place.",
+  categoryTitle: "Catalog",
+  categorySubtitle: "Pick a category and browse the full set.",
+  carouselEnabled: true,
+  carouselAutoplay: true,
+  carouselIntervalMs: 4500,
+  carouselTransition: "slide"
 };
 
 function isMissingSchema(error: { code?: string; message?: string } | null) {
@@ -35,7 +49,11 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
     topLogoUrl: storageUrl(publicMediaBucket, row.top_logo_path as string),
     heroLogoUrl: storageUrl(publicMediaBucket, row.hero_logo_path as string),
     pageBackgroundUrl: storageUrl(publicMediaBucket, row.page_background_path as string),
-    tileBackgroundUrl: storageUrl(publicMediaBucket, row.tile_background_path as string)
+    tileBackgroundUrl: storageUrl(publicMediaBucket, row.tile_background_path as string),
+    carouselEnabled: Boolean(row.carousel_enabled ?? fallbackSettings.carouselEnabled),
+    carouselAutoplay: Boolean(row.carousel_autoplay ?? fallbackSettings.carouselAutoplay),
+    carouselIntervalMs: Number(row.carousel_interval_ms || fallbackSettings.carouselIntervalMs),
+    carouselTransition: row.carousel_transition === "fade" ? "fade" : "slide"
   };
 }
 
@@ -57,11 +75,26 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
 function mapAttachment(row: Record<string, unknown>): Attachment {
   return {
     id: String(row.id),
-    name: String(row.name || "附件"),
+    name: String(row.name || "Attachment"),
     url: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string),
     mimeType: row.mime_type ? String(row.mime_type) : undefined,
     sizeBytes: row.size_bytes ? Number(row.size_bytes) : undefined,
     sortOrder: Number(row.sort_order || 100)
+  };
+}
+
+function mapCarouselSlide(row: Record<string, unknown>): CarouselSlide {
+  return {
+    id: String(row.id),
+    title: String(row.title || ""),
+    subtitle: String(row.subtitle || ""),
+    imageUrl: storageUrl(publicMediaBucket, row.image_path as string),
+    linkUrl: String(row.link_url || ""),
+    linkLabel: String(row.link_label || "View details"),
+    sortOrder: Number(row.sort_order || 100),
+    visible: Boolean(row.is_visible ?? true),
+    createdAt: String(row.created_at || new Date().toISOString()),
+    updatedAt: String(row.updated_at || new Date().toISOString())
   };
 }
 
@@ -84,6 +117,11 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
   if (categoriesResult.error) throw categoriesResult.error;
   if (contentsResult.error) throw contentsResult.error;
   if (!settingsResult.data?.migration_completed) return null;
+
+  let carouselRows: Record<string, unknown>[] = [];
+  const carouselResult = await supabase.from("carousel_slides").select("*").order("sort_order");
+  if (carouselResult.error && !isMissingSchema(carouselResult.error)) throw carouselResult.error;
+  if (!carouselResult.error) carouselRows = carouselResult.data || [];
 
   const contentRows = contentsResult.data || [];
   const contentIds = contentRows.map((row) => row.id);
@@ -124,32 +162,32 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
     sortOrder: row.sort_order,
     visible: row.is_visible
   }));
-  const contents: ContentItem[] = contentRows.map((row) => {
-    return {
-      id: row.id,
-      slug: row.slug,
-      categoryId: row.category_id,
-      categorySlug: row.category_slug,
-      categoryName: row.category_name,
-      title: row.title,
-      summary: row.summary || "",
-      bodyHtml: sanitizeHtml(row.body_html),
-      bodyJson: {},
-      bodyText: row.body_text || "",
-      sourceRecord: "",
-      status: "published",
-      featured: row.is_featured,
-      sortOrder: row.sort_order,
-      version: row.version,
-      tags: tagsByContent.get(row.id) || [],
-      media: mediaByContent.get(row.id) || [],
-      attachments: attachmentsByContent.get(row.id) || [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      publishedAt: row.published_at
-    };
-  });
-  return { settings: mapSettings(settingsResult.data), categories, contents, backendMode: "structured" };
+  const contents: ContentItem[] = contentRows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    categoryId: row.category_id,
+    categorySlug: row.category_slug,
+    categoryName: row.category_name,
+    title: row.title,
+    summary: row.summary || "",
+    bodyHtml: sanitizeHtml(row.body_html),
+    bodyJson: {},
+    bodyText: row.body_text || "",
+    sourceRecord: "",
+    status: "published",
+    featured: row.is_featured,
+    sortOrder: row.sort_order,
+    version: row.version,
+    tags: tagsByContent.get(row.id) || [],
+    media: mediaByContent.get(row.id) || [],
+    attachments: attachmentsByContent.get(row.id) || [],
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    publishedAt: row.published_at
+  }));
+  const carouselSlides = carouselRows.map(mapCarouselSlide).filter((slide) => slide.visible);
+  return { settings: mapSettings(settingsResult.data), categories, contents, carouselSlides, backendMode: "structured" };
 }
 
 async function loadLegacyPublicData(): Promise<PublicData> {
@@ -163,7 +201,7 @@ async function loadLegacyPublicData(): Promise<PublicData> {
     id: `legacy-category-${index}`,
     slug: slugify(name),
     name,
-    description: texts[name] || "资料分类",
+    description: texts[name] || "Category",
     imageUrl: safeUrl(images[name]),
     sortOrder: (index + 1) * 10,
     visible: true
@@ -179,8 +217,8 @@ async function loadLegacyPublicData(): Promise<PublicData> {
       slug: slugify(String(row.id || row.title || `legacy-${index}`)),
       categoryId: category?.id || "legacy-category",
       categorySlug: category?.slug || "legacy",
-      categoryName: category?.name || String(row.category || "资料"),
-      title: String(row.title || "未命名资料"),
+      categoryName: category?.name || String(row.category || "Content"),
+      title: String(row.title || "Untitled"),
       summary: String(row.summary || ""),
       bodyHtml: sanitizeHtml(String(row.bodyHtml || "")),
       bodyJson: {},
@@ -195,13 +233,14 @@ async function loadLegacyPublicData(): Promise<PublicData> {
         id: `${row.id || index}-media-${mediaIndex}`,
         kind: "image" as const,
         src: safeUrl(String(media.src || "")),
-        title: String(media.title || `图片 ${mediaIndex + 1}`),
+        title: String(media.title || `Image ${mediaIndex + 1}`),
         note: String(media.note || ""),
         path: String(media.path || row.category || "").split("/").filter(Boolean),
-        altText: String(media.title || row.title || "图片"),
+        altText: String(media.title || row.title || "Image"),
         sortOrder: (mediaIndex + 1) * 10
       })).filter((media) => media.src),
       attachments: [],
+      createdBy: undefined,
       createdAt: String(row.updatedAt || new Date().toISOString()),
       updatedAt: String(row.updatedAt || new Date().toISOString())
     };
@@ -218,9 +257,13 @@ async function loadLegacyPublicData(): Promise<PublicData> {
     topLogoUrl: safeUrl(String(appearance.topLogo || "")),
     heroLogoUrl: safeUrl(String(appearance.heroLogo || "")),
     pageBackgroundUrl: safeUrl(String(appearance.pageBg || "")),
-    tileBackgroundUrl: safeUrl(String(appearance.tileBg || ""))
+    tileBackgroundUrl: safeUrl(String(appearance.tileBg || "")),
+    carouselEnabled: fallbackSettings.carouselEnabled,
+    carouselAutoplay: fallbackSettings.carouselAutoplay,
+    carouselIntervalMs: fallbackSettings.carouselIntervalMs,
+    carouselTransition: fallbackSettings.carouselTransition
   };
-  return { settings, categories, contents, backendMode: "legacy" };
+  return { settings, categories, contents, carouselSlides: [], backendMode: "legacy" };
 }
 
 export async function loadPublicData() {
@@ -241,11 +284,27 @@ export async function loadAdminContents(): Promise<ContentItem[]> {
   return (data || []).map((row) => {
     const category = row.categories as { id: string; slug: string; name: string };
     return {
-      id: row.id, slug: row.slug, categoryId: category.id, categorySlug: category.slug, categoryName: category.name,
-      title: row.title, summary: row.summary || "", bodyHtml: sanitizeHtml(row.body_html), bodyJson: row.body_json || {},
-      bodyText: row.body_text || "", sourceRecord: row.source_record || "", status: row.status, featured: row.is_featured,
-      sortOrder: row.sort_order, version: row.version, tags: [], media: (row.content_media || []).map(mapMedia), createdAt: row.created_at, updatedAt: row.updated_at,
-      attachments: [], createdBy: row.created_by,
+      id: row.id,
+      slug: row.slug,
+      categoryId: category.id,
+      categorySlug: category.slug,
+      categoryName: category.name,
+      title: row.title,
+      summary: row.summary || "",
+      bodyHtml: sanitizeHtml(row.body_html),
+      bodyJson: row.body_json || {},
+      bodyText: row.body_text || "",
+      sourceRecord: row.source_record || "",
+      status: row.status,
+      featured: row.is_featured,
+      sortOrder: row.sort_order,
+      version: row.version,
+      tags: [],
+      media: (row.content_media || []).map(mapMedia),
+      attachments: [],
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
       publishedAt: row.published_at
     };
   });
@@ -265,24 +324,43 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
   const row = contentResult.data;
   const category = row.categories as { id: string; slug: string; name: string };
   return {
-    id: row.id, slug: row.slug, categoryId: category.id, categorySlug: category.slug, categoryName: category.name,
-    title: row.title, summary: row.summary || "", bodyHtml: sanitizeHtml(row.body_html), bodyJson: row.body_json || {},
-    bodyText: row.body_text || "", sourceRecord: row.source_record || "", status: row.status, featured: row.is_featured,
-    sortOrder: row.sort_order, version: row.version,
-    tags: (tagResult.data || []).flatMap((entry) => { const tag = Array.isArray(entry.tags) ? entry.tags[0] : entry.tags; return tag && typeof tag === "object" && "name" in tag ? [String(tag.name)] : []; }),
+    id: row.id,
+    slug: row.slug,
+    categoryId: category.id,
+    categorySlug: category.slug,
+    categoryName: category.name,
+    title: row.title,
+    summary: row.summary || "",
+    bodyHtml: sanitizeHtml(row.body_html),
+    bodyJson: row.body_json || {},
+    bodyText: row.body_text || "",
+    sourceRecord: row.source_record || "",
+    status: row.status,
+    featured: row.is_featured,
+    sortOrder: row.sort_order,
+    version: row.version,
+    tags: (tagResult.data || []).flatMap((entry) => {
+      const tag = Array.isArray(entry.tags) ? entry.tags[0] : entry.tags;
+      return tag && typeof tag === "object" && "name" in tag ? [String(tag.name)] : [];
+    }),
     media: await Promise.all((mediaResult.data || []).map(async (mediaRow) => ({ ...mapMedia(mediaRow), src: await adminStorageUrl(mediaRow.storage_bucket, mediaRow.storage_path, mediaRow.external_url) }))),
     attachments: await Promise.all((attachmentResult.data || []).map(async (attachmentRow) => ({ ...mapAttachment(attachmentRow), url: await adminStorageUrl(attachmentRow.storage_bucket, attachmentRow.storage_path, attachmentRow.external_url) }))),
-    createdAt: row.created_at, updatedAt: row.updated_at, createdBy: row.created_by, publishedAt: row.published_at
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by,
+    publishedAt: row.published_at
   };
 }
 
 export async function saveContent(draft: ContentDraft, userId: string) {
-  const { data, error } = await supabase.functions.invoke("save-content", { body: {
-    ...draft,
-    slug: draft.slug || slugify(draft.title),
-    bodyHtml: sanitizeHtml(draft.bodyHtml),
-    userId
-  } });
+  const { data, error } = await supabase.functions.invoke("save-content", {
+    body: {
+      ...draft,
+      slug: draft.slug || slugify(draft.title),
+      bodyHtml: sanitizeHtml(draft.bodyHtml),
+      userId
+    }
+  });
   if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message);
   return data;
 }

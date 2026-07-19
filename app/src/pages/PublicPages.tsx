@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Search, Tag, X } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import { useSiteData } from "../data";
 import type { ContentItem } from "../types";
 
@@ -9,7 +9,9 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
-function cover(item: ContentItem) { return item.media.find((media) => media.kind === "image")?.src || ""; }
+function cover(item: ContentItem) {
+  return item.media.find((media) => media.kind === "image")?.src || "";
+}
 
 function ContentCard({ item }: { item: ContentItem }) {
   return (
@@ -19,30 +21,90 @@ function ContentCard({ item }: { item: ContentItem }) {
         <div className="card-meta"><span>{item.categoryName}</span><span>{formatDate(item.publishedAt || item.updatedAt)}</span></div>
         <h3><Link to={`/content/${item.slug}`}>{item.title}</Link></h3>
         <p>{item.summary}</p>
-        <div className="card-footer"><span><FileImage />{item.media.length} 个媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
+        <div className="card-footer"><span><FileImage />{item.media.length} 张媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
       </div>
     </article>
   );
 }
 
+function HomepageCarousel() {
+  const { settings, carouselSlides } = useSiteData();
+  const slides = useMemo(() => {
+    const visible = settings.carouselEnabled ? carouselSlides : [];
+    if (visible.length > 0) return visible;
+    return [{
+      id: "fallback",
+      title: settings.heroTitle,
+      subtitle: settings.heroSubtitle,
+      imageUrl: settings.pageBackgroundUrl || settings.tileBackgroundUrl || "",
+      linkUrl: "",
+      linkLabel: "",
+      sortOrder: 1,
+      visible: true,
+      createdAt: "",
+      updatedAt: ""
+    }];
+  }, [carouselSlides, settings.carouselEnabled, settings.heroSubtitle, settings.heroTitle, settings.pageBackgroundUrl, settings.tileBackgroundUrl]);
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  useEffect(() => {
+    setActive(0);
+  }, [slides.length]);
+
+  useEffect(() => {
+    if (!settings.carouselAutoplay || paused || reducedMotion || slides.length <= 1) return;
+    const timer = window.setInterval(() => setActive((value) => (value + 1) % slides.length), Math.max(1500, settings.carouselIntervalMs || 4500));
+    return () => window.clearInterval(timer);
+  }, [paused, reducedMotion, settings.carouselAutoplay, settings.carouselIntervalMs, slides.length]);
+
+  const goTo = (index: number) => setActive((index + slides.length) % slides.length);
+  const previous = () => goTo(active - 1);
+  const next = () => goTo(active + 1);
+
+  return (
+    <section className="hero-carousel-band">
+      <div className="page-width hero-carousel-shell" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={() => setPaused(false)}>
+        <div className="hero-carousel-frame" role="region" aria-roledescription="carousel" aria-label="首页轮播">
+          <div className="hero-carousel-track" style={{ transform: `translateX(-${active * 100}%)` }}>
+            {slides.map((slide, index) => (
+              <div className="hero-carousel-slide" key={slide.id}>
+                {(() => {
+                  const image = slide.imageUrl || settings.pageBackgroundUrl || settings.tileBackgroundUrl || "";
+                  const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{slide.linkUrl && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
+                  if (!image) return <div className="hero-carousel-placeholder">{overlay}</div>;
+                  return slide.linkUrl ? (
+                    <a href={slide.linkUrl} target={slide.linkUrl.startsWith("/") ? "_self" : "_blank"} rel={slide.linkUrl.startsWith("/") ? undefined : "noreferrer"}>
+                      <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />
+                      {overlay}
+                    </a>
+                  ) : (
+                    <>
+                      <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />
+                      {overlay}
+                    </>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
+          {slides.length > 1 && <>
+            <button className="carousel-arrow left" type="button" onClick={previous} aria-label="上一张"><ChevronLeft /></button>
+            <button className="carousel-arrow right" type="button" onClick={next} aria-label="下一张"><ChevronRight /></button>
+            <div className="carousel-dots" aria-label="轮播分页">{slides.map((slide, index) => <button key={slide.id} type="button" className={index === active ? "active" : ""} onClick={() => goTo(index)} aria-label={`切换到第 ${index + 1} 张`} />)}</div>
+          </>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function HomePage() {
   const { settings, categories, contents } = useSiteData();
-  const featured = contents.filter((item) => item.featured).slice(0, 4);
-  const navigate = useNavigate();
-  const [query, setQuery] = useState("");
   return (
     <>
-      <section className="hero-band">
-        <div className="page-width hero-content">
-          {settings.heroLogoUrl && <img className="hero-logo" src={settings.heroLogoUrl} alt="" />}
-          <span className="eyebrow">MapleStoryNK Knowledge Base</span>
-          <h1>{settings.heroTitle}</h1>
-          <p>{settings.heroSubtitle}</p>
-          <form className="hero-search" onSubmit={(event) => { event.preventDefault(); if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`); }}>
-            <Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入地图、BOSS、WZ 或图片标注" /><button type="submit">搜索资料</button>
-          </form>
-        </div>
-      </section>
+      <HomepageCarousel />
       <section className="page-width section-block">
         <div className="section-heading"><div><span>CATALOG</span><h2>{settings.categoryTitle}</h2><p>{settings.categorySubtitle}</p></div></div>
         <div className="category-grid">
@@ -57,7 +119,6 @@ export function HomePage() {
           })}
         </div>
       </section>
-      {featured.length > 0 && <section className="page-width section-block"><div className="section-heading"><div><span>FEATURED</span><h2>精选资料</h2></div></div><div className="content-list">{featured.map((item) => <ContentCard item={item} key={item.id} />)}</div></section>}
     </>
   );
 }
@@ -69,19 +130,6 @@ export function CategoryPage() {
   if (!category) return <NotFoundPage />;
   const items = contents.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
   return <div className="page-width page-stack"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {items.length} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div></div>;
-}
-
-export function SearchPage() {
-  const [params, setParams] = useSearchParams();
-  const { contents } = useSiteData();
-  const query = params.get("q") || "";
-  const results = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return contents;
-    return contents.filter((item) => [item.title, item.summary, item.bodyText, item.categoryName, item.tags.join(" "), item.media.map((media) => `${media.title} ${media.note}`).join(" ")].join(" ").toLowerCase().includes(keyword));
-  }, [contents, query]);
-  const [value, setValue] = useState(query);
-  return <div className="page-width page-stack"><header className="page-header"><span>SEARCH</span><h1>全站搜索</h1><p>按标题、正文、图片名称、标注、标签和分类查找。</p></header><form className="search-page-form" onSubmit={(event) => { event.preventDefault(); setParams(value.trim() ? { q: value.trim() } : {}); }}><Search /><input value={value} onChange={(event) => setValue(event.target.value)} placeholder="搜索资料" /><button type="submit">搜索</button></form><div className="result-count">{query ? `“${query}” 找到 ${results.length} 条结果` : `全部 ${results.length} 条资料`}</div><div className="content-list">{results.map((item) => <ContentCard item={item} key={item.id} />)}</div></div>;
 }
 
 export function DetailPage() {
