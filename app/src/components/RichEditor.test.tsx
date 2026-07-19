@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RichEditor } from "./RichEditor";
 
@@ -14,5 +14,16 @@ describe("professional rich editor", () => {
     expect(screen.getByRole("button", { name: "上传本地图片" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "插入表格" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "清除选区格式" })).toBeInTheDocument();
+  });
+
+  it("lets administrators choose table borders before inserting a table", () => {
+    render(<RichEditor value="<p>正文</p>" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
+    expect(screen.getByRole("dialog", { name: "创建表格" })).toBeInTheDocument();
+    expect(screen.getByText("线宽")).toBeInTheDocument();
+    expect(screen.getByText("线型")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "线色" })).toBeInTheDocument();
+    expect(screen.getByText("创建表头")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2 行 4 列" })).toBeInTheDocument();
   });
 });

@@ -27,7 +27,7 @@ interface RichEditorProps {
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
 }
 
-type PopoverKey = "text-color" | "highlight" | "table-picker" | "table-border" | "cell-background" | null;
+type PopoverKey = "text-color" | "highlight" | "table-border" | "table-create-border" | "cell-background" | null;
 
 const fontOptions = [
   ["default", "默认字体"], ["noto-sans", "Noto 黑体"], ["noto-serif", "Noto 宋体"],
@@ -171,7 +171,9 @@ const StyledTable = Table.extend({
         parseHTML: (element) => element.getAttribute("data-table-color") || "#2b3a40",
         renderHTML: (attributes) => {
           const color = cssColor(attributes.borderColor) || "#2b3a40";
-          return { "data-table-color": color, style: `--rich-table-color: ${color}; border-color: ${color}` };
+          const width = tableWidths.includes(String(attributes.borderWidth)) ? String(attributes.borderWidth) : "1";
+          const line = ["solid", "dashed", "dotted"].includes(String(attributes.borderStyle)) ? String(attributes.borderStyle) : "solid";
+          return { "data-table-color": color, style: `--rich-table-border: ${width}px; --rich-table-style: ${line}; --rich-table-color: ${color}; border-color: ${color}` };
         }
       }
     };
@@ -232,18 +234,26 @@ function ColorDropdown({
   </div>;
 }
 
-function TableSizePicker({ open, setOpen, onInsert }: { open: boolean; setOpen(value: boolean): void; onInsert(rows: number, cols: number): void }) {
+function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, activePopover, setActivePopover }: { open: boolean; setOpen(value: boolean): void; style: { borderWidth: string; borderStyle: string; borderColor: string }; onStyleChange(patch: Partial<typeof style>): void; onInsert(rows: number, cols: number, withHeaderRow: boolean): void; activePopover: PopoverKey; setActivePopover(value: PopoverKey): void }) {
   const [hover, setHover] = useState({ rows: 3, cols: 3 });
   const [customRows, setCustomRows] = useState(3);
   const [customCols, setCustomCols] = useState(3);
+  const [withHeaderRow, setWithHeaderRow] = useState(true);
   const insert = (rows: number, cols: number) => {
-    onInsert(Math.min(20, Math.max(1, rows)), Math.min(12, Math.max(1, cols)));
+    onInsert(Math.min(20, Math.max(1, rows)), Math.min(12, Math.max(1, cols)), withHeaderRow);
     setOpen(false);
   };
   return <div className="table-picker-wrap">
     <button type="button" className="table-picker-trigger" aria-label="插入表格" title="插入表格" onMouseDown={(event) => event.preventDefault()} onClick={() => setOpen(!open)}><Table2 /><ChevronDown /></button>
-    {open && <div className="table-picker-popover" role="dialog" aria-label="选择表格尺寸">
-      <strong>{hover.rows} x {hover.cols} 表格</strong>
+    {open && <div className="table-picker-popover" role="dialog" aria-label="创建表格">
+      <strong>创建表格</strong>
+      <div className="table-create-style">
+        <label>线宽<select value={style.borderWidth} onChange={(event) => onStyleChange({ borderWidth: event.target.value })}>{tableWidths.filter((width) => width !== "0").map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
+        <label>线型<select value={style.borderStyle} onChange={(event) => onStyleChange({ borderStyle: event.target.value })}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
+        <ColorDropdown panelKey="table-create-border" title="线色" value={style.borderColor} onChange={(color) => onStyleChange({ borderColor: color || "#2b3a40" })} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} allowDefault={false} />
+      </div>
+      <label className="table-header-toggle"><input type="checkbox" checked={withHeaderRow} onChange={(event) => setWithHeaderRow(event.target.checked)} />创建表头</label>
+      <span className="table-picker-size-label">{hover.rows} x {hover.cols} 表格</span>
       <div className="table-size-grid">
         {Array.from({ length: 100 }, (_, index) => {
           const rows = Math.floor(index / 10) + 1;
@@ -266,6 +276,8 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const fileRef = useRef<HTMLInputElement | null>(null);
   const internalHtml = useRef(sanitizeHtml(value));
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tablePreset, setTablePreset] = useState({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" });
   const [tableToolsOpen, setTableToolsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -315,6 +327,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     const close = (event: MouseEvent) => {
       if (!shellRef.current?.contains(event.target as globalThis.Node)) {
         setTableToolsOpen(false);
+        setTablePickerOpen(false);
         setActivePopover(null);
       }
     };
@@ -368,7 +381,8 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
       setUploadingImages(false);
     }
   };
-  const updateTable = (patch: Record<string, string>) => {
+  const updateTable = (patch: Partial<typeof tablePreset>) => {
+    setTablePreset((current) => ({ ...current, ...patch }));
     if (!canUseTable) return;
     editor.chain().focus().updateAttributes("table", patch).run();
     setTableToolsOpen(true);
@@ -378,8 +392,9 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     editor.chain().focus().setCellAttribute("background", color || "none").run();
     setTableToolsOpen(true);
   };
-  const insertTable = (rows: number, cols: number) => {
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+  const insertTable = (rows: number, cols: number, withHeaderRow: boolean) => {
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow }).run();
+    editor.chain().focus().updateAttributes("table", tablePreset).run();
     setTableToolsOpen(true);
   };
 
@@ -422,7 +437,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
           <ToolButton title="分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()}><Minus /></ToolButton>
           <ToolButton title="链接" active={editor.isActive("link")} onClick={setLink}><Link2 /></ToolButton>
           <ToolButton title="上传本地图片" disabled={uploadingImages} onClick={() => fileRef.current?.click()}><ImagePlus /></ToolButton>
-          <TableSizePicker open={activePopover === "table-picker"} setOpen={(open) => setActivePopover(open ? "table-picker" : null)} onInsert={insertTable} />
+          <TableSizePicker open={tablePickerOpen} setOpen={setTablePickerOpen} style={tablePreset} onStyleChange={updateTable} onInsert={insertTable} activePopover={activePopover} setActivePopover={setActivePopover} />
           <ToolButton title="清除选区格式" onClick={() => editor.chain().focus().unsetAllMarks().run()}><Eraser /></ToolButton>
         </div>
         {tableToolsOpen && <div className="editor-table-tools" aria-label="表格工具">
@@ -439,7 +454,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
             <button type="button" disabled={!canUseTable} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>切换表头</button>
           </div>
           <div className="table-tools-row">
-            <label>线宽<select value={tableAttributes.borderWidth || "1"} disabled={!canUseTable} onChange={(event) => updateTable({ borderWidth: event.target.value })}>{tableWidths.map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
+            <label>线宽<select value={tableAttributes.borderWidth || tablePreset.borderWidth} disabled={!canUseTable} onChange={(event) => updateTable({ borderWidth: event.target.value })}>{tableWidths.map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
             <label>线型<select value={tableAttributes.borderStyle || "solid"} disabled={!canUseTable} onChange={(event) => updateTable({ borderStyle: event.target.value })}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
             <ColorDropdown panelKey="table-border" title="表格线色" value={tableAttributes.borderColor || "#2b3a40"} onChange={(color) => updateTable({ borderColor: color || "#2b3a40" })} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} allowDefault={false} />
             <ColorDropdown panelKey="cell-background" title="单元格背景" value={cellStyle.background || ""} onChange={setCellBackground} icon={<Highlighter />} activePopover={activePopover} setActivePopover={setActivePopover} />

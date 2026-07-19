@@ -62,6 +62,11 @@ export interface ContentMedia {
   width?: number;
   height?: number;
   mimeType?: string;
+  sizeBytes?: number;
+  durationMs?: number;
+  videoCodec?: string;
+  originalSizeBytes?: number;
+  processingStatus?: "ready" | "processing" | "failed";
 }
 
 export interface Attachment {
@@ -96,6 +101,8 @@ export interface ContentItem {
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
+  mediaCount?: number;
+  attachmentCount?: number;
 }
 
 export interface PublicData {

@@ -1,3 +1,5 @@
+import ExcelJS from "exceljs";
+import mammoth from "mammoth";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
 
@@ -28,18 +30,6 @@ function textToHtml(value: string) {
   return value.split(/\n{2,}/).filter(Boolean).map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`).join("");
 }
 
-async function loadImportModule<T>(label: string, loader: () => Promise<T>) {
-  try {
-    return await loader();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/dynamically imported module|failed to fetch|imported module/i.test(message)) {
-      throw new Error(`${label} 读取模块加载失败。请按 Ctrl + F5 强制刷新预览页，或重新打开带最新版本号的 /preview/ 地址后再导入。`);
-    }
-    throw error;
-  }
-}
-
 export function composeWorksheetImport(worksheets: WorksheetPreview[], selectedNames: string[]) {
   const selected = worksheets.filter((sheet) => selectedNames.includes(sheet.name));
   return {
@@ -53,7 +43,6 @@ export async function readDocument(file: File): Promise<ImportPreview> {
   if (lowerName.endsWith(".xls")) throw new Error("暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx 后导入");
   if (lowerName.endsWith(".xlsx")) return readWorkbook(file);
   if (lowerName.endsWith(".docx")) {
-    const { default: mammoth } = await loadImportModule("Word", () => import("mammoth"));
     const result = await mammoth.convertToHtml(
       { arrayBuffer: await file.arrayBuffer() },
       {
@@ -78,7 +67,6 @@ export async function readDocument(file: File): Promise<ImportPreview> {
 }
 
 async function readWorkbook(file: File): Promise<ImportPreview> {
-  const ExcelJS = await loadImportModule("Excel", () => import("exceljs"));
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(await file.arrayBuffer());
   const worksheets: WorksheetPreview[] = [];

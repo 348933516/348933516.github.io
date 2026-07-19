@@ -26,6 +26,8 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (name === "font-size" && /^(\d{1,2})px$/.test(value) && safeFontSize.test(value.replace("px", ""))) safeDeclarations.push(`font-size: ${value}`);
       if (name === "border-color" && safeHex.test(value)) safeDeclarations.push(`border-color: ${value}`);
       if (name === "--rich-table-color" && safeHex.test(value)) safeDeclarations.push(`--rich-table-color: ${value}`);
+      if (name === "--rich-table-border" && /^(?:0|1|2|3|4)px$/.test(value)) safeDeclarations.push(`--rich-table-border: ${value}`);
+      if (name === "--rich-table-style" && /^(?:solid|dashed|dotted)$/.test(value)) safeDeclarations.push(`--rich-table-style: ${value}`);
     }
     if (safeDeclarations.length) data.attrValue = safeDeclarations.join("; ");
     else data.keepAttr = false;

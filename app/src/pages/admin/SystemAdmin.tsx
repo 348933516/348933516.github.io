@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity, ArrowRight, Eye, FileClock, ImagePlus, LoaderCircle, Mail, RotateCcw,
+  Activity, ArrowRight, CalendarDays, CheckCircle2, Eye, FileClock, ImagePlus, LoaderCircle, Mail, Plus, RotateCcw,
   Save, Search, Settings, ShieldCheck, Trash2, Upload, UserPlus, Users, X
 } from "lucide-react";
 import { publicMediaBucket } from "../../lib/config";
@@ -10,7 +10,7 @@ import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
 import type { AppRole, Profile } from "../../types";
-import { AdminEmpty, AdminLoading, AdminToast, formatDate, messageOf, publicAssetUrl, roleText } from "./shared";
+import { AdminEmpty, AdminLoading, AdminToast, formatBytes, formatDate, messageOf, publicAssetUrl, roleText } from "./shared";
 import { CarouselSettings } from "./CarouselSettings";
 
 export function UsersPage({ profile }: { profile: Profile }) {
@@ -143,6 +143,7 @@ function UserDrawer({
 
 export function HistoryPage({ profile }: { profile: Profile }) {
   const client = useQueryClient();
+  const [tab, setTab] = useState<"revisions" | "audit" | "updates" | "runtime">("audit");
   const [query, setQuery] = useState("");
   const [action, setAction] = useState("all");
   const [date, setDate] = useState("");
@@ -159,6 +160,24 @@ export function HistoryPage({ profile }: { profile: Profile }) {
     },
     enabled: profile.role !== "uploader"
   });
+  const updates = useQuery({
+    queryKey: ["release-notes"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("release_notes").select("*").order("released_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: profile.role !== "uploader"
+  });
+  const runtime = useQuery({
+    queryKey: ["runtime-logs"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("runtime_logs").select("*").order("created_at", { ascending: false }).limit(300);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: profile.role !== "uploader"
+  });
   const revisions = useQuery({
     queryKey: ["content-revisions"],
     queryFn: async () => {
@@ -169,8 +188,12 @@ export function HistoryPage({ profile }: { profile: Profile }) {
     enabled: profile.role !== "uploader"
   });
   const visibleLogs = useMemo(
-    () => (logs.data || []).filter((row) => (action === "all" || row.action === action) && (!date || String(row.created_at).startsWith(date)) && (!query || `${row.action} ${row.entity_type} ${row.entity_id}`.toLowerCase().includes(query.toLowerCase()))),
+    () => (logs.data || []).filter((row) => (action === "all" || String(row.action).toUpperCase() === action) && (!date || String(row.created_at).startsWith(date)) && (!query || `${row.action} ${row.entity_type} ${row.entity_id} ${JSON.stringify(row.metadata || {})}`.toLowerCase().includes(query.toLowerCase()))),
     [logs.data, action, date, query]
+  );
+  const visibleRuntime = useMemo(
+    () => (runtime.data || []).filter((row) => (!date || String(row.created_at).startsWith(date)) && (!query || `${row.source} ${row.message} ${row.route}`.toLowerCase().includes(query.toLowerCase()))),
+    [runtime.data, date, query]
   );
 
   const restore = async (row: Record<string, unknown>) => {
@@ -189,43 +212,68 @@ export function HistoryPage({ profile }: { profile: Profile }) {
     client.invalidateQueries({ queryKey: ["admin-contents"] });
   };
 
+  const resolveRuntime = async (id: number) => {
+    const { error } = await supabase.from("runtime_logs").update({ resolved_at: new Date().toISOString(), resolved_by: profile.id }).eq("id", id);
+    if (error) return;
+    client.invalidateQueries({ queryKey: ["runtime-logs"] });
+  };
+
   if (profile.role === "uploader") return <div className="admin-error"><ShieldCheck /><h1>权限受限</h1><p>上传管理员不能查看全站操作日志和历史版本。</p></div>;
 
   return (
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
-      <header className="admin-page-heading"><div><span>REVISION & AUDIT</span><h1>版本与操作日志</h1><p>查看修改记录、版本内容并恢复历史草稿。</p></div></header>
-      <div className="history-layout">
-        <section className="admin-panel">
-          <div className="panel-heading"><div><h2>内容版本</h2><p>最近 100 个历史版本</p></div><FileClock /></div>
-          <div className="revision-list">
-            {revisions.data?.map((row) => {
-              const content = row.contents as unknown as { title: string; version: number } | null;
-              return <button key={row.id} onClick={() => setRevision(row)}><RotateCcw /><div><strong>{content?.title || row.content_id}</strong><span>历史 v{row.version} · 当前 v{content?.version || "-"}</span></div><time>{formatDate(row.created_at)}</time><Eye /></button>;
-            })}
-            {!revisions.data?.length && <AdminEmpty title="暂无历史版本" />}
-          </div>
-        </section>
-        <section className="admin-panel">
-          <div className="panel-heading"><div><h2>操作日志</h2><p>最近 200 条后台变更</p></div><Activity /></div>
-          <div className="history-filters">
-            <label className="search-control"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索操作或记录 ID" /></label>
-            <select value={action} onChange={(event) => setAction(event.target.value)}><option value="all">全部操作</option><option value="INSERT">新增</option><option value="UPDATE">更新</option><option value="DELETE">删除</option></select>
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-          </div>
-          <div className="audit-list">
-            {visibleLogs.map((log) => <div key={log.id}><span className="activity-dot" /><div><strong>{auditText(String(log.action))} · {String(log.entity_type)}</strong><span>{String(log.entity_id)}</span></div><time>{formatDate(log.created_at)}</time></div>)}
-            {!visibleLogs.length && <AdminEmpty title="没有符合条件的日志" />}
-          </div>
-        </section>
-      </div>
+      <header className="admin-page-heading"><div><span>REVISION & AUDIT</span><h1>日志中心</h1><p>查看内容版本、后台变更、版本更新和运行错误。</p></div></header>
+      <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button></div>
+      {(tab === "audit" || tab === "runtime") && <div className="history-filters"><label className="search-control"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "audit" ? "搜索操作、记录 ID 或文件信息" : "搜索错误来源、消息或页面"} /></label>{tab === "audit" && <select value={action} onChange={(event) => setAction(event.target.value)}><option value="all">全部操作</option><option value="INSERT">新增</option><option value="UPDATE">更新</option><option value="DELETE">删除</option></select>}<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
+      {tab === "revisions" && <section className="admin-panel"><div className="panel-heading"><div><h2>内容版本</h2><p>最近 100 个历史版本</p></div><FileClock /></div><div className="revision-list">{revisions.data?.map((row) => { const content = row.contents as unknown as { title: string; version: number } | null; return <button key={row.id} onClick={() => setRevision(row)}><RotateCcw /><div><strong>{content?.title || row.content_id}</strong><span>历史 v{row.version} · 当前 v{content?.version || "-"}</span></div><time>{formatDate(row.created_at)}</time><Eye /></button>; })}{!revisions.data?.length && <AdminEmpty title="暂无历史版本" />}</div></section>}
+      {tab === "audit" && <section className="admin-panel"><div className="panel-heading"><div><h2>操作日志</h2><p>记录资料、媒体、账号和设置的变更。</p></div><Activity /></div><div className="audit-list detailed-audit-list">{visibleLogs.map((log) => <details key={log.id}><summary><span className="activity-dot" /><div><strong>{auditText(String(log.action))} · {String(log.entity_type)}</strong><span>{String((log.metadata as Record<string, unknown>)?.title || log.entity_id)}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>记录 ID：{String(log.entity_id)}</span><span>字段：{String(((log.metadata as Record<string, unknown>)?.changed_fields as string[] || []).join("、") || "新增或删除")}</span><span>媒体：{String((log.metadata as Record<string, unknown>)?.kind || "-")} · {String((log.metadata as Record<string, unknown>)?.mime_type || "-")} · {formatBytes(Number((log.metadata as Record<string, unknown>)?.size_bytes || 0))}</span></div></details>)}{!visibleLogs.length && <AdminEmpty title="没有符合条件的日志" />}</div></section>}
+      {tab === "updates" && <ReleaseNotesPanel profile={profile} rows={updates.data || []} onSaved={() => client.invalidateQueries({ queryKey: ["release-notes"] })} />}
+      {tab === "runtime" && <section className="admin-panel"><div className="panel-heading"><div><h2>运行日志</h2><p>导入、上传、播放器和前端异常。</p></div><ShieldCheck /></div><div className="runtime-log-list">{visibleRuntime.map((log) => <details className={log.resolved_at ? "resolved" : ""} key={log.id}><summary><span className={`runtime-severity ${log.severity}`} /><div><strong>{String(log.source)} · {String(log.message)}</strong><span>{String(log.route || "-")}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>版本：{String(log.app_version || "-")}</span><span>状态：{log.resolved_at ? `已处理 · ${formatDate(log.resolved_at)}` : "未处理"}</span>{log.stack && <pre>{String(log.stack)}</pre>}{profile.role === "super_admin" && !log.resolved_at && <button className="button quiet" onClick={() => resolveRuntime(Number(log.id))}><CheckCircle2 />标记已处理</button>}</div></details>)}{!visibleRuntime.length && <AdminEmpty title="暂无运行错误" />}</div></section>}
       {revision && <RevisionDrawer row={revision} canRestore={profile.role === "super_admin" || profile.role === "editor"} onRestore={() => restore(revision)} onClose={() => setRevision(null)} />}
     </div>
   );
 }
 
 function auditText(action: string) {
-  return ({ INSERT: "新增", UPDATE: "修改", DELETE: "删除" } as Record<string, string>)[action] || action;
+  const normalized = action.toUpperCase();
+  return ({ INSERT: "新增", UPDATE: "修改", DELETE: "删除" } as Record<string, string>)[normalized] || action;
+}
+
+function ReleaseNotesPanel({ profile, rows, onSaved }: { profile: Profile; rows: Array<Record<string, unknown>>; onSaved(): void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [version, setVersion] = useState("");
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [details, setDetails] = useState("");
+  const [features, setFeatures] = useState("");
+  const [fixes, setFixes] = useState("");
+  const [optimizations, setOptimizations] = useState("");
+  const list = (value: string) => value.split(/\r?\n|[,，]/).map((item) => item.trim()).filter(Boolean);
+  const create = async (event: FormEvent) => {
+    event.preventDefault(); setSaving(true);
+    const { error } = await supabase.from("release_notes").insert({ version: version.trim(), title: title.trim(), summary, details, features: list(features), fixes: list(fixes), optimizations: list(optimizations), created_by: profile.id, updated_by: profile.id });
+    setSaving(false);
+    if (error) return;
+    setVersion(""); setTitle(""); setSummary(""); setDetails(""); setFeatures(""); setFixes(""); setOptimizations(""); setOpen(false); onSaved();
+  };
+  const remove = async (id: string) => {
+    if (!window.confirm("确定删除这条更新日志吗？")) return;
+    const { error } = await supabase.from("release_notes").delete().eq("id", id);
+    if (!error) onSaved();
+  };
+  return <section className="admin-panel release-notes-panel">
+    <div className="panel-heading"><div><h2>更新日志</h2><p>记录网站功能、修复和优化内容。</p></div>{profile.role === "super_admin" && <button className="button primary" onClick={() => setOpen((value) => !value)}><Plus />新增更新</button>}</div>
+    {open && <form className="release-note-form" onSubmit={create}><label>版本号<input required value={version} onChange={(event) => setVersion(event.target.value)} placeholder="2.1.0" /></label><label>标题<input required value={title} onChange={(event) => setTitle(event.target.value)} /></label><label className="wide">摘要<textarea value={summary} onChange={(event) => setSummary(event.target.value)} /></label><label className="wide">详细说明<textarea value={details} onChange={(event) => setDetails(event.target.value)} /></label><label>新增功能<textarea value={features} onChange={(event) => setFeatures(event.target.value)} placeholder="每行一项" /></label><label>修复内容<textarea value={fixes} onChange={(event) => setFixes(event.target.value)} placeholder="每行一项" /></label><label>优化内容<textarea value={optimizations} onChange={(event) => setOptimizations(event.target.value)} placeholder="每行一项" /></label><button className="button primary" disabled={saving}>{saving ? <LoaderCircle className="spin" /> : <Save />}保存更新日志</button></form>}
+    <div className="release-note-list">{rows.map((row) => <article key={String(row.id)}><header><span>V{String(row.version)}</span><div><h3>{String(row.title)}</h3><p>{String(row.summary || "")}</p></div><time><CalendarDays />{formatDate(String(row.released_at))}</time>{profile.role === "super_admin" && <button className="icon-only danger" onClick={() => remove(String(row.id))}><Trash2 /></button>}</header>{Boolean(row.details) && <p>{String(row.details)}</p>}<div className="release-note-columns"><ReleaseItems title="新增" items={row.features} /><ReleaseItems title="修复" items={row.fixes} /><ReleaseItems title="优化" items={row.optimizations} /></div></article>)}{!rows.length && <AdminEmpty title="暂无更新日志" />}</div>
+  </section>;
+}
+
+function ReleaseItems({ title, items }: { title: string; items: unknown }) {
+  const list = Array.isArray(items) ? items.map(String) : [];
+  if (!list.length) return null;
+  return <div><strong>{title}</strong>{list.map((item) => <span key={item}>{item}</span>)}</div>;
 }
 
 function RevisionDrawer({ row, canRestore, onRestore, onClose }: { row: Record<string, unknown>; canRestore: boolean; onRestore(): void; onClose(): void }) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, RefreshCcw, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { RichContent } from "../components/RichContent";
 import { useSiteData } from "../data";
@@ -32,16 +32,18 @@ function ContentCard({ item }: { item: ContentItem }) {
 
 function VideoMedia({ media }: { media: ContentMedia }) {
   const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const type = media.mimeType || (media.src.endsWith(".webm") ? "video/webm" : "video/mp4");
   return (
     <div className="media-video-shell">
       {failed ? (
         <div className="media-video-error">
           <strong>视频无法播放</strong>
-          <span>请确认文件是 MP4(H.264) 或 WebM，并重新上传。</span>
+          <span>此文件可能使用了浏览器不支持的视频编码，请让管理员转换为兼容 MP4。</span>
+          <button type="button" className="button quiet" onClick={() => { setFailed(false); setReloadKey((value) => value + 1); }}><RefreshCcw />重新加载</button>
         </div>
       ) : (
-        <video controls preload="metadata" playsInline onError={() => setFailed(true)}>
+        <video key={reloadKey} controls preload="metadata" playsInline onError={() => setFailed(true)}>
           <source src={media.src} type={type} />
         </video>
       )}

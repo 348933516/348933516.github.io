@@ -17,14 +17,14 @@ const navGroups = [
     ["/admin/categories", "分类管理", FolderTree], ["/admin/media", "媒体与附件", ImagePlus]
   ] },
   { label: "系统", items: [
-    ["/admin/users", "账号权限", Users], ["/admin/history", "版本与日志", History],
+    ["/admin/users", "账号权限", Users], ["/admin/history", "日志中心", History],
     ["/admin/settings", "首页设置", Settings]
   ] }
 ] as const;
 
 const pageNames: Record<string, string> = {
   overview: "内容概览", contents: "内容管理", categories: "分类管理", media: "媒体与附件",
-  users: "账号权限", history: "版本与日志", settings: "首页设置", new: "新建资料"
+  users: "账号权限", history: "日志中心", settings: "首页设置", new: "新建资料"
 };
 
 export function AdminPage() {

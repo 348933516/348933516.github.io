@@ -58,11 +58,24 @@ Deno.serve((request) => edgeHandler(request, async () => {
     results.push(deleteError ? { id: item.id, ok: false, error: deleteError.message } : { id: item.id, ok: true });
   }
 
-  for (const [bucket, paths] of storageByBucket.entries()) {
-    if (!paths.length) continue;
-    const { error } = await client.storage.from(bucket).remove([...new Set(paths)]);
-    if (error) storageWarnings.push(`${bucket}: ${error.message}`);
+  const cleanup = async () => {
+    for (const [bucket, paths] of storageByBucket.entries()) {
+      if (!paths.length) continue;
+      const { error } = await client.storage.from(bucket).remove([...new Set(paths)]);
+      if (error) storageWarnings.push(`${bucket}: ${error.message}`);
+    }
+  };
+  const runtime = (globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
+  if (storageByBucket.size && runtime && typeof runtime.waitUntil === "function") {
+    runtime.waitUntil(cleanup());
+  } else {
+    await cleanup();
   }
 
-  return json({ results, succeeded: results.filter((item) => item.ok).length, storageWarnings });
+  return json({
+    results,
+    succeeded: results.filter((item) => item.ok).length,
+    storageWarnings,
+    storageCleanupQueued: storageByBucket.size > 0
+  });
 }));

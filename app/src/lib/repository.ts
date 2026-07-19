@@ -9,6 +9,7 @@ import type {
   ContentDraft,
   ContentItem,
   ContentMedia,
+  ContentStatus,
   Profile,
   PublicData,
   SiteSettings
@@ -69,7 +70,12 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     sortOrder: Number(row.sort_order || 100),
     width: row.width ? Number(row.width) : undefined,
     height: row.height ? Number(row.height) : undefined,
-    mimeType: row.mime_type ? String(row.mime_type) : undefined
+    mimeType: row.mime_type ? String(row.mime_type) : undefined,
+    sizeBytes: row.size_bytes ? Number(row.size_bytes) : undefined,
+    durationMs: row.duration_ms ? Number(row.duration_ms) : undefined,
+    videoCodec: row.video_codec ? String(row.video_codec) : undefined,
+    originalSizeBytes: row.original_size_bytes ? Number(row.original_size_bytes) : undefined,
+    processingStatus: row.processing_status ? String(row.processing_status) as ContentMedia["processingStatus"] : undefined
   };
 }
 
@@ -308,6 +314,53 @@ export async function loadAdminContents(): Promise<ContentItem[]> {
       publishedAt: row.published_at
     };
   });
+}
+
+export async function loadAdminContentList(): Promise<ContentItem[]> {
+  const { data, error } = await supabase.from("admin_content_list").select("*").order("updated_at", { ascending: false });
+  if (error) throw error;
+  return Promise.all((data || []).map(async (row) => {
+    const categoryName = String(row.category_name || "");
+    const cover = row.cover_bucket || row.cover_path || row.cover_external_url
+      ? await adminStorageUrl(row.cover_bucket, row.cover_path, row.cover_external_url)
+      : "";
+    const media = cover ? [{
+      id: `cover-${row.id}`,
+      kind: "image" as const,
+      src: cover,
+      title: String(row.title || ""),
+      note: "",
+      path: [],
+      altText: String(row.title || ""),
+      sortOrder: 0
+    }] : [];
+    return {
+      id: String(row.id),
+      slug: String(row.slug || ""),
+      categoryId: String(row.category_id),
+      categorySlug: String(row.category_slug || ""),
+      categoryName,
+      title: String(row.title || ""),
+      summary: String(row.summary || ""),
+      bodyHtml: "",
+      bodyJson: {},
+      bodyText: "",
+      sourceRecord: "",
+      status: row.status as ContentStatus,
+      featured: Boolean(row.is_featured),
+      sortOrder: Number(row.sort_order || 100),
+      version: Number(row.version || 1),
+      tags: [],
+      media,
+      attachments: [],
+      mediaCount: Number(row.media_count || 0),
+      attachmentCount: Number(row.attachment_count || 0),
+      createdBy: row.created_by ? String(row.created_by) : undefined,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      publishedAt: row.published_at ? String(row.published_at) : undefined
+    } satisfies ContentItem;
+  }));
 }
 
 export async function loadAdminContent(id: string): Promise<ContentItem> {
