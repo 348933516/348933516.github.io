@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useSiteData } from "../data";
+import { normalizeCarouselTarget } from "../lib/carousel";
 import type { ContentItem } from "../types";
 
 function formatDate(value?: string) {
@@ -72,13 +73,14 @@ function HomepageCarousel() {
               <div className="hero-carousel-slide" key={slide.id}>
                 {(() => {
                   const image = slide.imageUrl || settings.pageBackgroundUrl || settings.tileBackgroundUrl || "";
-                  const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{slide.linkUrl && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
+                  const target = normalizeCarouselTarget(slide.linkUrl);
+                  const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
                   if (!image) return <div className="hero-carousel-placeholder">{overlay}</div>;
-                  return slide.linkUrl ? (
-                    <a href={slide.linkUrl} target={slide.linkUrl.startsWith("/") ? "_self" : "_blank"} rel={slide.linkUrl.startsWith("/") ? undefined : "noreferrer"}>
+                  return target ? (
+                    <Link to={target}>
                       <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />
                       {overlay}
-                    </a>
+                    </Link>
                   ) : (
                     <>
                       <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} />

@@ -120,7 +120,6 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
 
   let carouselRows: Record<string, unknown>[] = [];
   const carouselResult = await supabase.from("carousel_slides").select("*").order("sort_order");
-  if (carouselResult.error && !isMissingSchema(carouselResult.error)) throw carouselResult.error;
   if (!carouselResult.error) carouselRows = carouselResult.data || [];
 
   const contentRows = contentsResult.data || [];

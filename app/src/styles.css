@@ -453,6 +453,10 @@ tr:last-child td { border-bottom: 0; }
 .panel-heading p { margin: 0; color: var(--muted); font-size: 11px; }
 .panel-heading > a { display: flex; align-items: center; gap: 5px; color: var(--teal); font-size: 12px; }
 .panel-heading > svg { color: var(--muted); }
+.admin-inline-alert { min-height: 64px; border: 1px solid rgba(231,188,88,.24); border-radius: 6px; margin-bottom: 14px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: #ffe6aa; background: rgba(231,188,88,.08); }
+.admin-inline-alert strong, .admin-inline-alert span { display: block; }
+.admin-inline-alert span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+.admin-inline-alert.error { border-color: rgba(255,117,109,.28); color: #ffd0cd; background: rgba(255,117,109,.075); }
 .metric-row { margin: 0; gap: 10px; }
 .metric-row > a { min-height: 116px; border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; align-content: space-between; background: #0f181d; }
 .metric-row > a:hover { border-color: rgba(83,217,180,.28); background: #121d22; }

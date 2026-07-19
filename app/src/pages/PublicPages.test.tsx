@@ -74,6 +74,24 @@ describe("public home", () => {
     expect(screen.queryByText("最近更新")).not.toBeInTheDocument();
   });
 
+  it("only makes the carousel clickable for public internal targets", () => {
+    const linked: PublicData = {
+      ...data,
+      carouselSlides: [{ ...data.carouselSlides[0], linkUrl: "/content/first" }]
+    };
+    const { container } = render(<MemoryRouter><DataProvider data={linked}><HomePage /></DataProvider></MemoryRouter>);
+    expect(container.querySelector(".hero-carousel-slide a")).toHaveAttribute("href", "/content/first");
+  });
+
+  it("does not navigate carousel clicks to admin routes", () => {
+    const unsafe: PublicData = {
+      ...data,
+      carouselSlides: [{ ...data.carouselSlides[0], linkUrl: "/admin/settings" }]
+    };
+    const { container } = render(<MemoryRouter><DataProvider data={unsafe}><HomePage /></DataProvider></MemoryRouter>);
+    expect(container.querySelector(".hero-carousel-slide a")).toBeNull();
+  });
+
   it("uses the first content image when a category has no cover", () => {
     const withMedia: PublicData = {
       ...data,

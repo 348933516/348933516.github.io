@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ImagePlus, LoaderCircle, Plus, Save, Trash2, Upload } from "lucide-react";
 import { publicMediaBucket } from "../../lib/config";
 import { randomId } from "../../lib/id";
+import { normalizeCarouselTarget } from "../../lib/carousel";
 import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
 import { supabase } from "../../lib/supabase";
-import { messageOf, publicAssetUrl } from "./shared";
+import { AdminLoading, messageOf, publicAssetUrl } from "./shared";
 import type { Profile } from "../../types";
 
 type CarouselRow = {
@@ -64,9 +65,8 @@ export function CarouselSettings({
     onSaved();
   };
 
-  if (slides.error) return <div className="admin-error"><ImagePlus /><h1>轮播图读取失败</h1><p>{messageOf(slides.error)}</p></div>;
-
   const slideRows = slides.data || [];
+  const slideError = slides.error ? messageOf(slides.error) : "";
 
   return <div className="carousel-settings-stack">
     <section className="admin-panel settings-section">
@@ -85,10 +85,12 @@ export function CarouselSettings({
         <div><h2>轮播内容</h2><p>可新增、替换、排序和删除轮播图片。</p></div>
         <button className="button primary" type="button" onClick={() => document.getElementById("carousel-create-form")?.scrollIntoView({ behavior: "smooth" })}><Plus />新增轮播</button>
       </div>
+      {slideError && <div className="admin-inline-alert error"><div><strong>轮播图读取失败</strong><span>{slideError}</span></div><button className="button quiet" type="button" onClick={() => slides.refetch()}>重新读取</button></div>}
+      {slides.isLoading && <AdminLoading label="正在读取轮播图" />}
       <CarouselCreator slides={slideRows} onSaved={refresh} onMessage={onMessage} actorId={profile.id} />
       <div className="carousel-slide-list">
         {slideRows.map((slide, index) => <CarouselSlideRow key={slide.id} slide={slide} index={index} total={slideRows.length} onSaved={refresh} onMessage={onMessage} actorId={profile.id} />)}
-        {!slideRows.length && <div className="admin-empty"><ImagePlus /><strong>还没有轮播图</strong><span>先新增一张首页轮播图。</span></div>}
+        {!slideRows.length && !slideError && !slides.isLoading && <div className="admin-empty"><ImagePlus /><strong>还没有轮播图</strong><span>先新增一张首页轮播图。</span></div>}
       </div>
     </section>
   </div>;
@@ -123,6 +125,11 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
 
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const normalizedLink = normalizeCarouselTarget(linkUrl.trim());
+    if (linkUrl.trim() && !normalizedLink) {
+      onMessage("轮播链接只能指向站内内容页或分类页，例如 /content/xxx 或 /category/xxx。", true);
+      return;
+    }
     if (!imagePath) {
       onMessage("请先上传轮播图片。", true);
       return;
@@ -133,7 +140,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
       title: title.trim(),
       subtitle: subtitle.trim(),
       image_path: imagePath,
-      link_url: linkUrl.trim(),
+      link_url: normalizedLink,
       link_label: linkLabel.trim() || "查看详情",
       sort_order: nextOrder,
       is_visible: visible,
@@ -158,7 +165,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
   return <form className="carousel-create-form" id="carousel-create-form" onSubmit={create}>
     <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="轮播标题" /></label>
     <label>说明<textarea value={subtitle} onChange={(event) => setSubtitle(event.target.value)} placeholder="轮播说明" /></label>
-    <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://..." /></label>
+    <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="/content/xxx 或 /category/xxx" /></label>
     <label>按钮文案<input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} placeholder="查看详情" /></label>
     <label className="checkbox"><input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} />显示轮播</label>
     <div className="carousel-upload-box">{imagePath ? <img src={publicAssetUrl(imagePath)} alt="" /> : <span><ImagePlus /><strong>未上传图片</strong></span>}</div>
@@ -210,12 +217,17 @@ function CarouselSlideRow({
   };
 
   const save = async () => {
+    const normalizedLink = normalizeCarouselTarget(linkUrl.trim());
+    if (linkUrl.trim() && !normalizedLink) {
+      onMessage("轮播链接只能指向站内内容页或分类页，例如 /content/xxx 或 /category/xxx。", true);
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.from("carousel_slides").update({
       title: title.trim(),
       subtitle: subtitle.trim(),
       image_path: imagePath || null,
-      link_url: linkUrl.trim(),
+      link_url: normalizedLink,
       link_label: linkLabel.trim() || "查看详情",
       sort_order: sortOrder,
       is_visible: visible,
@@ -246,7 +258,7 @@ function CarouselSlideRow({
     <div className="carousel-slide-fields">
       <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>说明<textarea value={subtitle} onChange={(event) => setSubtitle(event.target.value)} /></label>
-      <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://..." /></label>
+      <label>跳转链接<input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="/content/xxx 或 /category/xxx" /></label>
       <label>按钮文案<input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} /></label>
       <label>排序<input type="number" value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} /></label>
       <label className="checkbox"><input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} />显示</label>
