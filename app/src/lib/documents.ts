@@ -82,7 +82,7 @@ export async function readDocument(file: File): Promise<ImportPreview> {
   return { kind: "document", title: file.name.replace(/\.[^.]+$/, ""), bodyHtml, bodyText: new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || bodyText, images: [], source: file.name };
 }
 
-type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
+type WordWorkerResult = { html: string; imageCount: number; uploadedImageCount?: number; uploadAttempted?: boolean; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
 
 type RegisteredImportAsset = {
   mediaId: string;
@@ -150,6 +150,7 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
 
 export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (current: number) => void) {
   const result = await runWordWorker(file, "extract", onProgress, upload);
+  if (!result.uploadAttempted) throw new Error("Word 图片 Worker 未进入上传阶段，请刷新页面后重试。");
   // The import table is the durable source of truth. Some browsers can defer
   // high-volume Worker messages while still delivering the completion event.
   // Reading the server manifest avoids treating that delivery detail as data loss.

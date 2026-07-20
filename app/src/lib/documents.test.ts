@@ -45,7 +45,7 @@ describe("document imports", () => {
       onerror: ((event: ErrorEvent) => void) | null = null;
       postMessage(message: Record<string, unknown>) {
         if (message.type !== "start") return;
-        queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html: '<p><img src="https://word-import.invalid/word-image-1" alt="descript"></p>', imageCount: 1, totalOriginalBytes: 1024, warnings: [] } })));
+        queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html: '<p><img src="https://word-import.invalid/word-image-1" alt="descript"></p>', imageCount: 1, uploadAttempted: true, uploadedImageCount: 1, totalOriginalBytes: 1024, warnings: [] } })));
       }
       terminate() {}
     }

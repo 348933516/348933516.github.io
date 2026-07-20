@@ -128,6 +128,10 @@ async function processDocument(message: StartMessage) {
   let imageCount = 0;
   let uploadedImageCount = 0;
   let totalOriginalBytes = 0;
+  // The session is the authority for a real import. A cached caller can carry
+  // an older mode value, but it must never turn an authenticated import into a
+  // preview-only parse and silently skip every upload.
+  const shouldUpload = Boolean(message.upload?.importId && message.upload.accessToken);
   try {
     const result = await mammoth.convertToHtml(
       { arrayBuffer: message.buffer },
@@ -139,9 +143,9 @@ async function processDocument(message: StartMessage) {
           const mimeType = image.contentType || "application/octet-stream";
           totalOriginalBytes += original.byteLength;
           const hash = hex(await crypto.subtle.digest("SHA-256", original));
-          worker.postMessage({ type: "progress", phase: message.mode === "preview" ? "preview" : "encoding", current: imageCount, total: message.upload?.expectedImages || 0 });
+          worker.postMessage({ type: "progress", phase: shouldUpload ? "encoding" : "preview", current: imageCount, total: message.upload?.expectedImages || 0 });
 
-          if (message.mode === "extract") {
+          if (shouldUpload) {
             if (!message.upload) throw new Error("缺少 Word 图片上传会话。");
             worker.postMessage({ type: "progress", phase: "upload", current: imageCount, total: message.upload.expectedImages });
             const uploaded = await uploadAndRegisterImage(original, { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType) }, message.upload);
@@ -155,7 +159,7 @@ async function processDocument(message: StartMessage) {
         styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
       }
     );
-    worker.postMessage({ type: "complete", html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
+    worker.postMessage({ type: "complete", html: result.value, imageCount, uploadedImageCount, uploadAttempted: shouldUpload, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Word 解析失败";
     throw new Error(`${messageText}（已登记 ${uploadedImageCount}/${message.upload?.expectedImages || imageCount} 张）`);
