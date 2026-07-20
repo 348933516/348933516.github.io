@@ -38,6 +38,13 @@ describe("professional rich editor", () => {
       const html = onChange.mock.calls.at(-1)?.[0] || "";
       expect(html).toContain('data-table-border="8"');
       expect(html).toContain('data-table-style="double"');
+      expect(html).toContain('--rich-table-border: 8px');
+      expect(html).toContain('--rich-table-style: double');
     });
+  });
+
+  it("uses a white paper canvas for the document surface", () => {
+    const { container } = render(<RichEditor value="<p>正文</p>" onChange={vi.fn()} />);
+    expect(container.querySelector(".editor-surface")).toBeInTheDocument();
   });
 });

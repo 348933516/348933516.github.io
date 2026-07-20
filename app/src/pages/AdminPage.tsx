@@ -1,15 +1,21 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
   ArrowLeft, Database, FolderTree, Gauge, History, ImagePlus, LayoutDashboard,
   LogOut, Menu, Search, Settings, ShieldCheck, Users
 } from "lucide-react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
-import {
-  CategoriesPage, ContentEditorPage, ContentListPage, DashboardPage, MediaLibraryPage, NewContentPage
-} from "./admin/ContentAdmin";
-import { HistoryPage, SettingsPage, UsersPage } from "./admin/SystemAdmin";
 import { AdminLoading, canEdit, roleText } from "./admin/shared";
+
+const DashboardPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.DashboardPage })));
+const ContentListPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.ContentListPage })));
+const ContentEditorPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.ContentEditorPage })));
+const CategoriesPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.CategoriesPage })));
+const MediaLibraryPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.MediaLibraryPage })));
+const NewContentPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.NewContentPage })));
+const UsersPage = lazy(() => import("./admin/SystemAdmin").then((module) => ({ default: module.UsersPage })));
+const HistoryPage = lazy(() => import("./admin/SystemAdmin").then((module) => ({ default: module.HistoryPage })));
+const SettingsPage = lazy(() => import("./admin/SystemAdmin").then((module) => ({ default: module.SettingsPage })));
 
 const navGroups = [
   { label: "内容", items: [
@@ -34,8 +40,8 @@ export function AdminPage() {
   if (!user) return <Navigate to="/login" replace />;
   if (!profile || profile.status !== "active") return <div className="admin-gate"><ShieldCheck /><h1>尚未获得后台权限</h1><p>{profileError || "请让超级管理员邀请或启用这个账号。"}</p><Link className="button quiet" to="/"><ArrowLeft />返回网站</Link></div>;
   const editorMode = /^\/admin\/contents\/[^/]+$/.test(location.pathname) && !location.pathname.endsWith("/new");
-  if (editorMode) return canEdit(profile.role) ? <div className="admin-editor-shell"><Routes><Route path="contents/:id" element={<ContentEditorPage profile={profile} />} /><Route path="*" element={<Navigate to="/admin/contents" replace />} /></Routes></div> : <Navigate to="/admin/contents" replace />;
-  return <AdminLayout profileName={profile.displayName} role={roleText[profile.role]} signOut={signOut}><Routes>
+  if (editorMode) return canEdit(profile.role) ? <div className="admin-editor-shell"><Suspense fallback={<AdminLoading label="正在打开编辑器" />}><Routes><Route path="contents/:id" element={<ContentEditorPage profile={profile} />} /><Route path="*" element={<Navigate to="/admin/contents" replace />} /></Routes></Suspense></div> : <Navigate to="/admin/contents" replace />;
+  return <AdminLayout profileName={profile.displayName} role={roleText[profile.role]} signOut={signOut}><Suspense fallback={<AdminLoading label="正在加载后台页面" />}><Routes>
     <Route index element={<Navigate to="overview" replace />} />
     <Route path="overview" element={<DashboardPage profile={profile} />} />
     <Route path="contents" element={<ContentListPage profile={profile} />} />
@@ -46,7 +52,7 @@ export function AdminPage() {
     <Route path="history" element={<HistoryPage profile={profile} />} />
     <Route path="settings" element={<SettingsPage profile={profile} />} />
     <Route path="*" element={<Navigate to="overview" replace />} />
-  </Routes></AdminLayout>;
+  </Routes></Suspense></AdminLayout>;
 }
 
 function AdminLayout({ profileName, role, signOut, children }: { profileName: string; role: string; signOut(): Promise<void>; children: React.ReactNode }) {

@@ -535,6 +535,44 @@ export async function saveContent(draft: ContentDraft, userId: string) {
   return data;
 }
 
+export interface DocumentImportAsset {
+  mediaId: string;
+  originalPath: string;
+  displayPath: string;
+  hash: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  originalSize: number;
+  displaySize: number;
+  sortOrder: number;
+  title: string;
+  altText: string;
+}
+
+export interface DocumentImportJob {
+  id: string;
+  uploadPrefix: string;
+}
+
+async function invokeDocumentImport<T>(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("document-import", { body });
+  if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message || "Document import failed");
+  return data as T;
+}
+
+export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number }) {
+  return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
+}
+
+export function finalizeDocumentImport(input: { importId: string; expectedVersion: number; bodyHtml: string; sourceRecord: string; assets: DocumentImportAsset[] }) {
+  return invokeDocumentImport<{ content_id: string; version: number; imported_images: number }>({ action: "finalize", ...input });
+}
+
+export function cancelDocumentImport(importId: string, assets: DocumentImportAsset[], error?: string) {
+  return invokeDocumentImport<{ ok: boolean }>({ action: error ? "fail" : "cancel", importId, manifest: assets, error });
+}
+
 export async function changeContentStatus(id: string, version: number, status: "draft" | "hidden" | "trashed", userId: string) {
   const { data, error } = await supabase.functions.invoke("save-content", { body: { action: "status", id, version, status, userId } });
   if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message);

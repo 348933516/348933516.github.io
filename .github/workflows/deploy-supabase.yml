@@ -52,6 +52,7 @@ jobs:
           pnpm dlx supabase@latest functions deploy batch-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy duplicate-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy delete-content --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy document-import --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy vod-signature --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy vod-complete --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy vod-import --project-ref "$PROJECT_REF"

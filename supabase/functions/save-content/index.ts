@@ -14,7 +14,7 @@ function cleanBody(value: string) {
     allowedAttributes: {
       a: ["href", "target", "rel", "title"],
       img: ["src", "alt", "title"],
-      figure: ["data-editor-image"],
+      figure: ["data-editor-image", "data-media-id"],
       figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
       th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
@@ -30,7 +30,11 @@ function cleanBody(value: string) {
         "font-size": [/^(?:[8-9]|[1-6][0-9]|7[0-2])px$/],
         "text-align": [/^(left|center|right|justify)$/],
         "border-color": [/^#[0-9a-f]{6}$/i],
-        "--rich-table-color": [/^#[0-9a-f]{6}$/i]
+        "border-width": [/^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/],
+        "border-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/],
+        "--rich-table-color": [/^#[0-9a-f]{6}$/i],
+        "--rich-table-border": [/^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/],
+        "--rich-table-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/]
       }
     },
     allowedSchemes: ["https"],

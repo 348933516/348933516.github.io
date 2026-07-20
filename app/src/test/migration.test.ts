@@ -8,6 +8,8 @@ const migrateLegacy = fs.readFileSync(path.resolve(process.cwd(), "supabase/func
 const removeOfficialAssets = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719020000_remove_official_assets.sql"), "utf8");
 const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719031000_remove_stock_media.sql"), "utf8");
 const mediaAndPublicQueries = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720160000_media_documents_public_queries.sql"), "utf8");
+const documentImports = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720190000_document_import_jobs.sql"), "utf8");
+const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -63,5 +65,15 @@ describe("Supabase security migration", () => {
     expect(mediaAndPublicQueries).toContain("original_storage_path");
     expect(mediaAndPublicQueries).toContain("provider_file_id");
     expect(mediaAndPublicQueries).not.toContain("source_record");
+  });
+
+  it("commits Word bodies and media records through a durable import job", () => {
+    expect(documentImports).toContain("create table if not exists public.document_imports");
+    expect(documentImports).toContain("create or replace function public.finalize_document_import");
+    expect(documentImports).toContain("IMAGE_COUNT_MISMATCH");
+    expect(documentImports).toContain("grant execute on function public.finalize_document_import");
+    expect(documentImportFunction).toContain('action === "start"');
+    expect(documentImportFunction).toContain('action !== "finalize"');
+    expect(documentImportFunction).toContain('schema("storage").from("objects")');
   });
 });

@@ -28,6 +28,7 @@ interface RichEditorProps {
 }
 
 type PopoverKey = "text-color" | "highlight" | "table-border" | "table-create-border" | "cell-background" | null;
+type TableStyle = { borderWidth: string; borderStyle: string; borderColor: string };
 
 const fontOptions = [
   ["default", "默认字体"], ["noto-sans", "Noto 黑体"], ["noto-serif", "Noto 宋体"],
@@ -61,6 +62,17 @@ function clampFontSize(value: string) {
   const numeric = Math.round(Number(value));
   if (!Number.isFinite(numeric)) return "";
   return String(Math.min(72, Math.max(8, numeric)));
+}
+
+function normalizedTableStyle(input: { borderWidth?: unknown; borderStyle?: unknown; borderColor?: unknown }) {
+  const attributes = input as Record<string, unknown>;
+  const rawWidth = input.borderWidth ?? attributes["data-table-border"];
+  const rawStyle = input.borderStyle ?? attributes["data-table-style"];
+  const rawColor = input.borderColor ?? attributes["data-table-color"];
+  const borderWidth = tableWidths.includes(String(rawWidth)) ? String(rawWidth) : "1";
+  const borderStyle = tableStyles.some(([value]) => value === String(rawStyle)) ? String(rawStyle) : "solid";
+  const borderColor = cssColor(String(rawColor || "")) || "#2b3a40";
+  return { borderWidth, borderStyle, borderColor };
 }
 
 const ControlledFontFamily = FontFamily.extend({
@@ -174,14 +186,19 @@ const StyledTable = Table.extend({
       borderColor: {
         default: "#2b3a40",
         parseHTML: (element) => element.getAttribute("data-table-color") || "#2b3a40",
-        renderHTML: (attributes) => {
-          const color = cssColor(attributes.borderColor) || "#2b3a40";
-          const width = tableWidths.includes(String(attributes.borderWidth)) ? String(attributes.borderWidth) : "1";
-          const line = tableStyles.some(([value]) => value === String(attributes.borderStyle)) ? String(attributes.borderStyle) : "solid";
-          return { "data-table-color": color, style: `--rich-table-border: ${width}px; --rich-table-style: ${line}; --rich-table-color: ${color}; border-color: ${color}` };
-        }
+        renderHTML: (attributes) => ({ "data-table-color": normalizedTableStyle(attributes).borderColor })
       }
     };
+  },
+  renderHTML({ HTMLAttributes }) {
+    const style = normalizedTableStyle(HTMLAttributes);
+    return ["table", {
+      ...HTMLAttributes,
+      "data-table-border": style.borderWidth,
+      "data-table-style": style.borderStyle,
+      "data-table-color": style.borderColor,
+      style: `--rich-table-border:${style.borderWidth}px;--rich-table-style:${style.borderStyle};--rich-table-color:${style.borderColor};border:${style.borderWidth}px ${style.borderStyle} ${style.borderColor}`
+    }, 0];
   }
 });
 
@@ -239,13 +256,19 @@ function ColorDropdown({
   </div>;
 }
 
-function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, activePopover, setActivePopover }: { open: boolean; setOpen(value: boolean): void; style: { borderWidth: string; borderStyle: string; borderColor: string }; onStyleChange(patch: Partial<typeof style>): void; onInsert(rows: number, cols: number, withHeaderRow: boolean): void; activePopover: PopoverKey; setActivePopover(value: PopoverKey): void }) {
+function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, activePopover, setActivePopover }: { open: boolean; setOpen(value: boolean): void; style: TableStyle; onStyleChange(patch: Partial<TableStyle>): void; onInsert(rows: number, cols: number, withHeaderRow: boolean, style: TableStyle): void; activePopover: PopoverKey; setActivePopover(value: PopoverKey): void }) {
   const [hover, setHover] = useState({ rows: 3, cols: 3 });
   const [customRows, setCustomRows] = useState(3);
   const [customCols, setCustomCols] = useState(3);
   const [withHeaderRow, setWithHeaderRow] = useState(true);
+  const styleRef = useRef(style);
+  useEffect(() => { styleRef.current = style; }, [style]);
+  const changeStyle = (patch: Partial<TableStyle>) => {
+    styleRef.current = { ...styleRef.current, ...patch };
+    onStyleChange(patch);
+  };
   const insert = (rows: number, cols: number) => {
-    onInsert(Math.min(20, Math.max(1, rows)), Math.min(12, Math.max(1, cols)), withHeaderRow);
+    onInsert(Math.min(20, Math.max(1, rows)), Math.min(12, Math.max(1, cols)), withHeaderRow, styleRef.current);
     setOpen(false);
   };
   return <div className="table-picker-wrap">
@@ -253,9 +276,9 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
     {open && <div className="table-picker-popover" role="dialog" aria-label="创建表格">
       <strong>创建表格</strong>
       <div className="table-create-style">
-        <label>线宽<select value={style.borderWidth} onChange={(event) => onStyleChange({ borderWidth: event.target.value })}>{tableWidths.filter((width) => width !== "0").map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
-        <label>线型<select value={style.borderStyle} onChange={(event) => onStyleChange({ borderStyle: event.target.value })}>{tableStyles.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <ColorDropdown panelKey="table-create-border" title="线色" value={style.borderColor} onChange={(color) => onStyleChange({ borderColor: color || "#2b3a40" })} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} allowDefault={false} />
+        <label>线宽<select value={style.borderWidth} onChange={(event) => changeStyle({ borderWidth: event.target.value })}>{tableWidths.filter((width) => width !== "0").map((width) => <option value={width} key={width}>{width}px</option>)}</select></label>
+        <label>线型<select value={style.borderStyle} onChange={(event) => changeStyle({ borderStyle: event.target.value })}>{tableStyles.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+        <ColorDropdown panelKey="table-create-border" title="线色" value={style.borderColor} onChange={(color) => changeStyle({ borderColor: color || "#2b3a40" })} icon={<Palette />} activePopover={activePopover} setActivePopover={setActivePopover} allowDefault={false} />
       </div>
       <label className="table-header-toggle"><input type="checkbox" checked={withHeaderRow} onChange={(event) => setWithHeaderRow(event.target.checked)} />创建表头</label>
       <span className="table-picker-size-label">{hover.rows} x {hover.cols} 表格</span>
@@ -280,9 +303,11 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const internalHtml = useRef(sanitizeHtml(value));
+  const lastExternalHtml = useRef(sanitizeHtml(value));
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const [tablePreset, setTablePreset] = useState({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" });
+  const tablePresetRef = useRef(tablePreset);
   const [tableToolsOpen, setTableToolsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -323,7 +348,9 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
 
   useEffect(() => {
     const external = sanitizeHtml(value);
-    if (!editor || external === internalHtml.current) return;
+    if (!editor || external === lastExternalHtml.current) return;
+    lastExternalHtml.current = external;
+    if (external === internalHtml.current) return;
     internalHtml.current = external;
     editor.commands.setContent(external, false);
   }, [editor, value]);
@@ -387,9 +414,19 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     }
   };
   const updateTable = (patch: Partial<typeof tablePreset>) => {
-    setTablePreset((current) => ({ ...current, ...patch }));
+    const nextPreset = normalizedTableStyle({ ...tablePresetRef.current, ...patch });
+    tablePresetRef.current = nextPreset;
+    setTablePreset(nextPreset);
     if (!canUseTable) return;
-    editor.chain().focus().updateAttributes("table", patch).run();
+    const { $from } = editor.state.selection;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth);
+      if (node.type.name !== "table") continue;
+      const transaction = editor.state.tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, ...nextPreset });
+      editor.view.dispatch(transaction);
+      editor.view.focus();
+      break;
+    }
     setTableToolsOpen(true);
   };
   const setCellBackground = (color: string) => {
@@ -397,17 +434,25 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     editor.chain().focus().setCellAttribute("background", color || "none").run();
     setTableToolsOpen(true);
   };
-  const insertTable = (rows: number, cols: number, withHeaderRow: boolean) => {
-    const preset = { ...tablePreset };
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow }).command(({ tr }) => {
-      const $from = tr.selection.$from;
-      for (let depth = $from.depth; depth > 0; depth -= 1) {
-        const node = $from.node(depth);
-        if (node.type.name !== "table") continue;
-        tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, ...preset });
-        return true;
-      }
-      return false;
+  const applyActiveTableStyle = (style: typeof tablePreset) => {
+    const { $from } = editor.state.selection;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth);
+      if (node.type.name !== "table") continue;
+      editor.view.dispatch(editor.state.tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, ...style }));
+      editor.view.focus();
+      return true;
+    }
+    return false;
+  };
+  const insertTable = (rows: number, cols: number, withHeaderRow: boolean, inputStyle = tablePresetRef.current) => {
+    const preset = normalizedTableStyle(inputStyle);
+    editor.chain().focus().insertContent({
+      type: "table", attrs: preset,
+      content: Array.from({ length: rows }, (_, row) => ({
+        type: "tableRow",
+        content: Array.from({ length: cols }, () => ({ type: withHeaderRow && row === 0 ? "tableHeader" : "tableCell", content: [{ type: "paragraph" }] }))
+      }))
     }).run();
     setTableToolsOpen(true);
   };
