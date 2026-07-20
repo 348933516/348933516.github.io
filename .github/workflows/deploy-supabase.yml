@@ -35,25 +35,31 @@ jobs:
         run: pnpm dlx supabase@latest link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
       - name: Apply migrations
         run: pnpm dlx supabase@latest db push --linked --password "$SUPABASE_DB_PASSWORD"
-      - name: Deploy functions
+      - name: Configure function secrets
         run: |
           pnpm dlx supabase@latest secrets set PUBLIC_SITE_URL=https://348933516.github.io --project-ref "$PROJECT_REF"
           if [ -n "$TENCENT_VOD_SECRET_ID" ] && [ -n "$TENCENT_VOD_SECRET_KEY" ] && [ -n "$TENCENT_VOD_APP_ID" ] && [ -n "$TENCENT_VOD_PROCEDURE" ]; then
             pnpm dlx supabase@latest secrets set TENCENT_VOD_SECRET_ID="$TENCENT_VOD_SECRET_ID" TENCENT_VOD_SECRET_KEY="$TENCENT_VOD_SECRET_KEY" TENCENT_VOD_APP_ID="$TENCENT_VOD_APP_ID" TENCENT_VOD_PROCEDURE="$TENCENT_VOD_PROCEDURE" --project-ref "$PROJECT_REF"
             if [ -n "$TENCENT_VOD_SUB_APP_ID" ]; then pnpm dlx supabase@latest secrets set TENCENT_VOD_SUB_APP_ID="$TENCENT_VOD_SUB_APP_ID" --project-ref "$PROJECT_REF"; fi
           fi
-          pnpm dlx supabase@latest functions deploy invite-admin --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy update-admin --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy import-url --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy publish-content --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy restore-revision --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy save-content --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy migrate-legacy --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy batch-content --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy duplicate-content --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy delete-content --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy document-import --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy vod-signature --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy vod-complete --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy vod-import --project-ref "$PROJECT_REF"
-          pnpm dlx supabase@latest functions deploy vod-status --project-ref "$PROJECT_REF"
+      - name: Deploy changed functions
+        run: |
+          all_functions=(invite-admin update-admin import-url publish-content restore-revision save-content migrate-legacy batch-content duplicate-content delete-content document-import vod-signature vod-complete vod-import vod-status)
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then before="HEAD^"; fi
+          changed="$(git diff --name-only "$before" HEAD -- supabase/functions supabase/config.toml)"
+          if printf '%s\n' "$changed" | grep -q '^supabase/functions/_shared/\|^supabase/config.toml$'; then
+            functions=("${all_functions[@]}")
+          else
+            mapfile -t functions < <(printf '%s\n' "$changed" | sed -n 's#^supabase/functions/\([^/]*\)/.*#\1#p' | sort -u)
+          fi
+          # Re-deploy the import pair when this workflow changes so a prior failed deploy is repaired.
+          if [ "${#functions[@]}" -eq 0 ]; then functions=(document-import save-content); fi
+          for function in "${functions[@]}"; do
+            echo "Deploying $function"
+            for attempt in 1 2 3; do
+              if pnpm dlx supabase@latest functions deploy "$function" --project-ref "$PROJECT_REF"; then break; fi
+              if [ "$attempt" -eq 3 ]; then echo "Failed to deploy $function after $attempt attempts."; exit 1; fi
+              sleep $((attempt * 10))
+            done
+          done
