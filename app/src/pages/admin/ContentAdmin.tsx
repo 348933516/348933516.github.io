@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveRestore, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronLeft, ChevronRight,
   Copy, Database, Eye, FileImage, FilePenLine, FileText, FolderOpen, Gauge, ImagePlus,
-  Layers3, Link2, LoaderCircle, Plus, RefreshCcw, Save, Search, Trash2, Upload, X
+  Link2, LoaderCircle, Plus, RefreshCcw, Save, Search, Trash2, Upload, X
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { RichContent } from "../../components/RichContent";
@@ -27,7 +27,6 @@ import {
 
 const pageSize = 20;
 const RichEditor = lazy(() => import("../../components/RichEditor").then((module) => ({ default: module.RichEditor })));
-
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
 }
@@ -460,10 +459,4 @@ function CategoryManagerRow({ category, count, profile, dragging, onDrag, onDrop
   const upload = async (file: File) => { setUploading(true); try { const prepared = await imageToWebp(file); const path = `categories/${category.id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; await uploadWithProgress(prepared, path, () => undefined, undefined, publicMediaBucket); await save({ image_path: path }); } catch (error) { onMessage(messageOf(error, "封面上传失败"), true); } finally { setUploading(false); } };
   const remove = async () => { if (count > 0) return onMessage("请先移动或删除分类中的资料。", true); if (!window.confirm(`确定删除空分类“${category.name}”吗？`)) return; const { error } = await supabase.from("categories").delete().eq("id", category.id); if (error) onMessage(error.message, true); else { onMessage("分类已删除。"); onSaved(); } };
   return <article className={`category-manager-row${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="category-manager-cover">{category.imageUrl ? <img src={category.imageUrl} alt="" /> : <FolderOpen />}</div><div className="category-manager-fields"><input disabled={!editable} value={name} onChange={(event) => setName(event.target.value)} /><textarea disabled={!editable} value={description} onChange={(event) => setDescription(event.target.value)} /></div><div className="category-manager-meta"><strong>{count}</strong><span>篇资料</span><small>拖动排序</small></div>{editable && <div className="category-manager-actions"><label className="button quiet"><ImagePlus />{uploading ? "上传中" : "替换封面"}<input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label><button className={`status ${category.visible ? "published" : "hidden"}`} onClick={() => save({ is_visible: !category.visible })}>{category.visible ? "显示" : "隐藏"}</button><button className="icon-only" onClick={() => save({ name: name.trim(), slug: slugify(name), description })}><Save /></button>{profile.role === "super_admin" && <button className="icon-only danger" onClick={remove}><Trash2 /></button>}</div>}</article>;
-}
-
-export function MediaLibraryPage({ profile }: { profile: Profile }) {
-  const contents = useQuery({ queryKey: ["admin-content-list"], queryFn: loadAdminContentList, staleTime: 30_000 }); const [contentId, setContentId] = useState("");
-  const eligible = (contents.data || []).filter((item) => item.status !== "trashed" && (profile.role !== "uploader" || (item.status === "draft" && item.createdBy === profile.id)));
-  return <div className="admin-page-stack"><header className="admin-page-heading"><div><span>MEDIA LIBRARY</span><h1>媒体与附件</h1><p>按资料管理图片、视频和下载文件。</p></div></header><div className="media-content-picker"><label>选择资料<Search /><select value={contentId} onChange={(event) => setContentId(event.target.value)}><option value="">请选择一篇资料</option>{eligible.map((item) => <option value={item.id} key={item.id}>{item.title} · {statusText[item.status]}</option>)}</select></label>{contentId && <Link to={`/admin/contents/${contentId}`}>进入完整编辑器<ChevronRight /></Link>}</div>{contentId ? <ContentMediaManager contentId={contentId} profile={profile} onChanged={() => undefined} /> : <AdminEmpty icon={<Layers3 />} title="选择资料后管理媒体" detail="媒体会与资料状态一起发布或保持私有。" />}</div>;
 }
