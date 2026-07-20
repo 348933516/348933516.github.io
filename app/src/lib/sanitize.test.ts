@@ -53,9 +53,12 @@ describe("content sanitization", () => {
   });
 
   it("keeps extended controlled table borders", () => {
-    const result = sanitizeHtml('<table data-table-border="12" data-table-style="double" style="--rich-table-border: 12px; --rich-table-style: double; --rich-table-color: #65e3c2"><tr><td>值</td></tr></table>');
+    const result = sanitizeHtml('<table data-table-border="12" data-table-style="double" style="--rich-table-border: 12px; --rich-table-style: double; --rich-table-color: #65e3c2"><tr><td data-cell-border-width="12" data-cell-border-style="double" data-cell-border-color="#65e3c2">值</td></tr></table>');
     expect(result).toContain('data-table-border="12"');
     expect(result).toContain('data-table-style="double"');
+    expect(result).toContain('data-cell-border-width="12"');
+    expect(result).toContain('data-cell-border-style="double"');
+    expect(result).toContain('data-cell-border-color="#65e3c2"');
     expect(result).toContain("--rich-table-border: 12px");
   });
 

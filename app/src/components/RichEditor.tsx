@@ -215,6 +215,21 @@ const cellAttributes = {
     default: "left",
     parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-align") || "left",
     renderHTML: (attributes: Record<string, string>) => ({ "data-cell-align": attributes.align || "left" })
+  },
+  borderWidth: {
+    default: "1",
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-width") || "1",
+    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-width": normalizedTableStyle(attributes).borderWidth })
+  },
+  borderStyle: {
+    default: "solid",
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-style") || "solid",
+    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-style": normalizedTableStyle(attributes).borderStyle })
+  },
+  borderColor: {
+    default: "#2b3a40",
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-color") || "#2b3a40",
+    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-color": normalizedTableStyle(attributes).borderColor })
   }
 };
 
@@ -422,7 +437,12 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       const node = $from.node(depth);
       if (node.type.name !== "table") continue;
-      const transaction = editor.state.tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, ...nextPreset });
+      const tablePosition = $from.before(depth);
+      const transaction = editor.state.tr.setNodeMarkup(tablePosition, undefined, { ...node.attrs, ...nextPreset });
+      node.descendants((child, position) => {
+        if (child.type.name !== "tableCell" && child.type.name !== "tableHeader") return;
+        transaction.setNodeMarkup(tablePosition + position + 1, undefined, { ...child.attrs, ...nextPreset });
+      });
       editor.view.dispatch(transaction);
       editor.view.focus();
       break;
@@ -434,24 +454,13 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     editor.chain().focus().setCellAttribute("background", color || "none").run();
     setTableToolsOpen(true);
   };
-  const applyActiveTableStyle = (style: typeof tablePreset) => {
-    const { $from } = editor.state.selection;
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const node = $from.node(depth);
-      if (node.type.name !== "table") continue;
-      editor.view.dispatch(editor.state.tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, ...style }));
-      editor.view.focus();
-      return true;
-    }
-    return false;
-  };
   const insertTable = (rows: number, cols: number, withHeaderRow: boolean, inputStyle = tablePresetRef.current) => {
     const preset = normalizedTableStyle(inputStyle);
     editor.chain().focus().insertContent({
       type: "table", attrs: preset,
       content: Array.from({ length: rows }, (_, row) => ({
         type: "tableRow",
-        content: Array.from({ length: cols }, () => ({ type: withHeaderRow && row === 0 ? "tableHeader" : "tableCell", content: [{ type: "paragraph" }] }))
+        content: Array.from({ length: cols }, () => ({ type: withHeaderRow && row === 0 ? "tableHeader" : "tableCell", attrs: preset, content: [{ type: "paragraph" }] }))
       }))
     }).run();
     setTableToolsOpen(true);

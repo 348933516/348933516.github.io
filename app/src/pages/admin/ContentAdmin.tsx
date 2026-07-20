@@ -13,7 +13,7 @@ import type { ExtractedWordImage, ImportPreview, WorksheetPreview } from "../../
 import { randomId } from "../../lib/id";
 import {
   batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport,
-  loadAdminContent, loadAdminContentList, publishContent, saveContent, startDocumentImport, type DocumentImportAsset
+  loadAdminContent, loadAdminContentList, publishContent, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
@@ -160,13 +160,19 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const { id = "" } = useParams(); const navigate = useNavigate(); const client = useQueryClient();
   const content = useQuery({ queryKey: ["admin-content", id], queryFn: () => loadAdminContent(id), enabled: Boolean(id) });
   const categories = useAdminCategories();
-  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null);
+  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<DocumentImportStage | "upload-original" | "upload-webp" | "verify" | "complete" | "idle">("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null);
   const storageKey = `maplestorynk-editor-${id}`;
   useEffect(() => { if (!content.data || loadedVersion.current === content.data.version) return; const item = content.data; loadedVersion.current = item.version; const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags }; setDraft(initial); setDirty(false); try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); if (saved?.version === item.version) setRecovery(saved); } catch { sessionStorage.removeItem(storageKey); } }, [content.data, storageKey]);
   useEffect(() => { if (!draft || !dirty) return; const timer = window.setTimeout(() => sessionStorage.setItem(storageKey, JSON.stringify(draft)), 600); return () => window.clearTimeout(timer); }, [draft, dirty, storageKey]);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (!dirty) return; event.preventDefault(); event.returnValue = ""; }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [dirty]);
   const update = (patch: Partial<ContentDraft>) => { setDraft((current) => current ? { ...current, ...patch } : current); setDirty(true); };
   const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
+  const importErrorMessage = (error: unknown) => {
+    if (!(error instanceof DocumentImportError)) return messageOf(error, "导入或原文件上传失败");
+    const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
+    const status = error.status ? `（HTTP ${error.status}）` : "";
+    return `${stageText[error.stage]}失败${status}：${error.message}`;
+  };
   const save = async () => { if (!draft) return null; setSaving(true); try { const result = await saveContent(draft, profile.id); loadedVersion.current = result.version; setDraft({ ...draft, version: result.version }); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null); notify(result.tagWarning || "草稿已保存到云端。", Boolean(result.tagWarning)); client.invalidateQueries({ queryKey: ["admin-content-list"] }); return result; } catch (error) { notify(error instanceof Error && error.message === "VERSION_CONFLICT" ? "资料已被其他管理员修改，请重新载入后再编辑。" : messageOf(error, "保存失败"), true); return null; } finally { setSaving(false); } };
   const publish = async () => { if (!draft || !content.data) return; if (!draft.title.trim() || !draft.summary.trim() || !draft.categoryId || (!draft.bodyText.trim() && !content.data.media.length)) return notify("发布前请补齐标题、简介、分类以及正文或媒体。", true); const saved = dirty ? await save() : { version: draft.version }; if (!saved?.version) return; setSaving(true); try { await publishContent(id, saved.version); sessionStorage.removeItem(storageKey); notify("资料已发布。"); client.invalidateQueries({ queryKey: ["public-home"] }); client.invalidateQueries({ queryKey: ["public-category"] }); client.invalidateQueries({ queryKey: ["public-content"] }); client.invalidateQueries({ queryKey: ["admin-content-list"] }); await content.refetch(); } catch (error) { notify(messageOf(error, "发布失败"), true); } finally { setSaving(false); } };
   const goBack = () => { if (!dirty || window.confirm("存在未保存修改，确定离开编辑器吗？")) navigate("/admin/contents"); };
@@ -195,7 +201,9 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       title: `图片 ${image.index}`, altText: `图片 ${image.index}`
     };
     activeDocumentImport.current?.assets.push(asset);
+    setImportStage("upload-original");
     await uploadWithProgress(original, originalPath, (value) => setImportProgress(Math.round(((image.index - 1 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
+    setImportStage("upload-webp");
     await uploadWithProgress(display, displayPath, (value) => setImportProgress(Math.round(((image.index - 0.5 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
     return { id: image.id, mediaId, displayUrl: publicAssetUrl(displayPath) };
   };
@@ -206,13 +214,14 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     const wordImages = importSnapshot.preview.wordImages;
     const imported = importSnapshot.preview.worksheets ? composeImportPreview(importSnapshot.preview.worksheets, selectedSheets) : importSnapshot.preview;
     if (!imported.bodyHtml.trim()) return notify("请至少选择一个有内容的工作表。", true);
-    setImporting(true);
+    setImporting(true); setImportStage("start"); setImportJobId(""); setImportFailure("");
     let wordJob: { id: string; uploadPrefix: string } | null = null;
     try {
       let importedBody = imported;
       if (sourceFile?.name.toLowerCase().endsWith(".docx") && wordImages?.count) {
         if (!draft.version) throw new Error("资料版本缺失，请重新打开编辑器后导入");
         wordJob = await startDocumentImport({ contentId: id, expectedVersion: draft.version, expectedImages: wordImages.count, totalOriginalBytes: wordImages.totalOriginalBytes });
+        setImportJobId(wordJob.id);
         activeDocumentImport.current = { id: wordJob.id, assets: [] };
         const { materializeWordDocument } = await import("../../lib/documents");
         importedBody = await materializeWordDocument(
@@ -228,6 +237,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       const bodyText = new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || importedBody.bodyText;
       const sourceRecord = [draft.sourceRecord, importSnapshot.preview.source].filter(Boolean).join("\n");
       if (wordJob && activeDocumentImport.current) {
+        setImportStage("verify");
         const finalized = await finalizeDocumentImport({ importId: wordJob.id, expectedVersion: draft.version || 1, bodyHtml, sourceRecord, assets: activeDocumentImport.current.assets });
         const nextDraft = { ...draft, title: draft.title || importSnapshot.preview.title, bodyHtml, bodyText, bodyJson: {}, sourceRecord, version: finalized.version };
         loadedVersion.current = finalized.version;
@@ -239,6 +249,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         await content.refetch();
         client.invalidateQueries({ queryKey: ["admin-content-list"] });
         client.invalidateQueries({ queryKey: ["admin-media", id] });
+        setImportStage("complete");
         notify(`已安全保存正文和 ${finalized.imported_images}/${wordImages?.count || 0} 张无损图片。`);
       } else {
         update({ title: draft.title || importSnapshot.preview.title, bodyHtml, bodyText, bodyJson: {}, sourceRecord });
@@ -246,10 +257,14 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       }
       setPendingImport(null); setImportUrl("");
     } catch (error) {
-      if (activeDocumentImport.current) void cancelDocumentImport(activeDocumentImport.current.id, activeDocumentImport.current.assets, messageOf(error, "导入失败"));
+      const failureMessage = importErrorMessage(error);
+      const uploadedImages = activeDocumentImport.current?.assets.length || 0;
+      if (activeDocumentImport.current) void cancelDocumentImport(activeDocumentImport.current.id, activeDocumentImport.current.assets, failureMessage);
       activeDocumentImport.current = null;
-      void reportRuntimeLog({ source: "document-import", message: messageOf(error, "导入或原文件上传失败"), error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count } });
-      notify(messageOf(error, "导入或原文件上传失败"), true);
+      const details = error instanceof DocumentImportError ? error.details : {};
+      setImportFailure(failureMessage);
+      void reportRuntimeLog({ source: "document-import", message: failureMessage, error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count, importJobId: error instanceof DocumentImportError ? String(details.import_id || importJobId) : importJobId, importStage: error instanceof DocumentImportError ? error.stage : importStage, httpStatus: error instanceof DocumentImportError ? error.status : null, errorCode: error instanceof DocumentImportError ? error.code : null, missingCount: Number(details.missing_count || 0), uploadedImages } });
+      notify(failureMessage, true);
     }
     finally { setImporting(false); setImportProgress(0); }
   };
@@ -277,22 +292,25 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   return <div className="content-workspace"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="workspace-header"><button className="icon-only" type="button" onClick={goBack}><ArrowLeft /></button><div className="workspace-title"><span><StatusBadge status={content.data.status} /> 版本 {draft.version}{dirty && " · 有未保存修改"}</span><h1>{draft.title || "未命名资料"}</h1></div><div className="workspace-actions"><button className="button quiet" type="button" onClick={() => setTab(tab === "preview" ? "body" : "preview")}><Eye />{tab === "preview" ? "返回编辑" : "预览"}</button><button className="button" disabled={saving || !dirty} type="button" onClick={save}><Save />保存草稿</button>{canPublish(profile.role) && <button className="button primary" disabled={saving} type="button" onClick={publish}><Check />发布</button>}</div></header>
     {recovery && <div className="recovery-banner"><div><strong>发现未提交的本地修改</strong><span>可恢复上次关闭前的编辑内容。</span></div><button onClick={() => { setDraft(recovery); setDirty(true); setRecovery(null); }}>恢复</button><button onClick={() => { sessionStorage.removeItem(storageKey); setRecovery(null); }}>忽略</button></div>}
     <div className="workspace-tabs"><button className={tab === "body" ? "active" : ""} onClick={() => setTab("body")}><FileText />正文</button><button className={tab === "media" ? "active" : ""} onClick={() => setTab("media")}><FileImage />媒体与附件 <span>{content.data.media.length + content.data.attachments.length}</span></button><button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}><Eye />阅读预览</button></div>
-    <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} onConfirm={confirmImport} onCancel={() => setPendingImport(null)} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}<Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor value={draft.bodyHtml} onUploadImages={uploadInlineImages} onChange={(bodyHtml, bodyText, bodyJson) => update({ bodyHtml, bodyText, bodyJson })} /></Suspense></>}
+    <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} stage={importStage} jobId={importJobId} failure={importFailure} onConfirm={confirmImport} onCancel={() => { setPendingImport(null); setImportStage("idle"); setImportJobId(""); setImportFailure(""); }} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}<Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor value={draft.bodyHtml} onUploadImages={uploadInlineImages} onChange={(bodyHtml, bodyText, bodyJson) => update({ bodyHtml, bodyText, bodyJson })} /></Suspense></>}
       {tab === "media" && <ContentMediaManager contentId={id} profile={profile} onChanged={async () => { await content.refetch(); client.invalidateQueries({ queryKey: ["admin-content-list"] }); }} />}
       {tab === "preview" && <DraftPreview draft={draft} item={content.data} />}</main>
       <aside className="workspace-inspector"><div className="inspector-heading"><span>CONTENT SETTINGS</span><h2>资料属性</h2></div><label>标题<input value={draft.title} onChange={(event) => update({ title: event.target.value })} /></label><label>简介<textarea value={draft.summary} onChange={(event) => update({ summary: event.target.value })} placeholder="用于列表和搜索结果" /></label><label>分类<select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="inspector-grid"><label>排序<input type="number" value={draft.sortOrder} onChange={(event) => update({ sortOrder: Number(event.target.value) })} /></label><label>路径<input value={draft.slug} onChange={(event) => update({ slug: slugify(event.target.value) })} /></label></div><label>标签<input value={draft.tags.join(", ")} onChange={(event) => update({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 20) })} placeholder="BOSS图, 城镇图" /></label><label>来源记录<textarea value={draft.sourceRecord} onChange={(event) => update({ sourceRecord: event.target.value })} placeholder="仅后台可见" /></label>{canPublish(profile.role) && <label className="checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => update({ featured: event.target.checked })} />首页精选</label>}</aside></div>
   </div>;
 }
 
-function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, onMode, progress, busy, onConfirm, onCancel }: { preview: ImportPreview; selectedSheets: string[]; onSelectedSheets(value: string[]): void; mode: "append" | "replace"; onMode(value: "append" | "replace"): void; progress: number; busy: boolean; onConfirm(): void; onCancel(): void }) {
+function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, onMode, progress, busy, stage, jobId, failure, onConfirm, onCancel }: { preview: ImportPreview; selectedSheets: string[]; onSelectedSheets(value: string[]): void; mode: "append" | "replace"; onMode(value: "append" | "replace"): void; progress: number; busy: boolean; stage: DocumentImportStage | "upload-original" | "upload-webp" | "verify" | "complete" | "idle"; jobId: string; failure: string; onConfirm(): void; onCancel(): void }) {
   const composed = preview.worksheets ? composeImportPreview(preview.worksheets, selectedSheets) : preview;
   const toggleSheet = (name: string, checked: boolean) => onSelectedSheets(checked ? [...selectedSheets, name] : selectedSheets.filter((item) => item !== name));
+  const steps: Array<[typeof stage, string]> = [["start", "创建任务"], ["upload-original", "上传原图"], ["upload-webp", "上传无损 WebP"], ["verify", "核验图片"], ["finalize", "提交正文"]];
+  const activeIndex = steps.findIndex(([key]) => key === stage);
   return <section className="import-confirmation">
     <header><div><span>{preview.kind === "workbook" ? "EXCEL PREVIEW" : preview.kind === "web" ? "WEB PREVIEW" : "DOCUMENT PREVIEW"}</span><h2>{preview.title}</h2><p>{preview.warning || "检查内容后再确认导入。"}</p></div><button className="icon-only" type="button" aria-label="取消导入" onClick={onCancel}><X /></button></header>
     {preview.worksheets && <div className="worksheet-picker">{preview.worksheets.map((sheet) => <label key={sheet.name}><input type="checkbox" checked={selectedSheets.includes(sheet.name)} onChange={(event) => toggleSheet(sheet.name, event.target.checked)} /><span><strong>{sheet.name}</strong><small>{sheet.rowCount} 行 · {sheet.columnCount} 列</small></span></label>)}</div>}
     <div className="import-mode"><span>写入方式</span><button type="button" className={mode === "append" ? "active" : ""} onClick={() => onMode("append")}>追加到正文</button><button type="button" className={mode === "replace" ? "active" : ""} onClick={() => onMode("replace")}>替换正文</button></div>
     <div className="import-preview-scroll"><RichContent html={composed.bodyHtml} className="reader-body import-preview-body" /></div>
     {preview.wordImages && <div className="word-import-summary"><strong>{preview.wordImages.count} 张原图</strong><span>{formatBytes(preview.wordImages.totalOriginalBytes)} · 原图与像素无损 WebP 双份保存</span></div>}
+    {preview.wordImages && <div className="document-import-status" aria-live="polite"><div>{steps.map(([key, label], index) => <span className={stage === "complete" || (activeIndex >= index && activeIndex !== -1) ? "done" : ""} key={key}>{label}</span>)}</div>{jobId && <small>导入任务：{jobId}</small>}{failure && <p role="alert">{failure}</p>}</div>}
     {progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>正在无损处理并上传图片 {progress}%</strong></div>}
     <footer><span>{preview.kind === "web" ? "网页来源会记录在后台" : preview.wordImages && preview.wordImages.totalOriginalBytes > 100 * 1024 * 1024 ? "正文和图片会保存，超限的原始 Word 不保存为附件" : "确认后原文件会同时保存为私有附件"}</span><button className="button quiet" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="button primary" type="button" disabled={busy || Boolean(preview.worksheets && !selectedSheets.length)} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" /> : <Check />}{busy ? "正在导入" : "确认导入"}</button></footer>
   </section>;

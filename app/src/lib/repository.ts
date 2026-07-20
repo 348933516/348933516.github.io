@@ -555,9 +555,51 @@ export interface DocumentImportJob {
   uploadPrefix: string;
 }
 
+export type DocumentImportStage = "start" | "finalize" | "fail" | "cancel";
+
+export class DocumentImportError extends Error {
+  readonly stage: DocumentImportStage;
+  readonly status: number | null;
+  readonly code: string | null;
+  readonly details: Record<string, unknown>;
+
+  constructor(input: { stage: DocumentImportStage; message: string; status?: number | null; code?: string | null; details?: Record<string, unknown> }) {
+    super(input.message);
+    this.name = "DocumentImportError";
+    this.stage = input.stage;
+    this.status = input.status ?? null;
+    this.code = input.code ?? null;
+    this.details = input.details ?? {};
+  }
+}
+
+async function functionErrorPayload(error: unknown) {
+  const context = error && typeof error === "object" && "context" in error ? (error as { context?: unknown }).context : null;
+  if (!(context instanceof Response)) return { status: null, payload: {} as Record<string, unknown> };
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = await context.clone().json();
+    if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+  } catch {
+    try { payload = { error: (await context.clone().text()).slice(0, 1000) }; } catch { /* Keep the transport error below. */ }
+  }
+  return { status: context.status || null, payload };
+}
+
 async function invokeDocumentImport<T>(body: Record<string, unknown>) {
+  const stage = body.action === "finalize" ? "finalize" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
   const { data, error } = await supabase.functions.invoke("document-import", { body });
-  if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message || "Document import failed");
+  if (error || data?.error) {
+    const response = error ? await functionErrorPayload(error) : { status: null, payload: {} as Record<string, unknown> };
+    const payload = { ...response.payload, ...(data && typeof data === "object" ? data as Record<string, unknown> : {}) };
+    const code = typeof payload.code === "string" ? payload.code : null;
+    const message = code === "VERSION_CONFLICT"
+      ? "VERSION_CONFLICT"
+      : typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : error?.message || "Document import failed";
+    throw new DocumentImportError({ stage, message, status: response.status, code, details: payload });
+  }
   return data as T;
 }
 

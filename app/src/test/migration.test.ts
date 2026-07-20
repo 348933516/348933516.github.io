@@ -75,5 +75,8 @@ describe("Supabase security migration", () => {
     expect(documentImportFunction).toContain('action === "start"');
     expect(documentImportFunction).toContain('action !== "finalize"');
     expect(documentImportFunction).toContain('schema("storage").from("objects")');
+    expect(documentImportFunction).toContain("STORAGE_OBJECTS_MISSING");
+    expect(documentImportFunction).toContain("BODY_IMAGE_MAPPING_MISMATCH");
+    expect(documentImportFunction).toContain("IMPORT_VERIFICATION_FAILED");
   });
 });

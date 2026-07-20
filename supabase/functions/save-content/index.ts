@@ -17,8 +17,8 @@ function cleanBody(value: string) {
       figure: ["data-editor-image", "data-media-id"],
       figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
-      th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
-      td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
+      th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
+      td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
       span: ["class", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "style"],
       mark: ["data-highlight", "style"],
       div: ["class"]

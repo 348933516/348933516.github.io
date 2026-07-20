@@ -905,42 +905,16 @@ td[data-cell-align="justify"], th[data-cell-align="justify"] { text-align: justi
 .custom-color-row input { width: 100%; min-width: 32px; height: 30px; padding: 0; border: 0; background: transparent; }
 .custom-color-row button { min-height: 30px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); background: rgba(255,255,255,.04); }
 .editor-message { border-bottom: 1px solid var(--line); padding: 8px 14px; color: var(--muted); font-size: 11px; background: rgba(255,255,255,.02); }
+.document-import-status { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; color: var(--muted); font-size: 11px; }
+.document-import-status > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.document-import-status > div > span { border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; }
+.document-import-status > div > span.done { border-color: rgba(83,217,180,.45); color: #a8f4dc; background: rgba(83,217,180,.08); }
+.document-import-status small { overflow-wrap: anywhere; color: var(--muted); }
+.document-import-status p { border: 1px solid rgba(255,117,109,.35); border-radius: 5px; margin: 0; padding: 8px 10px; color: #ffc0bc; line-height: 1.5; background: rgba(255,117,109,.08); }
 .editor-surface figure[data-editor-image], .reader-body figure[data-editor-image] { margin: 20px 0; display: grid; gap: 10px; }
 .editor-surface figure[data-editor-image] > img, .reader-body figure[data-editor-image] > img { width: 100%; height: auto; border-radius: 8px; display: block; }
 .editor-surface figure[data-editor-image] > figcaption, .reader-body figure[data-editor-image] > figcaption { min-height: 24px; color: var(--muted); font-size: 13px; line-height: 1.7; }
 .editor-surface em, .reader-body em { font-style: italic; }
-table[data-table-color] { --rich-table-color: var(--line); }
-table[data-table-color="#ffffff"] { --rich-table-color: #ffffff; }
-table[data-table-color="#d7dee2"] { --rich-table-color: #d7dee2; }
-table[data-table-color="#8d9aa2"] { --rich-table-color: #8d9aa2; }
-table[data-table-color="#111d22"] { --rich-table-color: #111d22; }
-table[data-table-color="#65e3c2"] { --rich-table-color: #65e3c2; }
-table[data-table-color="#f2cc72"] { --rich-table-color: #f2cc72; }
-table[data-table-color="#ff938d"] { --rich-table-color: #ff938d; }
-table[data-table-color="#8fc7ff"] { --rich-table-color: #8fc7ff; }
-table[data-table-color="#9ee69b"] { --rich-table-color: #9ee69b; }
-table[data-table-color="#d89cff"] { --rich-table-color: #d89cff; }
-
-table[data-table-border="0"] { --rich-table-border: 0px; }
-table[data-table-border="0.5"] { --rich-table-border: .5px; }
-table[data-table-border="1"] { --rich-table-border: 1px; }
-table[data-table-border="1.5"] { --rich-table-border: 1.5px; }
-table[data-table-border="2"] { --rich-table-border: 2px; }
-table[data-table-border="3"] { --rich-table-border: 3px; }
-table[data-table-border="4"] { --rich-table-border: 4px; }
-table[data-table-border="5"] { --rich-table-border: 5px; }
-table[data-table-border="6"] { --rich-table-border: 6px; }
-table[data-table-border="8"] { --rich-table-border: 8px; }
-table[data-table-border="10"] { --rich-table-border: 10px; }
-table[data-table-border="12"] { --rich-table-border: 12px; }
-table[data-table-style="solid"] { --rich-table-style: solid; }
-table[data-table-style="dashed"] { --rich-table-style: dashed; }
-table[data-table-style="dotted"] { --rich-table-style: dotted; }
-table[data-table-style="double"] { --rich-table-style: double; }
-table[data-table-style="groove"] { --rich-table-style: groove; }
-table[data-table-style="ridge"] { --rich-table-style: ridge; }
-table[data-table-style="none"] { --rich-table-style: none; }
-
 .editor-toolbar { position: relative; overflow: visible; }
 .editor-toolbar .editor-ribbon-group { position: relative; overflow: visible; }
 .editor-toolbar .color-panel, .editor-toolbar .table-picker-popover { z-index: 70; }
@@ -980,12 +954,8 @@ table[data-table-style="none"] { --rich-table-style: none; }
 .editor-surface figure[data-editor-image] > figcaption:empty { display: none; }
 .editor-surface figure[data-editor-image] > figcaption { min-height: 24px; color: #64748b; font-size: 11px; line-height: 1.7; }
 .editor-surface .tableWrapper { width: 100%; max-width: 100%; margin: 18px 0; overflow-x: auto; }
-.editor-surface table, .reader-body table { width: 100%; min-width: 560px; border-collapse: collapse; table-layout: fixed; border: var(--rich-table-border, 1px) var(--rich-table-style, solid) var(--rich-table-color, var(--line)); }
-.editor-surface td, .editor-surface th, .reader-body td, .reader-body th { position: relative; border-width: var(--rich-table-border, 1px); border-style: var(--rich-table-style, solid); border-color: var(--rich-table-color, var(--line)); padding: 9px; vertical-align: top; }
-.editor-surface tr:last-child td, .editor-surface tr:last-child th,
-.reader-body tr:last-child td, .reader-body tr:last-child th { border-bottom-width: var(--rich-table-border, 1px); border-bottom-style: var(--rich-table-style, solid); border-bottom-color: var(--rich-table-color, var(--line)); }
-.editor-surface td:last-child, .editor-surface th:last-child,
-.reader-body td:last-child, .reader-body th:last-child { border-right-width: var(--rich-table-border, 1px); border-right-style: var(--rich-table-style, solid); border-right-color: var(--rich-table-color, var(--line)); }
+.editor-surface table, .reader-body table { width: 100%; min-width: 560px; border-collapse: collapse; table-layout: fixed; border: var(--rich-table-border, 1px) var(--rich-table-style, solid) var(--rich-table-color, var(--line)) !important; }
+.editor-surface table[data-table-border] :is(td, th), .reader-body table[data-table-border] :is(td, th) { position: relative; border: var(--rich-table-border, 1px) var(--rich-table-style, solid) var(--rich-table-color, var(--line)) !important; padding: 9px; vertical-align: top; }
 .editor-surface td[data-cell-align="center"], .editor-surface th[data-cell-align="center"], .reader-body td[data-cell-align="center"], .reader-body th[data-cell-align="center"] { text-align: center; }
 .editor-surface td[data-cell-align="right"], .editor-surface th[data-cell-align="right"], .reader-body td[data-cell-align="right"], .reader-body th[data-cell-align="right"] { text-align: right; }
 .editor-surface td[data-cell-align="justify"], .editor-surface th[data-cell-align="justify"], .reader-body td[data-cell-align="justify"], .reader-body th[data-cell-align="justify"] { text-align: justify; }

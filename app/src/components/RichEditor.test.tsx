@@ -27,7 +27,7 @@ describe("professional rich editor", () => {
     expect(screen.getByRole("button", { name: "2 行 4 列" })).toBeInTheDocument();
   });
 
-  it("writes the selected border preset into the newly inserted table", async () => {
+  it("writes the selected border preset into the newly inserted table and every cell", async () => {
     const onChange = vi.fn();
     render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
@@ -38,8 +38,24 @@ describe("professional rich editor", () => {
       const html = onChange.mock.calls.at(-1)?.[0] || "";
       expect(html).toContain('data-table-border="8"');
       expect(html).toContain('data-table-style="double"');
+      expect(html).toContain('data-cell-border-width="8"');
+      expect(html).toContain('data-cell-border-style="double"');
       expect(html).toContain('--rich-table-border: 8px');
       expect(html).toContain('--rich-table-style: double');
+    });
+  });
+
+  it("persists a selected custom table color in the table and its cells", async () => {
+    const onChange = vi.fn();
+    render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
+    fireEvent.click(screen.getByRole("button", { name: "线色" }));
+    fireEvent.click(screen.getByTitle("#ff938d"));
+    fireEvent.click(screen.getByRole("button", { name: "2 行 4 列" }));
+    await waitFor(() => {
+      const html = onChange.mock.calls.at(-1)?.[0] || "";
+      expect(html).toContain('data-table-color="#ff938d"');
+      expect(html).toContain('data-cell-border-color="#ff938d"');
     });
   });
 

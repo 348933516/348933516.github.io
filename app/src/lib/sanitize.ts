@@ -8,6 +8,8 @@ const controlledAttributes: Record<string, Set<string>> = {
   "data-font-family": new Set(["default", "noto-sans", "noto-serif", "yahei", "pingfang", "simsun", "simhei", "kaiti", "fangsong", "arial", "georgia"]),
   "data-table-border": new Set(["0", "0.5", "1", "1.5", "2", "3", "4", "5", "6", "8", "10", "12"]),
   "data-table-style": new Set(["solid", "dashed", "dotted", "double", "groove", "ridge", "none"]),
+  "data-cell-border-width": new Set(["0", "0.5", "1", "1.5", "2", "3", "4", "5", "6", "8", "10", "12"]),
+  "data-cell-border-style": new Set(["solid", "dashed", "dotted", "double", "groove", "ridge", "none"]),
   "data-cell-align": new Set(["left", "center", "right", "justify"]),
   "data-editor-image": new Set(["true"]),
   "data-placeholder": new Set(["图片说明"])
@@ -41,7 +43,7 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (!/^[0-9a-f-]{36}$/i.test(data.attrValue)) data.keepAttr = false;
     return;
   }
-   if (["data-text-color", "data-highlight", "data-table-color", "data-cell-background"].includes(data.attrName)) {
+   if (["data-text-color", "data-highlight", "data-table-color", "data-cell-background", "data-cell-border-color"].includes(data.attrName)) {
     const value = data.attrValue.toLowerCase();
     if (!safeHex.test(value) && !colorTokens.has(value)) data.keepAttr = false;
     return;
@@ -82,7 +84,7 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
       "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-table-color", "data-cell-background", "data-cell-align", "data-editor-image", "data-media-id"
+      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id"
     ],
     ALLOW_DATA_ATTR: true
   });

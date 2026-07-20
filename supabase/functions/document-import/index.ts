@@ -21,6 +21,10 @@ const publicBucket = "maplestorynk-public";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hash = /^[a-f0-9]{64}$/i;
 
+function importError(stage: string, code: string, error: string, status: number, details: Record<string, unknown> = {}) {
+  return json({ error, code, stage, ...details }, status);
+}
+
 function cleanBody(value: string) {
   return sanitizeHtml(value, {
     allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
@@ -28,8 +32,8 @@ function cleanBody(value: string) {
       a: ["href", "target", "rel", "title"], img: ["src", "alt", "title"],
       figure: ["data-editor-image", "data-media-id"], figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
-      th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
-      td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "style"],
+      th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
+      td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
       span: ["class", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "style"],
       mark: ["data-highlight", "style"], div: ["class"]
     },
@@ -72,40 +76,46 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const expectedImages = Number(body.expectedImages || 0);
     const expectedVersion = Number(body.expectedVersion || 0);
     const totalOriginalBytes = Number(body.totalOriginalBytes || 0);
-    if (!uuid.test(contentId) || !Number.isInteger(expectedImages) || expectedImages < 1 || expectedImages > 250 || !Number.isInteger(expectedVersion) || expectedVersion < 1 || totalOriginalBytes < 1) return json({ error: "Invalid import request" }, 400);
+    if (!uuid.test(contentId) || !Number.isInteger(expectedImages) || expectedImages < 1 || expectedImages > 250 || !Number.isInteger(expectedVersion) || expectedVersion < 1 || totalOriginalBytes < 1) return importError("start", "INVALID_IMPORT_REQUEST", "导入参数无效，请重新打开资料后再试。", 400);
     const { data: content, error } = await client.from("contents").select("id, version, created_by, status").eq("id", contentId).maybeSingle();
-    if (error || !content) return json({ error: error?.message || "Content not found" }, 404);
-    if (content.version !== expectedVersion) return json({ error: "Content version changed", code: "VERSION_CONFLICT" }, 409);
-    if (profile.role === "uploader" && (content.created_by !== user.id || content.status !== "draft")) return json({ error: "Uploaders can only import into their own drafts" }, 403);
+    if (error || !content) return importError("start", "CONTENT_NOT_FOUND", "资料不存在或已被删除。", 404);
+    if (content.version !== expectedVersion) return importError("start", "VERSION_CONFLICT", "资料已被修改，请重新载入后再导入。", 409);
+    if (profile.role === "uploader" && (content.created_by !== user.id || content.status !== "draft")) return importError("start", "IMPORT_FORBIDDEN", "上传管理员只能导入自己的草稿。", 403);
     const id = crypto.randomUUID();
     const { error: insertError } = await client.from("document_imports").insert({ id, content_id: contentId, created_by: user.id, expected_images: expectedImages, total_original_bytes: totalOriginalBytes });
-    if (insertError) return json({ error: insertError.message }, 400);
+    if (insertError) return importError("start", "IMPORT_JOB_CREATE_FAILED", "无法创建导入任务。", 400, { database_error: insertError.message.slice(0, 300) });
     return json({ id, uploadPrefix: `imports/${id}` });
   }
 
   const importId = String(body.importId || "");
-  if (!uuid.test(importId)) return json({ error: "Invalid import id" }, 400);
+  if (!uuid.test(importId)) return importError(action || "unknown", "INVALID_IMPORT_ID", "导入任务编号无效。", 400);
   const { data: job, error: jobError } = await client.from("document_imports").select("*").eq("id", importId).maybeSingle();
-  if (jobError || !job) return json({ error: jobError?.message || "Import not found" }, 404);
-  if (job.created_by !== user.id && profile.role !== "super_admin") return json({ error: "Import forbidden" }, 403);
+  if (jobError || !job) return importError(action || "unknown", "IMPORT_NOT_FOUND", "导入任务不存在或已过期。", 404, { import_id: importId });
+  if (job.created_by !== user.id && profile.role !== "super_admin") return importError(action || "unknown", "IMPORT_FORBIDDEN", "无权处理此导入任务。", 403, { import_id: importId });
 
   if (action === "cancel" || action === "fail") {
     const manifest = Array.isArray(body.manifest) ? body.manifest : job.manifest;
     await removeManifestFiles(client, manifest);
     const { error } = await client.from("document_imports").update({ status: action === "cancel" ? "cancelled" : "failed", manifest, error_message: String(body.error || "").slice(0, 2000) }).eq("id", importId);
-    if (error) return json({ error: error.message }, 400);
+    if (error) return importError(action, "IMPORT_CLEANUP_FAILED", "导入清理未完成，可在运行日志中查看详情。", 400, { import_id: importId, database_error: error.message.slice(0, 300) });
     return json({ ok: true });
   }
 
-  if (action !== "finalize") return json({ error: "Unsupported import action" }, 400);
+  if (action !== "finalize") return importError("unknown", "UNSUPPORTED_IMPORT_ACTION", "不支持的导入操作。", 400);
   const assets = Array.isArray(body.assets) ? body.assets : [];
-  if (job.status !== "uploading" || assets.length !== job.expected_images || !assets.every((asset) => validAsset(asset, importId))) return json({ error: "Import manifest is incomplete" }, 400);
+  if (job.status !== "uploading" || assets.length !== job.expected_images || !assets.every((asset) => validAsset(asset, importId))) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
   const paths = assets.flatMap((asset) => [asset.originalPath, asset.displayPath]);
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
-  if (storedError || (stored?.length || 0) !== paths.length) return json({ error: storedError?.message || "One or more uploaded images are missing" }, 400);
+  const presentPaths = new Set((stored || []).map((item) => item.name));
+  const missingPaths = paths.filter((path) => !presentPaths.has(path));
+  if (storedError || missingPaths.length) return importError("finalize", "STORAGE_OBJECTS_MISSING", "部分图片未成功写入存储，已取消本次导入。", 400, { import_id: importId, expected_objects: paths.length, found_objects: stored?.length || 0, missing_count: missingPaths.length, missing_paths: missingPaths.slice(0, 5) });
 
   const cleaned = cleanBody(String(body.bodyHtml || ""));
-  if (!cleaned.trim() || cleaned.length > 1_000_000) return json({ error: "Imported content is empty or too large" }, 400);
+  if (!cleaned.trim() || cleaned.length > 1_000_000) return importError("finalize", "IMPORTED_BODY_INVALID", "导入正文为空或超过允许大小。", 400, { import_id: importId });
+  const figureIds = [...cleaned.matchAll(/<figure\b[^>]*\bdata-media-id=["']([0-9a-f-]{36})["']/gi)].map((match) => match[1].toLowerCase());
+  const importedIds = new Set(figureIds);
+  const missingFigureIds = assets.map((asset) => asset.mediaId.toLowerCase()).filter((mediaId) => !importedIds.has(mediaId));
+  if (missingFigureIds.length) return importError("finalize", "BODY_IMAGE_MAPPING_MISMATCH", "正文图片映射不完整，已取消本次导入。", 400, { import_id: importId, expected_images: assets.length, body_figures: figureIds.length, missing_media_ids: missingFigureIds.slice(0, 5) });
   const text = sanitizeHtml(cleaned, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, " ").trim();
   const { data, error } = await client.rpc("finalize_document_import", {
     p_import_id: importId, p_content_id: job.content_id, p_expected_version: Number(body.expectedVersion || 0), p_actor_id: user.id,
@@ -113,7 +123,10 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }).single();
   if (error) {
     await client.from("document_imports").update({ status: "failed", manifest: assets, error_message: error.message.slice(0, 2000) }).eq("id", importId);
-    return json({ error: error.message, code: error.message.includes("VERSION_CONFLICT") ? "VERSION_CONFLICT" : undefined }, 409);
+    return importError("finalize", error.message.includes("VERSION_CONFLICT") ? "VERSION_CONFLICT" : "IMPORT_COMMIT_FAILED", error.message.includes("VERSION_CONFLICT") ? "资料已被修改，请重新载入后再导入。" : "图片已上传，但数据库提交失败，临时文件将自动清理。", error.message.includes("VERSION_CONFLICT") ? 409 : 400, { import_id: importId, database_error: error.message.slice(0, 500) });
   }
-  return json(data);
+  const assetIds = assets.map((asset) => asset.mediaId);
+  const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);
+  if (countError || storedImages !== assets.length) return importError("finalize", "IMPORT_VERIFICATION_FAILED", "导入提交后的图片核对失败，请勿发布并查看运行日志。", 500, { import_id: importId, expected_images: assets.length, stored_images: storedImages || 0, body_figures: figureIds.length });
+  return json({ ...data, body_figures: figureIds.length, stored_images: storedImages });
 }));
