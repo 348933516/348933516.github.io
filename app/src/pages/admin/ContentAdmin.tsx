@@ -12,7 +12,7 @@ import { privateMediaBucket, publicMediaBucket } from "../../lib/config";
 import type { ExtractedWordImage, ImportPreview, WorksheetPreview } from "../../lib/documents";
 import { randomId } from "../../lib/id";
 import {
-  batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport,
+  batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport, registerDocumentImportAsset,
   loadAdminContent, loadAdminContentList, publishContent, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
@@ -169,7 +169,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
   const importErrorMessage = (error: unknown) => {
     if (!(error instanceof DocumentImportError)) return messageOf(error, "导入或原文件上传失败");
-    const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
+    const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", register: "登记已上传图片", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
     const status = error.status ? `（HTTP ${error.status}）` : "";
     if (error.code === "IMPORT_MANIFEST_INCOMPLETE") {
       const invalid = Array.isArray(error.details.invalid_asset_indexes) ? error.details.invalid_asset_indexes.join("、") : "";
@@ -211,6 +211,8 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     await uploadWithProgress(original, originalPath, (value) => setImportProgress(Math.round(((image.index - 1 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
     setImportStage("upload-webp");
     await uploadWithProgress(display, displayPath, (value) => setImportProgress(Math.round(((image.index - 0.5 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
+    setImportStage("register");
+    await registerDocumentImportAsset(job.id, asset);
     return { id: image.id, mediaId, displayUrl: publicAssetUrl(displayPath) };
   };
   const confirmImport = async () => {
@@ -249,7 +251,8 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       const sourceRecord = [draft.sourceRecord, importSnapshot.preview.source].filter(Boolean).join("\n");
       if (wordJob && activeDocumentImport.current) {
         setImportStage("verify");
-        const finalized = await finalizeDocumentImport({ importId: wordJob.id, expectedVersion: draft.version || 1, bodyHtml, sourceRecord, assets: activeDocumentImport.current.assets });
+        setImportStage("finalize");
+        const finalized = await finalizeDocumentImport({ importId: wordJob.id, expectedVersion: draft.version || 1, bodyHtml, sourceRecord });
         const nextDraft = { ...draft, title: draft.title || importSnapshot.preview.title, bodyHtml, bodyText, bodyJson: {}, sourceRecord, version: finalized.version };
         loadedVersion.current = finalized.version;
         setDraft(nextDraft); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null);
@@ -313,7 +316,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
 function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, onMode, progress, busy, stage, jobId, failure, onConfirm, onCancel }: { preview: ImportPreview; selectedSheets: string[]; onSelectedSheets(value: string[]): void; mode: "append" | "replace"; onMode(value: "append" | "replace"): void; progress: number; busy: boolean; stage: DocumentImportStage | "upload-original" | "upload-webp" | "verify" | "complete" | "idle"; jobId: string; failure: string; onConfirm(): void; onCancel(): void }) {
   const composed = preview.worksheets ? composeImportPreview(preview.worksheets, selectedSheets) : preview;
   const toggleSheet = (name: string, checked: boolean) => onSelectedSheets(checked ? [...selectedSheets, name] : selectedSheets.filter((item) => item !== name));
-  const steps: Array<[typeof stage, string]> = [["start", "创建任务"], ["upload-original", "上传原图"], ["upload-webp", "上传无损 WebP"], ["verify", "核验图片"], ["finalize", "提交正文"]];
+  const steps: Array<[typeof stage, string]> = [["start", "创建任务"], ["upload-original", "上传原图"], ["upload-webp", "上传无损 WebP"], ["register", "登记图片"], ["verify", "核验图片"], ["finalize", "提交正文"]];
   const activeIndex = steps.findIndex(([key]) => key === stage);
   return <section className="import-confirmation">
     <header><div><span>{preview.kind === "workbook" ? "EXCEL PREVIEW" : preview.kind === "web" ? "WEB PREVIEW" : "DOCUMENT PREVIEW"}</span><h2>{preview.title}</h2><p>{preview.warning || "检查内容后再确认导入。"}</p></div><button className="icon-only" type="button" aria-label="取消导入" onClick={onCancel}><X /></button></header>

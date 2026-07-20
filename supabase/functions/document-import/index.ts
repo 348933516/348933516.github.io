@@ -71,6 +71,20 @@ async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
   if (paths.length) await client.storage.from(publicBucket).remove(paths);
 }
 
+async function registeredAssets(client: SupabaseClient, importId: string): Promise<ImportAsset[]> {
+  const { data, error } = await client.from("document_import_assets")
+    .select("media_id, original_path, display_path, content_hash, original_mime_type, width, height, original_size_bytes, display_size_bytes, sort_order, title, alt_text")
+    .eq("import_id", importId)
+    .order("sort_order");
+  if (error) throw error;
+  return (data || []).map((asset) => ({
+    mediaId: asset.media_id, originalPath: asset.original_path, displayPath: asset.display_path,
+    hash: asset.content_hash || "", mimeType: asset.original_mime_type || "application/octet-stream",
+    width: asset.width || 0, height: asset.height || 0, originalSize: Number(asset.original_size_bytes),
+    displaySize: Number(asset.display_size_bytes), sortOrder: asset.sort_order, title: asset.title, altText: asset.alt_text
+  }));
+}
+
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
   const body = await request.json();
@@ -101,13 +115,34 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (action === "cancel" || action === "fail") {
     const manifest = Array.isArray(body.manifest) ? body.manifest : job.manifest;
     await removeManifestFiles(client, manifest);
+    await removeManifestFiles(client, await registeredAssets(client, importId));
     const { error } = await client.from("document_imports").update({ status: action === "cancel" ? "cancelled" : "failed", manifest, error_message: String(body.error || "").slice(0, 2000) }).eq("id", importId);
     if (error) return importError(action, "IMPORT_CLEANUP_FAILED", "导入清理未完成，可在运行日志中查看详情。", 400, { import_id: importId, database_error: error.message.slice(0, 300) });
     return json({ ok: true });
   }
 
+  if (action === "register") {
+    if (job.status !== "uploading") return importError("register", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
+    const asset = body.asset;
+    const issues = assetIssues(asset, importId);
+    if (issues.length) return importError("register", "INVALID_IMPORT_ASSET", "当前图片登记信息无效，已停止导入。", 400, { import_id: importId, issues });
+    const item = asset as ImportAsset;
+    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", [item.originalPath, item.displayPath]);
+    if (storedError || stored?.length !== 2) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
+    const { error: insertError } = await client.from("document_import_assets").upsert({
+      import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
+      content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
+      original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, sort_order: item.sortOrder,
+      title: item.title, alt_text: item.altText
+    }, { onConflict: "import_id,media_id" });
+    if (insertError) return importError("register", "ASSET_REGISTRATION_FAILED", "当前图片无法登记到导入任务。", 400, { import_id: importId, image_order: item.sortOrder, database_error: insertError.message.slice(0, 300) });
+    const { count, error: countError } = await client.from("document_import_assets").select("media_id", { count: "exact", head: true }).eq("import_id", importId);
+    if (countError) return importError("register", "ASSET_COUNT_FAILED", "图片已上传，但无法确认登记数量。", 500, { import_id: importId });
+    return json({ registered_assets: count || 0 });
+  }
+
   if (action !== "finalize") return importError("unknown", "UNSUPPORTED_IMPORT_ACTION", "不支持的导入操作。", 400);
-  const assets = Array.isArray(body.assets) ? body.assets : [];
+  const assets = await registeredAssets(client, importId);
   const invalidAssets = assets.flatMap((asset, index) => {
     const issues = assetIssues(asset, importId);
     return issues.length ? [{ index: index + 1, issues }] : [];

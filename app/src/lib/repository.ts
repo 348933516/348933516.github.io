@@ -555,7 +555,7 @@ export interface DocumentImportJob {
   uploadPrefix: string;
 }
 
-export type DocumentImportStage = "start" | "finalize" | "fail" | "cancel";
+export type DocumentImportStage = "start" | "register" | "finalize" | "fail" | "cancel";
 
 export class DocumentImportError extends Error {
   readonly stage: DocumentImportStage;
@@ -587,7 +587,7 @@ async function functionErrorPayload(error: unknown) {
 }
 
 async function invokeDocumentImport<T>(body: Record<string, unknown>) {
-  const stage = body.action === "finalize" ? "finalize" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
+  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
   const { data, error } = await supabase.functions.invoke("document-import", { body });
   if (error || data?.error) {
     const response = error ? await functionErrorPayload(error) : { status: null, payload: {} as Record<string, unknown> };
@@ -607,7 +607,11 @@ export function startDocumentImport(input: { contentId: string; expectedVersion:
   return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
 }
 
-export function finalizeDocumentImport(input: { importId: string; expectedVersion: number; bodyHtml: string; sourceRecord: string; assets: DocumentImportAsset[] }) {
+export function registerDocumentImportAsset(importId: string, asset: DocumentImportAsset) {
+  return invokeDocumentImport<{ registered_assets: number }>({ action: "register", importId, asset });
+}
+
+export function finalizeDocumentImport(input: { importId: string; expectedVersion: number; bodyHtml: string; sourceRecord: string }) {
   return invokeDocumentImport<{ content_id: string; version: number; imported_images: number }>({ action: "finalize", ...input });
 }
 
