@@ -58,8 +58,20 @@ jobs:
           for function in "${functions[@]}"; do
             echo "Deploying $function"
             for attempt in 1 2 3; do
-              if pnpm dlx supabase@latest functions deploy "$function" --project-ref "$PROJECT_REF"; then break; fi
-              if [ "$attempt" -eq 3 ]; then echo "Failed to deploy $function after $attempt attempts."; exit 1; fi
+              output_file="$(mktemp)"
+              if pnpm dlx supabase@latest functions deploy "$function" --project-ref "$PROJECT_REF" >"$output_file" 2>&1; then
+                cat "$output_file"
+                rm -f "$output_file"
+                break
+              fi
+              cat "$output_file"
+              if [ "$attempt" -eq 3 ]; then
+                message="$(tail -n 20 "$output_file" | tr '\n' ' ' | sed 's/%/%25/g')"
+                echo "::error title=Supabase deploy failed for $function::$message"
+                rm -f "$output_file"
+                exit 1
+              fi
+              rm -f "$output_file"
               sleep $((attempt * 10))
             done
           done
