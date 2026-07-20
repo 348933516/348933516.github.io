@@ -74,6 +74,7 @@ describe("Supabase security migration", () => {
     expect(documentImports).toContain("IMAGE_COUNT_MISMATCH");
     expect(documentImports).toContain("grant execute on function public.finalize_document_import");
     expect(documentImportFunction).toContain('action === "start"');
+    expect(documentImportFunction).toContain('action === "manifest"');
     expect(documentImportFunction).toContain('action !== "finalize"');
     expect(documentImportFunction).toContain('schema("storage").from("objects")');
     expect(documentImportFunction).toContain("STORAGE_OBJECTS_MISSING");

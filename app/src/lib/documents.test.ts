@@ -38,19 +38,19 @@ describe("document imports", () => {
     expect(result).not.toContain("word-image-placeholder");
   });
 
-  it("maps Worker-direct uploads into the final Word body without transferring image bytes to the page", async () => {
+  it("maps the durable server manifest even when the Worker completion has no asset messages", async () => {
     const previousWorker = globalThis.Worker;
     class DirectUploadWorker {
       onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
       onerror: ((event: ErrorEvent) => void) | null = null;
       postMessage(message: Record<string, unknown>) {
         if (message.type !== "start") return;
-        queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "asset", asset: { id: "word-image-1", mediaId: "00000000-0000-4000-8000-000000000001", displayUrl: "https://cdn.example.test/imports/1.png" } } })));
         queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html: '<p><img src="https://word-import.invalid/word-image-1" alt="descript"></p>', imageCount: 1, totalOriginalBytes: 1024, warnings: [] } })));
       }
       terminate() {}
     }
     vi.stubGlobal("Worker", DirectUploadWorker);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ assets: [{ mediaId: "00000000-0000-4000-8000-000000000001", displayPath: "imports/job/1.png" }] }), { status: 200 })));
     try {
       const file = { arrayBuffer: async () => new ArrayBuffer(8) } as File;
       const result = await materializeWordDocument(file, {
@@ -65,7 +65,7 @@ describe("document imports", () => {
       });
       expect(result.uploadedImageCount).toBe(1);
       expect(result.bodyHtml).toContain('data-media-id="00000000-0000-4000-8000-000000000001"');
-      expect(result.bodyHtml).toContain("https://cdn.example.test/imports/1.png");
+      expect(result.bodyHtml).toContain("https://project.example.test/storage/v1/object/public/public/imports/job/1.png");
       expect(result.bodyHtml).not.toContain("descript");
     } finally {
       vi.unstubAllGlobals();

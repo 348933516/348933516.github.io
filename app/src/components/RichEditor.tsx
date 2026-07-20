@@ -19,6 +19,7 @@ import {
   Highlighter, ImagePlus, Italic, Link2, List, ListOrdered, Maximize2, Minus, Palette,
   Quote, Redo2, Strikethrough, Table2, Underline as UnderlineIcon, Undo2, X
 } from "lucide-react";
+import { normalizeOfficeClipboardHtml, tabSeparatedTextToTableHtml } from "../lib/officeClipboard";
 import { sanitizeHtml } from "../lib/sanitize";
 
 interface RichEditorProps {
@@ -337,6 +338,8 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
 export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
+  const pasteTableRef = useRef<(html: string) => void>(() => undefined);
   const internalHtml = useRef(sanitizeHtml(value));
   const lastExternalHtml = useRef(sanitizeHtml(value));
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
@@ -369,7 +372,31 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     content: internalHtml.current,
     editorProps: {
       attributes: { class: "editor-surface" },
-      transformPastedHTML: (html) => sanitizeHtml(html)
+      transformPastedHTML: (html) => normalizeOfficeClipboardHtml(html),
+      handlePaste: (_view, event) => {
+        const clipboard = event.clipboardData;
+        if (!clipboard) return false;
+        const html = clipboard.getData("text/html");
+        const imageFiles = [...clipboard.items]
+          .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+          .map((item) => item.getAsFile())
+          .filter((file): file is File => Boolean(file));
+        if (imageFiles.length && !html) {
+          event.preventDefault();
+          pasteImagesRef.current(imageFiles);
+          return true;
+        }
+        if (imageFiles.length) window.setTimeout(() => pasteImagesRef.current(imageFiles), 0);
+        if (!html) {
+          const table = tabSeparatedTextToTableHtml(clipboard.getData("text/plain"));
+          if (table) {
+            event.preventDefault();
+            pasteTableRef.current(table);
+            return true;
+          }
+        }
+        return false;
+      }
     },
     onUpdate({ editor: current }) {
       const html = sanitizeHtml(current.getHTML());
@@ -447,6 +474,11 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
     } finally {
       setUploadingImages(false);
     }
+  };
+  pasteImagesRef.current = (files) => { void insertImages(files); };
+  pasteTableRef.current = (html) => {
+    editor.chain().focus().insertContent(html).run();
+    setMessage("已粘贴表格内容。");
   };
   const updateTable = (patch: Partial<typeof tablePreset>) => {
     const nextPreset = normalizedTableStyle({ ...tablePresetRef.current, ...patch });

@@ -69,4 +69,35 @@ describe("professional rich editor", () => {
     const { container } = render(<RichEditor value="<p>正文</p>" onChange={vi.fn()} />);
     expect(container.querySelector(".editor-surface")).toBeInTheDocument();
   });
+
+  it("pastes tab-separated spreadsheet data as an editable table", async () => {
+    const onChange = vi.fn();
+    const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    const surface = container.querySelector<HTMLElement>('[contenteditable="true"]');
+    expect(surface).toBeTruthy();
+    fireEvent.paste(surface!, {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => type === "text/plain" ? "名称\t等级\n测试地图\t200" : ""
+      }
+    });
+    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0] || "").toContain("<table"));
+    expect(onChange.mock.calls.at(-1)?.[0]).toContain("测试地图");
+  });
+
+  it("uploads and inserts an image pasted from the clipboard", async () => {
+    const onChange = vi.fn();
+    const image = new File(["image"], "clipboard.png", { type: "image/png" });
+    const onUploadImages = vi.fn(async () => [{ src: "https://cdn.example.test/clipboard.png", alt: "clipboard" }]);
+    const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} onUploadImages={onUploadImages} />);
+    const surface = container.querySelector<HTMLElement>('[contenteditable="true"]');
+    fireEvent.paste(surface!, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+        getData: () => ""
+      }
+    });
+    await waitFor(() => expect(onUploadImages).toHaveBeenCalledWith([image]));
+    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0] || "").toContain("https://cdn.example.test/clipboard.png"));
+  });
 });

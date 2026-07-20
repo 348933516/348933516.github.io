@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { documentImportResponseMessage } from "./documentImportResponse";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
 
@@ -83,6 +84,11 @@ export async function readDocument(file: File): Promise<ImportPreview> {
 
 type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
 
+type RegisteredImportAsset = {
+  mediaId: string;
+  displayPath: string;
+};
+
 function runWordWorker(file: File, mode: "preview" | "extract", onProgress?: (current: number) => void, upload?: WordUploadSession) {
   return new Promise<WordWorkerResult>(async (resolve, reject) => {
     const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
@@ -144,14 +150,42 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
 
 export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (current: number) => void) {
   const result = await runWordWorker(file, "extract", onProgress, upload);
-  const uploaded = new Map(result.uploadedImages.map((image) => [image.id, image]));
+  // The import table is the durable source of truth. Some browsers can defer
+  // high-volume Worker messages while still delivering the completion event.
+  // Reading the server manifest avoids treating that delivery detail as data loss.
+  const registered = await loadRegisteredWordImages(upload);
+  const uploaded = new Map(registered.map((image, index) => [`word-image-${index + 1}`, image]));
   return {
     bodyHtml: prepareWordHtml(result.html, uploaded),
     bodyText: new DOMParser().parseFromString(result.html, "text/html").body.textContent || "",
     imageCount: result.imageCount,
     totalOriginalBytes: result.totalOriginalBytes,
-    uploadedImageCount: result.uploadedImages.length
+    uploadedImageCount: registered.length
   };
+}
+
+async function loadRegisteredWordImages(upload: WordUploadSession): Promise<UploadedWordImage[]> {
+  const response = await fetch(`${upload.supabaseUrl}/functions/v1/document-import`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${upload.accessToken}`,
+      apikey: upload.publishableKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ action: "manifest", importId: upload.importId })
+  });
+  if (!response.ok) throw new Error(`无法核对已上传 Word 图片：${await documentImportResponseMessage(response)}`);
+  const payload = await response.json() as { assets?: RegisteredImportAsset[] };
+  if (!Array.isArray(payload.assets)) throw new Error("无法读取已上传 Word 图片清单。");
+  return payload.assets.map((asset, index) => {
+    if (!asset?.mediaId || !asset.displayPath) throw new Error(`第 ${index + 1} 张 Word 图片登记信息无效。`);
+    const objectPath = asset.displayPath.split("/").map(encodeURIComponent).join("/");
+    return {
+      id: `word-image-${index + 1}`,
+      mediaId: asset.mediaId,
+      displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}`
+    };
+  });
 }
 
 async function readWorkbook(file: File): Promise<ImportPreview> {

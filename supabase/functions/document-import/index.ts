@@ -120,6 +120,12 @@ Deno.serve((request) => edgeHandler(request, async () => {
     return json({ ok: true });
   }
 
+  if (action === "manifest") {
+    if (job.status !== "uploading") return importError("manifest", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
+    const assets = await registeredAssets(client, importId);
+    return json({ assets });
+  }
+
   if (action === "register") {
     if (job.status !== "uploading") return importError("register", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
     const asset = body.asset;
