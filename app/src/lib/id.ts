@@ -18,5 +18,10 @@ export function randomId(
     return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
   }
 
-  return `${now().toString(36)}-${random().toString(36).slice(2, 12)}`;
+  // HTTP previews can expose neither randomUUID nor getRandomValues. Imported
+  // media IDs still have to satisfy Postgres' UUID type in that environment.
+  const seed = now().toString(16).padStart(12, "0").slice(-12);
+  const randomHex = () => Math.floor(Math.max(0, Math.min(0.9999999999999999, random())) * 0x100000000).toString(16).padStart(8, "0");
+  const entropy = `${randomHex()}${randomHex()}${randomHex()}${randomHex()}`;
+  return `${entropy.slice(0, 8)}-${seed.slice(0, 4)}-4${seed.slice(4, 7)}-8${entropy.slice(8, 11)}-${entropy.slice(11, 23)}`;
 }

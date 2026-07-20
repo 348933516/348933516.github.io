@@ -197,7 +197,9 @@ const StyledTable = Table.extend({
       "data-table-border": style.borderWidth,
       "data-table-style": style.borderStyle,
       "data-table-color": style.borderColor,
-      style: `--rich-table-border:${style.borderWidth}px;--rich-table-style:${style.borderStyle};--rich-table-color:${style.borderColor};border:${style.borderWidth}px ${style.borderStyle} ${style.borderColor}`
+      // Keep the safe, individual border properties as well as the CSS variables.
+      // The reader and editor can then render the same border after sanitization.
+      style: `--rich-table-border: ${style.borderWidth}px; --rich-table-style: ${style.borderStyle}; --rich-table-color: ${style.borderColor}; border-width: ${style.borderWidth}px; border-style: ${style.borderStyle}; border-color: ${style.borderColor}`
     }, 0];
   }
 });
@@ -219,17 +221,35 @@ const cellAttributes = {
   borderWidth: {
     default: "1",
     parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-width") || "1",
-    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-width": normalizedTableStyle(attributes).borderWidth })
+    renderHTML: (attributes: Record<string, string>) => {
+      const style = normalizedTableStyle(attributes);
+      return {
+        "data-cell-border-width": style.borderWidth,
+        style: `--rich-cell-border-width: ${style.borderWidth}px; --rich-cell-border-style: ${style.borderStyle}; --rich-cell-border-color: ${style.borderColor}; border-width: ${style.borderWidth}px; border-style: ${style.borderStyle}; border-color: ${style.borderColor}`
+      };
+    }
   },
   borderStyle: {
     default: "solid",
     parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-style") || "solid",
-    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-style": normalizedTableStyle(attributes).borderStyle })
+    renderHTML: (attributes: Record<string, string>) => {
+      const style = normalizedTableStyle(attributes);
+      return {
+        "data-cell-border-style": style.borderStyle,
+        style: `--rich-cell-border-width: ${style.borderWidth}px; --rich-cell-border-style: ${style.borderStyle}; --rich-cell-border-color: ${style.borderColor}; border-width: ${style.borderWidth}px; border-style: ${style.borderStyle}; border-color: ${style.borderColor}`
+      };
+    }
   },
   borderColor: {
     default: "#2b3a40",
     parseHTML: (element: HTMLElement) => element.getAttribute("data-cell-border-color") || "#2b3a40",
-    renderHTML: (attributes: Record<string, string>) => ({ "data-cell-border-color": normalizedTableStyle(attributes).borderColor })
+    renderHTML: (attributes: Record<string, string>) => {
+      const style = normalizedTableStyle(attributes);
+      return {
+        "data-cell-border-color": style.borderColor,
+        style: `--rich-cell-border-width: ${style.borderWidth}px; --rich-cell-border-style: ${style.borderStyle}; --rich-cell-border-color: ${style.borderColor}; border-width: ${style.borderWidth}px; border-style: ${style.borderStyle}; border-color: ${style.borderColor}`
+      };
+    }
   }
 };
 

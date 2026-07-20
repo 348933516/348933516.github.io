@@ -27,9 +27,14 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (name === "background-color" && safeHex.test(value)) safeDeclarations.push(`background-color: ${value}`);
       if (name === "font-size" && /^(\d{1,2})px$/.test(value) && safeFontSize.test(value.replace("px", ""))) safeDeclarations.push(`font-size: ${value}`);
       if (name === "border-color" && safeHex.test(value)) safeDeclarations.push(`border-color: ${value}`);
+      if (name === "border-width" && /^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/.test(value)) safeDeclarations.push(`border-width: ${value}`);
+      if (name === "border-style" && /^(?:solid|dashed|dotted|double|groove|ridge|none)$/.test(value)) safeDeclarations.push(`border-style: ${value}`);
       if (name === "--rich-table-color" && safeHex.test(value)) safeDeclarations.push(`--rich-table-color: ${value}`);
       if (name === "--rich-table-border" && /^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/.test(value)) safeDeclarations.push(`--rich-table-border: ${value}`);
       if (name === "--rich-table-style" && /^(?:solid|dashed|dotted|double|groove|ridge|none)$/.test(value)) safeDeclarations.push(`--rich-table-style: ${value}`);
+      if (name === "--rich-cell-border-color" && safeHex.test(value)) safeDeclarations.push(`--rich-cell-border-color: ${value}`);
+      if (name === "--rich-cell-border-width" && /^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/.test(value)) safeDeclarations.push(`--rich-cell-border-width: ${value}`);
+      if (name === "--rich-cell-border-style" && /^(?:solid|dashed|dotted|double|groove|ridge|none)$/.test(value)) safeDeclarations.push(`--rich-cell-border-style: ${value}`);
     }
     if (safeDeclarations.length) data.attrValue = safeDeclarations.join("; ");
     else data.keepAttr = false;

@@ -171,6 +171,12 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     if (!(error instanceof DocumentImportError)) return messageOf(error, "导入或原文件上传失败");
     const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
     const status = error.status ? `（HTTP ${error.status}）` : "";
+    if (error.code === "IMPORT_MANIFEST_INCOMPLETE") {
+      const invalid = Array.isArray(error.details.invalid_asset_indexes) ? error.details.invalid_asset_indexes.join("、") : "";
+      const duplicate = error.details.duplicate_media_ids ? "图片媒体编号重复" : "";
+      const diagnostic = [invalid ? `无效图片序号：${invalid}` : "", duplicate].filter(Boolean).join("；");
+      return `${stageText[error.stage]}失败${status}：${error.message}${diagnostic ? `（${diagnostic}）` : ""}`;
+    }
     return `${stageText[error.stage]}失败${status}：${error.message}`;
   };
   const save = async () => { if (!draft) return null; setSaving(true); try { const result = await saveContent(draft, profile.id); loadedVersion.current = result.version; setDraft({ ...draft, version: result.version }); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null); notify(result.tagWarning || "草稿已保存到云端。", Boolean(result.tagWarning)); client.invalidateQueries({ queryKey: ["admin-content-list"] }); return result; } catch (error) { notify(error instanceof Error && error.message === "VERSION_CONFLICT" ? "资料已被其他管理员修改，请重新载入后再编辑。" : messageOf(error, "保存失败"), true); return null; } finally { setSaving(false); } };

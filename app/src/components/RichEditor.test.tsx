@@ -42,6 +42,10 @@ describe("professional rich editor", () => {
       expect(html).toContain('data-cell-border-style="double"');
       expect(html).toContain('--rich-table-border: 8px');
       expect(html).toContain('--rich-table-style: double');
+      expect(html).toContain('--rich-cell-border-width: 8px');
+      expect(html).toContain('--rich-cell-border-style: double');
+      expect(html).toContain('border-width: 8px');
+      expect(html).toContain('border-style: double');
     });
   });
 
@@ -56,6 +60,8 @@ describe("professional rich editor", () => {
       const html = onChange.mock.calls.at(-1)?.[0] || "";
       expect(html).toContain('data-table-color="#ff938d"');
       expect(html).toContain('data-cell-border-color="#ff938d"');
+      expect(html).toContain('--rich-cell-border-color: #ff938d');
+      expect(html).toContain('border-color: #ff938d');
     });
   });
 

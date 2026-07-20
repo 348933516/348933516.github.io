@@ -34,7 +34,10 @@ function cleanBody(value: string) {
         "border-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/],
         "--rich-table-color": [/^#[0-9a-f]{6}$/i],
         "--rich-table-border": [/^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/],
-        "--rich-table-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/]
+        "--rich-table-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/],
+        "--rich-cell-border-color": [/^#[0-9a-f]{6}$/i],
+        "--rich-cell-border-width": [/^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/],
+        "--rich-cell-border-style": [/^(solid|dashed|dotted|double|groove|ridge|none)$/]
       }
     },
     allowedSchemes: ["https"],
