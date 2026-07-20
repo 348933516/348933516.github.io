@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import mammoth from "mammoth";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
 
@@ -20,6 +19,25 @@ export interface ImportPreview {
   source: string;
   warning?: string;
   worksheets?: WorksheetPreview[];
+  wordImages?: { count: number; totalOriginalBytes: number };
+}
+
+export interface ExtractedWordImage {
+  id: string;
+  index: number;
+  hash: string;
+  mimeType: string;
+  extension: string;
+  original: ArrayBuffer;
+  display: ArrayBuffer;
+  width: number;
+  height: number;
+}
+
+export interface UploadedWordImage {
+  id: string;
+  mediaId: string;
+  displayUrl: string;
 }
 
 function escapeHtml(value: string) {
@@ -43,14 +61,9 @@ export async function readDocument(file: File): Promise<ImportPreview> {
   if (lowerName.endsWith(".xls")) throw new Error("暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx 后导入");
   if (lowerName.endsWith(".xlsx")) return readWorkbook(file);
   if (lowerName.endsWith(".docx")) {
-    const result = await mammoth.convertToHtml(
-      { arrayBuffer: await file.arrayBuffer() },
-      {
-        convertImage: mammoth.images.imgElement(async () => ({ src: "" })),
-        styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
-      }
-    );
-    const bodyHtml = sanitizeHtml(result.value);
+    if (file.size > 400 * 1024 * 1024) throw new Error("Word 文件不能超过 400MB");
+    const result = await runWordWorker(file, "preview");
+    const bodyHtml = prepareWordHtml(result.html, new Map());
     return {
       kind: "document",
       title: file.name.replace(/\.[^.]+$/, ""),
@@ -58,12 +71,93 @@ export async function readDocument(file: File): Promise<ImportPreview> {
       bodyText: new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || "",
       images: [],
       source: file.name,
-      warning: "Word 常用文字、标题、列表和表格已转换。分页、浮动对象和复杂版式请通过保留的原文件核对。"
+      wordImages: { count: result.imageCount, totalOriginalBytes: result.totalOriginalBytes },
+      warning: result.imageCount
+        ? `检测到 ${result.imageCount} 张内嵌图片。确认后将保存原图并生成像素无损 WebP，不会降低画质。`
+        : "Word 常用文字、标题、列表和表格已转换。"
     };
   }
   const bodyText = await file.text();
   const bodyHtml = lowerName.endsWith(".html") ? sanitizeHtml(bodyText) : sanitizeHtml(textToHtml(bodyText));
   return { kind: "document", title: file.name.replace(/\.[^.]+$/, ""), bodyHtml, bodyText: new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || bodyText, images: [], source: file.name };
+}
+
+type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[] };
+
+function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void) {
+  return new Promise<WordWorkerResult>(async (resolve, reject) => {
+    const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
+    let settled = false;
+    const finish = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      action();
+    };
+    worker.onerror = (event) => finish(() => reject(new Error(event.message || "Word Worker 加载失败")));
+    worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+      const message = event.data;
+      if (message.type === "progress") {
+        onProgress?.(Number(message.current || 0));
+        return;
+      }
+      if (message.type === "asset") {
+        if (!onImage) return finish(() => reject(new Error("Word 图片上传接口未配置")));
+        void onImage(message.asset as unknown as ExtractedWordImage).then(() => {
+          worker.postMessage({ type: "ack", id: (message.asset as unknown as ExtractedWordImage).id });
+        }).catch((error) => finish(() => reject(error)));
+        return;
+      }
+      if (message.type === "error") return finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
+      if (message.type === "complete") finish(() => resolve(message as unknown as WordWorkerResult));
+    };
+    try {
+      const buffer = await file.arrayBuffer();
+      worker.postMessage({ type: "start", mode, buffer }, [buffer]);
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+}
+
+export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWordImage>) {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  document.querySelectorAll<HTMLImageElement>('img[src^="https://word-import.invalid/"]').forEach((image) => {
+    const id = new URL(image.src).pathname.slice(1);
+    const label = `图片 ${id.replace("word-image-", "")}`;
+    const replacement = uploaded.get(id);
+    const figure = document.createElement("figure");
+    if (!replacement) {
+      figure.className = "word-image-placeholder";
+      figure.textContent = `${label}，确认导入后上传原图`;
+    } else {
+      figure.setAttribute("data-editor-image", "true");
+      figure.setAttribute("data-media-id", replacement.mediaId);
+      const resultImage = document.createElement("img");
+      resultImage.src = replacement.displayUrl;
+      resultImage.alt = label;
+      figure.append(resultImage);
+    }
+    const parent = image.parentElement;
+    if (parent?.tagName === "P" && parent.children.length === 1 && !parent.textContent?.trim()) parent.replaceWith(figure);
+    else image.replaceWith(figure);
+  });
+  return sanitizeHtml(document.body.innerHTML);
+}
+
+export async function materializeWordDocument(file: File, onImage: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void) {
+  const uploaded = new Map<string, UploadedWordImage>();
+  const result = await runWordWorker(file, "extract", async (image) => {
+    const stored = await onImage(image);
+    uploaded.set(image.id, stored);
+    return stored;
+  }, onProgress);
+  return {
+    bodyHtml: prepareWordHtml(result.html, uploaded),
+    bodyText: new DOMParser().parseFromString(result.html, "text/html").body.textContent || "",
+    imageCount: result.imageCount,
+    totalOriginalBytes: result.totalOriginalBytes
+  };
 }
 
 async function readWorkbook(file: File): Promise<ImportPreview> {

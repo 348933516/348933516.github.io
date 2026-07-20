@@ -1,7 +1,7 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
 
 type DeleteItem = { id: string; version: number };
-type StoredRow = { storage_bucket: string | null; storage_path: string | null };
+type StoredRow = { storage_bucket: string | null; storage_path: string | null; original_storage_path?: string | null; display_storage_path?: string | null };
 
 function normalizeItems(value: unknown): DeleteItem[] {
   if (!Array.isArray(value)) return [];
@@ -41,7 +41,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     }
 
     const [mediaResult, attachmentResult] = await Promise.all([
-      client.from("content_media").select("storage_bucket, storage_path").eq("content_id", item.id),
+      client.from("content_media").select("storage_bucket, storage_path, original_storage_path, display_storage_path").eq("content_id", item.id),
       client.from("attachments").select("storage_bucket, storage_path").eq("content_id", item.id)
     ]);
     if (mediaResult.error || attachmentResult.error) {
@@ -50,8 +50,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
     }
 
     for (const row of [...(mediaResult.data ?? []), ...(attachmentResult.data ?? [])] as StoredRow[]) {
-      if (!row.storage_bucket || !row.storage_path) continue;
-      storageByBucket.set(row.storage_bucket, [...(storageByBucket.get(row.storage_bucket) ?? []), row.storage_path]);
+      if (!row.storage_bucket) continue;
+      const paths = [row.storage_path, row.original_storage_path, row.display_storage_path].filter(Boolean) as string[];
+      storageByBucket.set(row.storage_bucket, [...(storageByBucket.get(row.storage_bucket) ?? []), ...paths]);
     }
 
     const { error: deleteError } = await client.from("contents").delete().eq("id", item.id).eq("version", item.version);

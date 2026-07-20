@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeWorksheetImport, readDocument, type WorksheetPreview } from "./documents";
+import { composeWorksheetImport, prepareWordHtml, readDocument, type WorksheetPreview } from "./documents";
 
 describe("document imports", () => {
   it("composes only the selected worksheets", () => {
@@ -16,6 +16,12 @@ describe("document imports", () => {
   it("explains how to handle legacy xls files", async () => {
     const file = new File(["legacy"], "地图.xls", { type: "application/vnd.ms-excel" });
     await expect(readDocument(file)).rejects.toThrow("另存为 .xlsx");
+  });
+
+  it("replaces Word image descriptions with stable image labels", () => {
+    const result = prepareWordHtml('<p><img src="https://word-import.invalid/word-image-7" alt="descript"></p>', new Map());
+    expect(result).toContain("图片 7，确认导入后上传原图");
+    expect(result).not.toContain("descript");
   });
 
   it("reads xlsx sheets, merged cells and controlled formatting", async () => {

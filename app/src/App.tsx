@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LoaderCircle, RefreshCcw } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { Outlet, Route, Routes } from "react-router-dom";
 import { DataProvider } from "./data";
-import { loadPublicData } from "./lib/repository";
+import { fallbackPublicData, loadPublicHome, readPublicHomeCache } from "./lib/repository";
 import { SiteLayout } from "./components/SiteLayout";
 import { CategoryPage, DetailPage, HomePage, NotFoundPage } from "./pages/PublicPages";
 import { installGlobalRuntimeLogging } from "./lib/runtimeLogs";
@@ -31,10 +31,11 @@ const LoginPage = lazyWithRefresh(() => import("./pages/LoginPage").then((module
 
 export function App() {
   useEffect(() => installGlobalRuntimeLogging(), []);
-  const site = useQuery({ queryKey: ["public-site"], queryFn: loadPublicData, staleTime: 60_000, retry: 1 });
-  if (site.isLoading) return <div className="boot-state"><LoaderCircle className="spin" /><strong>正在读取资料库</strong><span>连接安全数据源...</span></div>;
-  if (site.error || !site.data) return <div className="boot-state error"><RefreshCcw /><strong>资料库暂时无法读取</strong><span>{site.error instanceof Error ? site.error.message : "请稍后重试"}</span><button className="button primary" onClick={() => site.refetch()}>重新连接</button></div>;
-  return <DataProvider data={site.data}><Suspense fallback={<div className="boot-state"><LoaderCircle className="spin" /><strong>正在加载管理模块</strong></div>}><Routes>
+  const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
+  const data = site.error
+    ? { ...(site.data || fallbackPublicData), loading: false, errorMessage: site.error instanceof Error ? site.error.message : "资料库暂时无法读取" }
+    : site.data || fallbackPublicData;
+  return <DataProvider data={data}><Suspense fallback={<div className="boot-state"><LoaderCircle className="spin" /><strong>正在加载管理模块</strong></div>}><Routes>
     <Route path="/admin/*" element={<AdminPage />} />
     <Route element={<SiteLayout><Outlet /></SiteLayout>}>
       <Route path="/" element={<HomePage />} />

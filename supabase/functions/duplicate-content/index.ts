@@ -4,6 +4,8 @@ type StoredRow = {
   storage_bucket: string | null;
   storage_path: string | null;
   external_url: string | null;
+  original_storage_path?: string | null;
+  display_storage_path?: string | null;
   [key: string]: unknown;
 };
 
@@ -58,20 +60,27 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     const copyStoredRows = async (table: "content_media" | "attachments", rows: StoredRow[]) => {
       const records: Record<string, unknown>[] = [];
+      const copyPath = async (bucket: string, path: string) => {
+        const { data: file, error } = await client.storage.from(bucket).download(path);
+        if (error || !file) throw new Error(error?.message ?? "Unable to copy stored file");
+        const filename = path.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || "file";
+        const destination = `${user.id}/${duplicate.id}/copies/${crypto.randomUUID()}-${filename}`;
+        const { error: uploadError } = await client.storage.from("maplestorynk-private").upload(destination, file, { contentType: file.type || "application/octet-stream", upsert: false });
+        if (uploadError) throw new Error(uploadError.message);
+        uploadedPaths.push(destination);
+        return destination;
+      };
       for (const row of rows) {
         let destination: string | undefined;
         if (row.storage_bucket && row.storage_path) {
-          const { data: file, error } = await client.storage.from(row.storage_bucket).download(row.storage_path);
-          if (error || !file) throw new Error(error?.message ?? "Unable to copy stored file");
-          const filename = row.storage_path.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || "file";
-          destination = `${user.id}/${duplicate.id}/copies/${crypto.randomUUID()}-${filename}`;
-          const { error: uploadError } = await client.storage.from("maplestorynk-private").upload(destination, file, {
-            contentType: file.type || String(row.mime_type || "application/octet-stream"), upsert: false
-          });
-          if (uploadError) throw new Error(uploadError.message);
-          uploadedPaths.push(destination);
+          destination = await copyPath(row.storage_bucket, row.storage_path);
         }
-        records.push(copyFields(row, duplicate.id, user.id, destination));
+        const copied = copyFields(row, duplicate.id, user.id, destination);
+        if (table === "content_media" && row.storage_bucket) {
+          copied.original_storage_path = row.original_storage_path ? await copyPath(row.storage_bucket, row.original_storage_path) : null;
+          copied.display_storage_path = row.display_storage_path === row.storage_path ? destination : row.display_storage_path ? await copyPath(row.storage_bucket, row.display_storage_path) : null;
+        }
+        records.push(copied);
       }
       if (records.length) {
         const { error } = await client.from(table).insert(records);

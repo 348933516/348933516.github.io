@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, RefreshCcw, Tag, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { RichContent } from "../components/RichContent";
+import { VideoPlayer } from "../components/VideoPlayer";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
 import { buildShareUrl, copyShareUrl } from "../lib/share";
+import { loadPublicCategory, loadPublicContent } from "../lib/repository";
 import type { ContentItem, ContentMedia } from "../types";
 
 function formatDate(value?: string) {
@@ -24,31 +27,14 @@ function ContentCard({ item }: { item: ContentItem }) {
         <div className="card-meta"><span>{item.categoryName}</span><span>{formatDate(item.publishedAt || item.updatedAt)}</span></div>
         <h3><Link to={`/content/${item.slug}`}>{item.title}</Link></h3>
         <p>{item.summary}</p>
-        <div className="card-footer"><span><FileImage />{item.media.length} 张媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
+        <div className="card-footer"><span><FileImage />{item.mediaCount ?? item.media.length} 张媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
       </div>
     </article>
   );
 }
 
 function VideoMedia({ media }: { media: ContentMedia }) {
-  const [failed, setFailed] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const type = media.mimeType || (media.src.endsWith(".webm") ? "video/webm" : "video/mp4");
-  return (
-    <div className="media-video-shell">
-      {failed ? (
-        <div className="media-video-error">
-          <strong>视频无法播放</strong>
-          <span>此文件可能使用了浏览器不支持的视频编码，请让管理员转换为兼容 MP4。</span>
-          <button type="button" className="button quiet" onClick={() => { setFailed(false); setReloadKey((value) => value + 1); }}><RefreshCcw />重新加载</button>
-        </div>
-      ) : (
-        <video key={reloadKey} controls preload="metadata" playsInline onError={() => setFailed(true)}>
-          <source src={media.src} type={type} />
-        </video>
-      )}
-    </div>
-  );
+  return <div className="media-video-shell"><VideoPlayer media={media} /></div>;
 }
 
 function ShareButton({ route }: { route: string }) {
@@ -108,7 +94,8 @@ function HomepageCarousel() {
                   const image = slide.imageUrl || settings.pageBackgroundUrl || settings.tileBackgroundUrl || "";
                   const target = normalizeCarouselTarget(slide.linkUrl);
                   const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
-                  const content = <>{image ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
+                  const priority = index === 0 ? { fetchpriority: "high" } : {};
+                  const content = <>{image ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} decoding="async" {...priority} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
                   return target
                     ? <Link className="hero-carousel-slide-link" to={target} tabIndex={index === active ? 0 : -1}>{content}</Link>
                     : <div className="hero-carousel-slide-static">{content}</div>;
@@ -128,17 +115,19 @@ function HomepageCarousel() {
 }
 
 export function HomePage() {
-  const { settings, categories, contents } = useSiteData();
+  const { settings, categories, contents, loading, errorMessage } = useSiteData();
   return (
     <>
       <HomepageCarousel />
       <section className="page-width section-block">
         <div className="section-heading"><div><span>CATALOG</span><h2>{settings.categoryTitle}</h2><p>{settings.categorySubtitle}</p></div></div>
+        {errorMessage && <div className="public-inline-error"><strong>资料暂时无法更新</strong><span>{errorMessage}</span></div>}
+        {loading && !categories.length && <div className="category-grid public-skeleton-grid">{[1, 2, 3, 4].map((item) => <div className="category-entry public-skeleton" key={item}><span /><div><i /><b /><i /></div></div>)}</div>}
         <div className="category-grid">
           {categories.map((category) => {
-            const count = contents.filter((item) => item.categoryId === category.id).length;
+            const count = category.contentCount ?? contents.filter((item) => item.categoryId === category.id).length;
             const firstContentImage = contents.find((item) => item.categoryId === category.id && item.media.some((media) => media.kind === "image" && media.src))?.media.find((media) => media.kind === "image" && media.src)?.src;
-            const categoryCover = category.imageUrl || settings.tileBackgroundUrl || firstContentImage;
+            const categoryCover = category.imageUrl || settings.tileBackgroundUrl || category.firstMediaUrl || firstContentImage;
             return <Link className="category-entry" key={category.id} to={`/category/${category.slug}`}>
               <div className="category-visual">{categoryCover ? <img src={categoryCover} alt="" loading="lazy" /> : <FolderOpen />}</div>
               <div><span>{String(count).padStart(2, "0")} 篇资料</span><h3>{category.name}</h3><p>{category.description}</p></div><ChevronRight />
@@ -153,20 +142,32 @@ export function HomePage() {
 export function CategoryPage() {
   const { slug = "" } = useParams();
   const { categories, contents } = useSiteData();
-  const category = categories.find((item) => item.slug === slug);
+  const [page, setPage] = useState(0);
+  const localCategory = categories.find((item) => item.slug === slug);
+  const useLocal = contents.some((item) => item.categorySlug === slug);
+  const result = useQuery({ queryKey: ["public-category", slug, page], queryFn: () => loadPublicCategory(slug, page * 20, 20), enabled: !useLocal, staleTime: 5 * 60_000 });
+  const category = useLocal ? localCategory : result.data?.category;
+  const allLocal = useLocal && category ? contents.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder) : [];
+  const items = useLocal ? allLocal.slice(page * 20, page * 20 + 20) : result.data?.items || [];
+  const total = useLocal ? allLocal.length : result.data?.total || 0;
+  if (!useLocal && result.isLoading) return <PublicRouteLoading label="正在读取分类资料" />;
+  if (result.error) return <PublicRouteError error={result.error} retry={() => result.refetch()} />;
   if (!category) return <NotFoundPage />;
-  const items = contents.filter((item) => item.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
-  return <div className="page-width page-stack"><div className="detail-actions"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><ShareButton route={`/category/${category.slug}`} /></div><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {items.length} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div></div>;
+  return <div className="page-width page-stack"><div className="detail-actions"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><ShareButton route={`/category/${category.slug}`} /></div><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {total} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div>{total > 20 && <nav className="public-pagination"><button disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}><ChevronLeft />上一页</button><span>第 {page + 1} 页</span><button disabled={(page + 1) * 20 >= total} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight /></button></nav>}</div>;
 }
 
 export function DetailPage() {
   const { slug = "" } = useParams();
   const { contents } = useSiteData();
-  const item = contents.find((content) => content.slug === slug);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const localItem = contents.find((content) => content.slug === slug);
+  const result = useQuery({ queryKey: ["public-content", slug], queryFn: () => loadPublicContent(slug), enabled: !localItem, staleTime: 5 * 60_000 });
+  const item = localItem || result.data?.item;
+  if (!localItem && result.isLoading) return <PublicRouteLoading label="正在读取资料正文" />;
+  if (result.error) return <PublicRouteError error={result.error} retry={() => result.refetch()} />;
   if (!item) return <NotFoundPage />;
-  const related = contents.filter((content) => content.id !== item.id && content.categoryId === item.categoryId).slice(0, 3);
-  const categoryItems = contents.filter((content) => content.categoryId === item.categoryId).sort((a, b) => a.sortOrder - b.sortOrder);
+  const categoryItems = localItem ? contents.filter((content) => content.categoryId === item.categoryId).sort((a, b) => a.sortOrder - b.sortOrder) : result.data?.siblings || [];
+  const related = categoryItems.filter((content) => content.id !== item.id).slice(0, 3);
   const position = categoryItems.findIndex((content) => content.id === item.id);
   const previous = position > 0 ? categoryItems[position - 1] : null;
   const next = position >= 0 && position < categoryItems.length - 1 ? categoryItems[position + 1] : null;
@@ -186,4 +187,12 @@ export function DetailPage() {
 
 export function NotFoundPage() {
   return <div className="page-width empty-state"><h1>没有找到这个页面</h1><p>资料可能已移动、隐藏或删除。</p><Link className="button primary" to="/">返回首页</Link></div>;
+}
+
+function PublicRouteLoading({ label }: { label: string }) {
+  return <div className="page-width public-route-state"><div className="route-skeleton" /><strong>{label}</strong></div>;
+}
+
+function PublicRouteError({ error, retry }: { error: unknown; retry(): void }) {
+  return <div className="page-width public-route-state error"><strong>资料读取失败</strong><span>{error instanceof Error ? error.message : "请稍后重试"}</span><button className="button quiet" onClick={retry}>重新读取</button></div>;
 }

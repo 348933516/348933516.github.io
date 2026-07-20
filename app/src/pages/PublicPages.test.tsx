@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { DataProvider } from "../data";
 import type { PublicData } from "../types";
@@ -79,11 +80,9 @@ describe("public home", () => {
 
   it("uses a full-width reader layout when there is no media outline", () => {
     const { container } = render(
-      <MemoryRouter initialEntries={["/content/first"]}>
-        <DataProvider data={data}>
-          <Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes>
-        </DataProvider>
-      </MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/content/first"]}>
+        <DataProvider data={data}><Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes></DataProvider>
+      </MemoryRouter></QueryClientProvider>
     );
     expect(container.querySelector(".reader-layout")).toHaveClass("without-outline");
     expect(container.querySelector(".reader-main")).toBeInTheDocument();

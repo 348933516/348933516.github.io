@@ -6,8 +6,8 @@ const safeHex = /^#[0-9a-f]{6}$/i;
 const safeFontSize = /^(?:[8-9]|[1-6][0-9]|7[0-2])$/;
 const controlledAttributes: Record<string, Set<string>> = {
   "data-font-family": new Set(["default", "noto-sans", "noto-serif", "yahei", "pingfang", "simsun", "simhei", "kaiti", "fangsong", "arial", "georgia"]),
-  "data-table-border": new Set(["0", "1", "2", "3", "4"]),
-  "data-table-style": new Set(["solid", "dashed", "dotted"]),
+  "data-table-border": new Set(["0", "0.5", "1", "1.5", "2", "3", "4", "5", "6", "8", "10", "12"]),
+  "data-table-style": new Set(["solid", "dashed", "dotted", "double", "groove", "ridge", "none"]),
   "data-cell-align": new Set(["left", "center", "right", "justify"]),
   "data-editor-image": new Set(["true"]),
   "data-placeholder": new Set(["图片说明"])
@@ -26,8 +26,8 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (name === "font-size" && /^(\d{1,2})px$/.test(value) && safeFontSize.test(value.replace("px", ""))) safeDeclarations.push(`font-size: ${value}`);
       if (name === "border-color" && safeHex.test(value)) safeDeclarations.push(`border-color: ${value}`);
       if (name === "--rich-table-color" && safeHex.test(value)) safeDeclarations.push(`--rich-table-color: ${value}`);
-      if (name === "--rich-table-border" && /^(?:0|1|2|3|4)px$/.test(value)) safeDeclarations.push(`--rich-table-border: ${value}`);
-      if (name === "--rich-table-style" && /^(?:solid|dashed|dotted)$/.test(value)) safeDeclarations.push(`--rich-table-style: ${value}`);
+      if (name === "--rich-table-border" && /^(?:0|0\.5|1|1\.5|2|3|4|5|6|8|10|12)px$/.test(value)) safeDeclarations.push(`--rich-table-border: ${value}`);
+      if (name === "--rich-table-style" && /^(?:solid|dashed|dotted|double|groove|ridge|none)$/.test(value)) safeDeclarations.push(`--rich-table-style: ${value}`);
     }
     if (safeDeclarations.length) data.attrValue = safeDeclarations.join("; ");
     else data.keepAttr = false;
@@ -35,6 +35,10 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
   }
   if (data.attrName === "data-font-size") {
     if (!safeFontSize.test(data.attrValue)) data.keepAttr = false;
+    return;
+  }
+  if (data.attrName === "data-media-id") {
+    if (!/^[0-9a-f-]{36}$/i.test(data.attrValue)) data.keepAttr = false;
     return;
   }
    if (["data-text-color", "data-highlight", "data-table-color", "data-cell-background"].includes(data.attrName)) {
@@ -78,7 +82,7 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
       "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-table-color", "data-cell-background", "data-cell-align", "data-editor-image"
+      "data-table-color", "data-cell-background", "data-cell-align", "data-editor-image", "data-media-id"
     ],
     ALLOW_DATA_ATTR: true
   });

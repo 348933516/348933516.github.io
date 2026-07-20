@@ -5,6 +5,7 @@ export default defineConfig({
   root: "app",
   base: process.env.VITE_BASE_PATH || "/preview/",
   plugins: [react()],
+  worker: { format: "es" },
   build: {
     outDir: "../preview",
     emptyOutDir: true,

@@ -52,6 +52,20 @@ describe("content sanitization", () => {
     expect(result).not.toContain("position");
   });
 
+  it("keeps extended controlled table borders", () => {
+    const result = sanitizeHtml('<table data-table-border="12" data-table-style="double" style="--rich-table-border: 12px; --rich-table-style: double; --rich-table-color: #65e3c2"><tr><td>值</td></tr></table>');
+    expect(result).toContain('data-table-border="12"');
+    expect(result).toContain('data-table-style="double"');
+    expect(result).toContain("--rich-table-border: 12px");
+  });
+
+  it("keeps only valid media identifiers", () => {
+    const safe = sanitizeHtml('<figure data-editor-image="true" data-media-id="123e4567-e89b-12d3-a456-426614174000"><img src="https://example.com/a.webp"></figure>');
+    const unsafe = sanitizeHtml('<figure data-editor-image="true" data-media-id="not-an-id"><img src="https://example.com/a.webp"></figure>');
+    expect(safe).toContain('data-media-id="123e4567-e89b-12d3-a456-426614174000"');
+    expect(unsafe).not.toContain("data-media-id");
+  });
+
   it("keeps table spans and editor column widths", () => {
     const result = sanitizeHtml('<table><tr><td colspan="2" rowspan="2" colwidth="120,120">值</td></tr></table>');
     expect(result).toContain('colspan="2"');

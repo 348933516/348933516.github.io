@@ -48,6 +48,8 @@ export interface Category {
   imageUrl?: string;
   sortOrder: number;
   visible: boolean;
+  contentCount?: number;
+  firstMediaUrl?: string;
 }
 
 export interface ContentMedia {
@@ -67,6 +69,12 @@ export interface ContentMedia {
   videoCodec?: string;
   originalSizeBytes?: number;
   processingStatus?: "ready" | "processing" | "failed";
+  originalSrc?: string;
+  videoProvider?: "tencent_vod";
+  providerFileId?: string;
+  providerAppId?: string;
+  playbackUrl?: string;
+  posterUrl?: string;
 }
 
 export interface Attachment {
@@ -111,6 +119,19 @@ export interface PublicData {
   contents: ContentItem[];
   carouselSlides: CarouselSlide[];
   backendMode: "structured" | "legacy";
+  loading?: boolean;
+  errorMessage?: string;
+}
+
+export interface PublicCategoryData {
+  category: Category;
+  items: ContentItem[];
+  total: number;
+}
+
+export interface PublicContentData {
+  item: ContentItem;
+  siblings: ContentItem[];
 }
 
 export interface ContentDraft {

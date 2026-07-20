@@ -17,11 +17,9 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@ffmpeg/core": "0.12.6",
-    "@ffmpeg/ffmpeg": "0.12.15",
-    "@ffmpeg/util": "0.12.2",
     "@fontsource/noto-sans-sc": "5.1.1",
     "@fontsource/noto-serif-sc": "5.1.1",
+    "@jsquash/webp": "^1.5.0",
     "@supabase/supabase-js": "^2.49.8",
     "@tanstack/react-query": "^5.66.9",
     "@tiptap/core": "2.27.2",
@@ -46,6 +44,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.0",
+    "vod-js-sdk-v6": "^1.8.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

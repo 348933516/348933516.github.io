@@ -18,6 +18,11 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       PROJECT_REF: edznwgvyqpsibnkqqeby
+      TENCENT_VOD_SECRET_ID: ${{ secrets.TENCENT_VOD_SECRET_ID }}
+      TENCENT_VOD_SECRET_KEY: ${{ secrets.TENCENT_VOD_SECRET_KEY }}
+      TENCENT_VOD_APP_ID: ${{ secrets.TENCENT_VOD_APP_ID }}
+      TENCENT_VOD_SUB_APP_ID: ${{ secrets.TENCENT_VOD_SUB_APP_ID }}
+      TENCENT_VOD_PROCEDURE: ${{ secrets.TENCENT_VOD_PROCEDURE }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,6 +38,10 @@ jobs:
       - name: Deploy functions
         run: |
           pnpm dlx supabase@latest secrets set PUBLIC_SITE_URL=https://348933516.github.io --project-ref "$PROJECT_REF"
+          if [ -n "$TENCENT_VOD_SECRET_ID" ] && [ -n "$TENCENT_VOD_SECRET_KEY" ] && [ -n "$TENCENT_VOD_APP_ID" ] && [ -n "$TENCENT_VOD_PROCEDURE" ]; then
+            pnpm dlx supabase@latest secrets set TENCENT_VOD_SECRET_ID="$TENCENT_VOD_SECRET_ID" TENCENT_VOD_SECRET_KEY="$TENCENT_VOD_SECRET_KEY" TENCENT_VOD_APP_ID="$TENCENT_VOD_APP_ID" TENCENT_VOD_PROCEDURE="$TENCENT_VOD_PROCEDURE" --project-ref "$PROJECT_REF"
+            if [ -n "$TENCENT_VOD_SUB_APP_ID" ]; then pnpm dlx supabase@latest secrets set TENCENT_VOD_SUB_APP_ID="$TENCENT_VOD_SUB_APP_ID" --project-ref "$PROJECT_REF"; fi
+          fi
           pnpm dlx supabase@latest functions deploy invite-admin --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy update-admin --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy import-url --project-ref "$PROJECT_REF"
@@ -43,3 +52,7 @@ jobs:
           pnpm dlx supabase@latest functions deploy batch-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy duplicate-content --project-ref "$PROJECT_REF"
           pnpm dlx supabase@latest functions deploy delete-content --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy vod-signature --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy vod-complete --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy vod-import --project-ref "$PROJECT_REF"
+          pnpm dlx supabase@latest functions deploy vod-status --project-ref "$PROJECT_REF"

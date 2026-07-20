@@ -11,6 +11,8 @@ import type {
   ContentMedia,
   ContentStatus,
   Profile,
+  PublicCategoryData,
+  PublicContentData,
   PublicData,
   SiteSettings
 } from "../types";
@@ -26,6 +28,15 @@ const fallbackSettings: SiteSettings = {
   carouselAutoplay: true,
   carouselIntervalMs: 4500,
   carouselTransition: "slide"
+};
+
+export const fallbackPublicData: PublicData = {
+  settings: fallbackSettings,
+  categories: [],
+  contents: [],
+  carouselSlides: [],
+  backendMode: "structured",
+  loading: true
 };
 
 function isMissingSchema(error: { code?: string; message?: string } | null) {
@@ -59,6 +70,7 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
 }
 
 function mapMedia(row: Record<string, unknown>): ContentMedia {
+  const originalPath = row.original_storage_path ? String(row.original_storage_path) : "";
   return {
     id: String(row.id),
     kind: row.kind === "video" ? "video" : "image",
@@ -75,7 +87,13 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     durationMs: row.duration_ms ? Number(row.duration_ms) : undefined,
     videoCodec: row.video_codec ? String(row.video_codec) : undefined,
     originalSizeBytes: row.original_size_bytes ? Number(row.original_size_bytes) : undefined,
-    processingStatus: row.processing_status ? String(row.processing_status) as ContentMedia["processingStatus"] : undefined
+    processingStatus: row.processing_status ? String(row.processing_status) as ContentMedia["processingStatus"] : undefined,
+    originalSrc: originalPath ? storageUrl(publicMediaBucket, originalPath) : undefined,
+    videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" : undefined,
+    providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined,
+    providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined,
+    playbackUrl: row.playback_url ? safeUrl(String(row.playback_url)) : undefined,
+    posterUrl: row.poster_url ? safeUrl(String(row.poster_url)) : undefined
   };
 }
 
@@ -274,6 +292,105 @@ async function loadLegacyPublicData(): Promise<PublicData> {
 
 export async function loadPublicData() {
   return (await loadStructuredPublicData()) || loadLegacyPublicData();
+}
+
+const publicHomeCacheKey = "maplestorynk-public-home-v2";
+
+function missingRpc(error: { code?: string; message?: string } | null) {
+  return Boolean(error && (error.code === "PGRST202" || error.code === "42883" || error.message?.includes("get_public_")));
+}
+
+function cachePublicHome(data: PublicData) {
+  try { localStorage.setItem(publicHomeCacheKey, JSON.stringify({ savedAt: Date.now(), data })); } catch { /* cache is optional */ }
+}
+
+export function readPublicHomeCache(): PublicData | undefined {
+  try {
+    const cached = JSON.parse(localStorage.getItem(publicHomeCacheKey) || "null");
+    if (!cached?.data || Date.now() - Number(cached.savedAt || 0) > 24 * 60 * 60 * 1000) return undefined;
+    return cached.data as PublicData;
+  } catch { return undefined; }
+}
+
+function mapPublicSummary(row: Record<string, unknown>): ContentItem {
+  const coverPath = String(row.cover_path || "");
+  const media = coverPath ? [{
+    id: `cover-${String(row.id)}`,
+    kind: "image" as const,
+    src: storageUrl(publicMediaBucket, coverPath),
+    title: String(row.title || ""),
+    note: "",
+    path: [],
+    altText: String(row.title || ""),
+    sortOrder: 0
+  }] : [];
+  return {
+    id: String(row.id), slug: String(row.slug || ""), categoryId: String(row.category_id || ""),
+    categorySlug: String(row.category_slug || ""), categoryName: String(row.category_name || ""),
+    title: String(row.title || ""), summary: String(row.summary || ""), bodyHtml: "", bodyJson: {}, bodyText: "", sourceRecord: "",
+    status: "published", featured: Boolean(row.is_featured), sortOrder: Number(row.sort_order || 100), version: Number(row.version || 1),
+    tags: [], media, attachments: [], createdAt: String(row.created_at || ""), updatedAt: String(row.updated_at || ""),
+    publishedAt: row.published_at ? String(row.published_at) : undefined, mediaCount: Number(row.media_count || media.length)
+  };
+}
+
+export async function loadPublicHome(): Promise<PublicData> {
+  const { data, error } = await supabase.rpc("get_public_home");
+  if (missingRpc(error)) return loadPublicData();
+  if (error) throw error;
+  const payload = (data || {}) as Record<string, unknown>;
+  const categories = (Array.isArray(payload.categories) ? payload.categories : []).map((entry) => {
+    const row = entry as Record<string, unknown>;
+    return {
+      id: String(row.id), slug: String(row.slug), name: String(row.name), description: String(row.description || ""),
+      imageUrl: storageUrl(publicMediaBucket, row.image_path as string), sortOrder: Number(row.sort_order || 100), visible: Boolean(row.is_visible),
+      contentCount: Number(row.content_count || 0), firstMediaUrl: storageUrl(publicMediaBucket, row.first_media_path as string)
+    } satisfies Category;
+  });
+  const result: PublicData = {
+    settings: mapSettings((payload.settings || {}) as Record<string, unknown>), categories, contents: [],
+    carouselSlides: (Array.isArray(payload.carousel) ? payload.carousel : []).map((entry) => mapCarouselSlide(entry as Record<string, unknown>)),
+    backendMode: "structured"
+  };
+  cachePublicHome(result);
+  return result;
+}
+
+export async function loadPublicCategory(slug: string, offset = 0, limit = 20): Promise<PublicCategoryData | null> {
+  const { data, error } = await supabase.rpc("get_public_category", { category_slug: slug, page_offset: offset, page_limit: limit });
+  if (missingRpc(error)) {
+    const legacy = await loadPublicData();
+    const category = legacy.categories.find((entry) => entry.slug === slug);
+    if (!category) return null;
+    const all = legacy.contents.filter((entry) => entry.categoryId === category.id).sort((a, b) => a.sortOrder - b.sortOrder);
+    return { category, items: all.slice(offset, offset + limit), total: all.length };
+  }
+  if (error) throw error;
+  const payload = (data || {}) as Record<string, unknown>;
+  if (!payload.category) return null;
+  const row = payload.category as Record<string, unknown>;
+  const category: Category = { id: String(row.id), slug: String(row.slug), name: String(row.name), description: String(row.description || ""), imageUrl: storageUrl(publicMediaBucket, row.image_path as string), sortOrder: Number(row.sort_order || 100), visible: true };
+  return { category, items: (Array.isArray(payload.items) ? payload.items : []).map((entry) => mapPublicSummary(entry as Record<string, unknown>)), total: Number(payload.total || 0) };
+}
+
+export async function loadPublicContent(slug: string): Promise<PublicContentData | null> {
+  const { data, error } = await supabase.rpc("get_public_content", { content_slug: slug });
+  if (missingRpc(error)) {
+    const legacy = await loadPublicData();
+    const item = legacy.contents.find((entry) => entry.slug === slug);
+    return item ? { item, siblings: legacy.contents.filter((entry) => entry.categoryId === item.categoryId) } : null;
+  }
+  if (error) throw error;
+  if (!data) return null;
+  const payload = data as Record<string, unknown>;
+  const row = payload.content as Record<string, unknown>;
+  const item: ContentItem = {
+    ...mapPublicSummary(row), bodyHtml: sanitizeHtml(String(row.body_html || "")), bodyText: String(row.body_text || ""),
+    tags: Array.isArray(payload.tags) ? payload.tags.map(String) : [],
+    media: (Array.isArray(payload.media) ? payload.media : []).map((entry) => mapMedia(entry as Record<string, unknown>)),
+    attachments: (Array.isArray(payload.attachments) ? payload.attachments : []).map((entry) => mapAttachment(entry as Record<string, unknown>))
+  };
+  return { item, siblings: (Array.isArray(payload.siblings) ? payload.siblings : []).map((entry) => mapPublicSummary(entry as Record<string, unknown>)) };
 }
 
 export async function loadProfile(user: User): Promise<Profile | null> {

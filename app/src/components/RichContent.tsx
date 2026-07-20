@@ -10,6 +10,10 @@ export function prepareRichHtml(value: string) {
     table.parentNode?.insertBefore(wrapper, table);
     wrapper.appendChild(table);
   });
+  document.querySelectorAll("img").forEach((image) => {
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("decoding", "async");
+  });
   return document.body.innerHTML;
 }
 

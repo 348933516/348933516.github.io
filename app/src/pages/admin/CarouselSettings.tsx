@@ -65,7 +65,7 @@ export function CarouselSettings({
     await Promise.all([
       client.invalidateQueries({ queryKey: ["carousel-slides"] }),
       client.invalidateQueries({ queryKey: ["preview-carousel-slides"] }),
-      client.invalidateQueries({ queryKey: ["public-site"] })
+      client.invalidateQueries({ queryKey: ["public-home"] })
     ]);
     await onSaved();
   };

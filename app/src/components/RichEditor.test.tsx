@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RichEditor } from "./RichEditor";
 
@@ -25,5 +25,19 @@ describe("professional rich editor", () => {
     expect(screen.getByRole("button", { name: "线色" })).toBeInTheDocument();
     expect(screen.getByText("创建表头")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "2 行 4 列" })).toBeInTheDocument();
+  });
+
+  it("writes the selected border preset into the newly inserted table", async () => {
+    const onChange = vi.fn();
+    render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
+    fireEvent.change(screen.getByLabelText("线宽"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("线型"), { target: { value: "double" } });
+    fireEvent.click(screen.getByRole("button", { name: "2 行 4 列" }));
+    await waitFor(() => {
+      const html = onChange.mock.calls.at(-1)?.[0] || "";
+      expect(html).toContain('data-table-border="8"');
+      expect(html).toContain('data-table-style="double"');
+    });
   });
 });

@@ -319,7 +319,7 @@ export function SettingsPage({ profile }: { profile: Profile }) {
   const refresh = async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["admin-settings"] }),
-      client.invalidateQueries({ queryKey: ["public-site"] }),
+      client.invalidateQueries({ queryKey: ["public-home"] }),
       client.invalidateQueries({ queryKey: ["preview-carousel-slides"] })
     ]);
   };
