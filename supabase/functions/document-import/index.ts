@@ -59,7 +59,6 @@ function assetIssues(value: unknown, importId: string) {
   if (!uuid.test(String(asset.mediaId || ""))) issues.push("media_id");
   if (!String(asset.originalPath || "").startsWith(prefix)) issues.push("original_path");
   if (!String(asset.displayPath || "").startsWith(prefix)) issues.push("display_path");
-  if (String(asset.originalPath || "") === String(asset.displayPath || "")) issues.push("duplicate_path");
   if (!Number.isFinite(Number(asset.originalSize)) || Number(asset.originalSize) < 1) issues.push("original_size");
   if (!Number.isFinite(Number(asset.displaySize)) || Number(asset.displaySize) < 1) issues.push("display_size");
   return issues;
@@ -67,7 +66,7 @@ function assetIssues(value: unknown, importId: string) {
 
 async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
   if (!Array.isArray(manifest)) return;
-  const paths = manifest.flatMap((asset) => asset && typeof asset === "object" ? [String((asset as Record<string, unknown>).originalPath || ""), String((asset as Record<string, unknown>).displayPath || "")] : []).filter(Boolean);
+  const paths = [...new Set(manifest.flatMap((asset) => asset && typeof asset === "object" ? [String((asset as Record<string, unknown>).originalPath || ""), String((asset as Record<string, unknown>).displayPath || "")] : []).filter(Boolean))];
   if (paths.length) await client.storage.from(publicBucket).remove(paths);
 }
 
@@ -127,8 +126,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const issues = assetIssues(asset, importId);
     if (issues.length) return importError("register", "INVALID_IMPORT_ASSET", "当前图片登记信息无效，已停止导入。", 400, { import_id: importId, issues });
     const item = asset as ImportAsset;
-    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", [item.originalPath, item.displayPath]);
-    if (storedError || stored?.length !== 2) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
+    const expectedPaths = [...new Set([item.originalPath, item.displayPath])];
+    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", expectedPaths);
+    if (storedError || stored?.length !== expectedPaths.length) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
     const { error: insertError } = await client.from("document_import_assets").upsert({
       import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
       content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
@@ -152,7 +152,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   // Pixel dimensions and a SHA-256 are descriptive metadata. Reject only data
   // that could detach an uploaded object from this import task.
   if (!assets.length || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
-  const paths = assets.flatMap((asset) => [asset.originalPath, asset.displayPath]);
+  const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath]))];
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
   const presentPaths = new Set((stored || []).map((item) => item.name));
   const missingPaths = paths.filter((path) => !presentPaths.has(path));

@@ -1,5 +1,4 @@
 import mammoth from "mammoth";
-import encodeWebp from "@jsquash/webp/encode";
 
 type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer };
 type AckMessage = { type: "ack"; id: string };
@@ -21,18 +20,6 @@ function extensionFor(mime: string) {
   return "bin";
 }
 
-async function losslessWebp(buffer: ArrayBuffer, mimeType: string) {
-  const bitmap = await createImageBitmap(new Blob([buffer], { type: mimeType }));
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) throw new Error("无法创建图片处理画布");
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const encoded = await encodeWebp(imageData, { lossless: 1, exact: 1, quality: 100, method: 4 });
-  return { encoded, width: canvas.width, height: canvas.height };
-}
-
 async function processDocument(message: StartMessage) {
   let imageCount = 0;
   let totalOriginalBytes = 0;
@@ -49,7 +36,10 @@ async function processDocument(message: StartMessage) {
         worker.postMessage({ type: "progress", phase: message.mode === "preview" ? "preview" : "encoding", current: imageCount, total: 0 });
 
         if (message.mode === "extract") {
-          const display = await losslessWebp(original.slice(0), mimeType);
+          // The embedded PNG is already lossless. Re-encoding 98 large map
+          // images in the browser is memory-intensive and was preventing the
+          // upload phase from ever starting. Keep the original bytes instead.
+          const acknowledgement = new Promise<void>((resolve) => acknowledgements.set(id, resolve));
           worker.postMessage({
             type: "asset",
             asset: {
@@ -59,12 +49,11 @@ async function processDocument(message: StartMessage) {
               mimeType,
               extension: extensionFor(mimeType),
               original,
-              display: display.encoded,
-              width: display.width,
-              height: display.height
+              width: 0,
+              height: 0
             }
-          }, [original, display.encoded]);
-          await new Promise<void>((resolve) => acknowledgements.set(id, resolve));
+          }, [original]);
+          await acknowledgement;
         }
 
         return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import {
-  ArrowLeft, Database, FolderTree, Gauge, History, ImagePlus, LayoutDashboard,
+  ArrowLeft, Database, FolderTree, Gauge, History, LayoutDashboard,
   LogOut, Menu, Search, Settings, ShieldCheck, Users
 } from "lucide-react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -11,7 +11,6 @@ const DashboardPage = lazy(() => import("./admin/ContentAdmin").then((module) =>
 const ContentListPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.ContentListPage })));
 const ContentEditorPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.ContentEditorPage })));
 const CategoriesPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.CategoriesPage })));
-const MediaLibraryPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.MediaLibraryPage })));
 const NewContentPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.NewContentPage })));
 const UsersPage = lazy(() => import("./admin/SystemAdmin").then((module) => ({ default: module.UsersPage })));
 const HistoryPage = lazy(() => import("./admin/SystemAdmin").then((module) => ({ default: module.HistoryPage })));
@@ -20,7 +19,7 @@ const SettingsPage = lazy(() => import("./admin/SystemAdmin").then((module) => (
 const navGroups = [
   { label: "内容", items: [
     ["/admin/overview", "概览", Gauge], ["/admin/contents", "内容管理", Database],
-    ["/admin/categories", "分类管理", FolderTree], ["/admin/media", "媒体与附件", ImagePlus]
+    ["/admin/categories", "分类管理", FolderTree]
   ] },
   { label: "系统", items: [
     ["/admin/users", "账号权限", Users], ["/admin/history", "日志中心", History],
@@ -29,7 +28,7 @@ const navGroups = [
 ] as const;
 
 const pageNames: Record<string, string> = {
-  overview: "内容概览", contents: "内容管理", categories: "分类管理", media: "媒体与附件",
+  overview: "内容概览", contents: "内容管理", categories: "分类管理",
   users: "账号权限", history: "日志中心", settings: "首页设置", new: "新建资料"
 };
 
@@ -47,7 +46,6 @@ export function AdminPage() {
     <Route path="contents" element={<ContentListPage profile={profile} />} />
     <Route path="contents/new" element={canEdit(profile.role) ? <NewContentPage profile={profile} /> : <Navigate to="/admin/contents" replace />} />
     <Route path="categories" element={<CategoriesPage profile={profile} />} />
-    <Route path="media" element={<MediaLibraryPage profile={profile} />} />
     <Route path="users" element={<UsersPage profile={profile} />} />
     <Route path="history" element={<HistoryPage profile={profile} />} />
     <Route path="settings" element={<SettingsPage profile={profile} />} />

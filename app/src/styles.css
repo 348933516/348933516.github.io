@@ -1035,3 +1035,71 @@ td[data-cell-align="justify"], th[data-cell-align="justify"] { text-align: justi
 .content-table-row .row-actions { gap: 6px; }
 .content-table-row > time, .content-row-title > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .batch-toolbar { flex-wrap: wrap; }
+
+/* Keep the document workspace visually continuous with the dark admin shell. */
+.workspace-main .editor-shell {
+  border-color: #26353c;
+  background: #10181d;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .18);
+}
+.workspace-main .editor-toolbar,
+.workspace-main .editor-ribbon-group,
+.workspace-main .editor-table-tools {
+  border-color: #26353c;
+  color: #d7e4e7;
+  background: #10181d;
+}
+.workspace-main .editor-ribbon-group > span { color: #65e3c2; }
+.workspace-main .editor-ribbon-group > button,
+.workspace-main .color-panel-trigger,
+.workspace-main .table-picker-trigger { color: #b8c9cd; }
+.workspace-main .editor-ribbon-group > button:hover,
+.workspace-main .editor-ribbon-group > button.active,
+.workspace-main .color-panel-trigger:hover,
+.workspace-main .table-picker-trigger:hover {
+  border-color: #47636d;
+  color: #f3f8f9;
+  background: rgba(101, 227, 194, .1);
+}
+.workspace-main .editor-ribbon-group > select,
+.workspace-main .editor-ribbon-group > input,
+.workspace-main .table-create-style select,
+.workspace-main .table-custom-size input,
+.workspace-main .editor-table-tools .table-tools-row > button,
+.workspace-main .editor-table-tools .table-tools-row > label,
+.workspace-main .editor-table-tools .table-tools-row select {
+  border-color: #33474f;
+  color: #e5eff1;
+  background: #152126;
+}
+.workspace-main .editor-surface {
+  color: #e5eff1;
+  background: #10181d;
+  caret-color: #65e3c2;
+}
+.workspace-main .editor-surface h1,
+.workspace-main .editor-surface h2,
+.workspace-main .editor-surface h3 { color: #f3f8f9; }
+.workspace-main .editor-surface blockquote {
+  border-left-color: #65e3c2;
+  color: #b8c9cd;
+  background: rgba(101, 227, 194, .06);
+}
+.workspace-main .editor-surface figure[data-editor-image] > figcaption { color: #8fa3a9; }
+.workspace-main .import-preview-body,
+.workspace-main .draft-preview {
+  color: #d7e4e7;
+  background: #10181d;
+}
+.workspace-main .import-preview-body h1,
+.workspace-main .import-preview-body h2,
+.workspace-main .import-preview-body h3,
+.workspace-main .draft-preview h1,
+.workspace-main .draft-preview h2,
+.workspace-main .draft-preview h3 { color: #f3f8f9; }
+.workspace-main .import-preview-body blockquote,
+.workspace-main .draft-preview blockquote {
+  border-left-color: #65e3c2;
+  color: #b8c9cd;
+  background: rgba(101, 227, 194, .06);
+}

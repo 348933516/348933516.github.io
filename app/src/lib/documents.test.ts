@@ -24,6 +24,20 @@ describe("document imports", () => {
     expect(result).not.toContain("descript");
   });
 
+  it("keeps every uploaded Word image mapped to a figure without captions", () => {
+    const uploaded = new Map(Array.from({ length: 98 }, (_, index) => {
+      const imageNumber = index + 1;
+      return [`word-image-${imageNumber}`, { id: `word-image-${imageNumber}`, mediaId: `00000000-0000-4000-8000-${String(imageNumber).padStart(12, "0")}`, displayUrl: `https://cdn.example.test/imports/${imageNumber}.png` }];
+    }));
+    const source = Array.from({ length: 98 }, (_, index) => `<p><img src="https://word-import.invalid/word-image-${index + 1}" alt="descript"></p>`).join("");
+    const result = prepareWordHtml(source, uploaded);
+    expect((result.match(/<figure\b/g) || [])).toHaveLength(98);
+    expect((result.match(/data-media-id=/g) || [])).toHaveLength(98);
+    expect((result.match(/<img\b/g) || [])).toHaveLength(98);
+    expect(result).not.toContain("descript");
+    expect(result).not.toContain("word-image-placeholder");
+  });
+
   it("reads xlsx sheets, merged cells and controlled formatting", async () => {
     const ExcelJS = await import("exceljs");
     const workbook = new ExcelJS.Workbook();

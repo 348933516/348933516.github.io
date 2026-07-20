@@ -29,7 +29,6 @@ export interface ExtractedWordImage {
   mimeType: string;
   extension: string;
   original: ArrayBuffer;
-  display: ArrayBuffer;
   width: number;
   height: number;
 }
@@ -73,7 +72,7 @@ export async function readDocument(file: File): Promise<ImportPreview> {
       source: file.name,
       wordImages: { count: result.imageCount, totalOriginalBytes: result.totalOriginalBytes },
       warning: result.imageCount
-        ? `检测到 ${result.imageCount} 张内嵌图片。确认后将保存原图并生成像素无损 WebP，不会降低画质。`
+        ? `检测到 ${result.imageCount} 张内嵌图片。确认后会直接保存原始图片，不缩放、不转码、不降低画质。`
         : "Word 常用文字、标题、列表和表格已转换。"
     };
   }

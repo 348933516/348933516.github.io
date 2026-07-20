@@ -55,7 +55,7 @@ export function DashboardPage({ profile }: { profile: Profile }) {
   const items = contents.data || [];
   const count = (status: ContentStatus) => items.filter((item) => item.status === status).length;
   return <div className="admin-page-stack"><header className="admin-page-heading"><div><span>{profile.displayName} · {roleText[profile.role]}</span><h1>内容工作台</h1><p>集中处理草稿、发布状态和最近操作。</p></div>{canEdit(profile.role) && <Link className="button primary" to="/admin/contents/new"><Plus />新建资料</Link>}</header>
-    <div className="metric-row"><Link to="/admin/contents?status=published"><span>已发布</span><strong>{count("published")}</strong><small>前台可见内容</small></Link><Link to="/admin/contents?status=draft"><span>待处理草稿</span><strong>{count("draft")}</strong><small>继续编辑与发布</small></Link><Link to="/admin/contents?status=hidden"><span>隐藏内容</span><strong>{count("hidden")}</strong><small>仅后台可见</small></Link><Link to="/admin/media"><span>媒体容量</span><strong>{formatBytes(storage.data || 0)}</strong><small>图片、视频与附件</small></Link></div>
+    <div className="metric-row"><Link to="/admin/contents?status=published"><span>已发布</span><strong>{count("published")}</strong><small>前台可见内容</small></Link><Link to="/admin/contents?status=draft"><span>待处理草稿</span><strong>{count("draft")}</strong><small>继续编辑与发布</small></Link><Link to="/admin/contents?status=hidden"><span>隐藏内容</span><strong>{count("hidden")}</strong><small>仅后台可见</small></Link><Link to="/admin/contents"><span>媒体容量</span><strong>{formatBytes(storage.data || 0)}</strong><small>在每篇资料内管理图片、视频与附件</small></Link></div>
     <div className="admin-dashboard-grid"><section className="admin-panel"><div className="panel-heading"><div><h2>待处理内容</h2><p>草稿和隐藏资料</p></div><Link to="/admin/contents">查看全部<ChevronRight /></Link></div><CompactContentList items={items.filter((item) => item.status === "draft" || item.status === "hidden").slice(0, 6)} /></section>
       <section className="admin-panel"><div className="panel-heading"><div><h2>最近操作</h2><p>系统记录的后台变更</p></div><Link to="/admin/history">查看日志<ChevronRight /></Link></div><div className="activity-feed">{logs.data?.map((log) => <div key={log.id}><span className="activity-dot" /><div><strong>{actionText(String(log.action))}</strong><small>{String(log.entity_type)} · {String(log.entity_id).slice(0, 12)}</small></div><time>{formatDate(log.created_at)}</time></div>)}{!logs.data?.length && <AdminEmpty title="暂无操作记录" />}</div></section></div>
   </div>;
@@ -160,7 +160,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const { id = "" } = useParams(); const navigate = useNavigate(); const client = useQueryClient();
   const content = useQuery({ queryKey: ["admin-content", id], queryFn: () => loadAdminContent(id), enabled: Boolean(id) });
   const categories = useAdminCategories();
-  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<DocumentImportStage | "upload-original" | "upload-webp" | "verify" | "complete" | "idle">("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null);
+  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<DocumentImportStage | "upload-original" | "verify" | "complete" | "idle">("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null);
   const storageKey = `maplestorynk-editor-${id}`;
   useEffect(() => { if (!content.data || loadedVersion.current === content.data.version) return; const item = content.data; loadedVersion.current = item.version; const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags }; setDraft(initial); setDirty(false); try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); if (saved?.version === item.version) setRecovery(saved); } catch { sessionStorage.removeItem(storageKey); } }, [content.data, storageKey]);
   useEffect(() => { if (!draft || !dirty) return; const timer = window.setTimeout(() => sessionStorage.setItem(storageKey, JSON.stringify(draft)), 600); return () => window.clearTimeout(timer); }, [draft, dirty, storageKey]);
@@ -197,20 +197,20 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     const mediaId = randomId();
     const base = `${job.uploadPrefix}/${mediaId}`;
     const originalPath = `${base}-original.${image.extension}`;
-    const displayPath = `${base}-lossless.webp`;
+    // Word PNG assets are already pixel-perfect and browser-readable. The
+    // reading view points to the same object instead of creating a second,
+    // expensive WebP conversion on the administrator's machine.
+    const displayPath = originalPath;
     const original = new File([image.original], `word-image-${image.index}.${image.extension}`, { type: image.mimeType });
-    const display = new File([image.display], `word-image-${image.index}.webp`, { type: "image/webp" });
     const asset: DocumentImportAsset = {
       mediaId, originalPath, displayPath, hash: image.hash, mimeType: image.mimeType,
-      width: image.width, height: image.height, originalSize: original.size, displaySize: display.size,
+      width: image.width, height: image.height, originalSize: original.size, displaySize: original.size,
       sortOrder: ((content.data?.media.length || 0) + image.index) * 10,
       title: `图片 ${image.index}`, altText: `图片 ${image.index}`
     };
     activeDocumentImport.current?.assets.push(asset);
     setImportStage("upload-original");
-    await uploadWithProgress(original, originalPath, (value) => setImportProgress(Math.round(((image.index - 1 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
-    setImportStage("upload-webp");
-    await uploadWithProgress(display, displayPath, (value) => setImportProgress(Math.round(((image.index - 0.5 + value.percent / 200) / total) * 100)), undefined, publicMediaBucket);
+    await uploadWithProgress(original, originalPath, (value) => setImportProgress(Math.round(((image.index - 1 + value.percent / 100) / total) * 100)), undefined, publicMediaBucket);
     setImportStage("register");
     await registerDocumentImportAsset(job.id, asset);
     return { id: image.id, mediaId, displayUrl: publicAssetUrl(displayPath) };
@@ -264,7 +264,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         client.invalidateQueries({ queryKey: ["admin-content-list"] });
         client.invalidateQueries({ queryKey: ["admin-media", id] });
         setImportStage("complete");
-        notify(`已安全保存正文和 ${finalized.imported_images}/${wordImages?.count || 0} 张无损图片。`);
+        notify(`已安全保存正文和 ${finalized.imported_images}/${wordImages?.count || 0} 张原始图片。`);
       } else {
         update({ title: draft.title || importSnapshot.preview.title, bodyHtml, bodyText, bodyJson: {}, sourceRecord });
         notify(importSnapshot.preview.warning || `已导入“${importSnapshot.preview.title}”，保存草稿后正式生效。`);
@@ -313,17 +313,17 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   </div>;
 }
 
-function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, onMode, progress, busy, stage, jobId, failure, onConfirm, onCancel }: { preview: ImportPreview; selectedSheets: string[]; onSelectedSheets(value: string[]): void; mode: "append" | "replace"; onMode(value: "append" | "replace"): void; progress: number; busy: boolean; stage: DocumentImportStage | "upload-original" | "upload-webp" | "verify" | "complete" | "idle"; jobId: string; failure: string; onConfirm(): void; onCancel(): void }) {
+function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, onMode, progress, busy, stage, jobId, failure, onConfirm, onCancel }: { preview: ImportPreview; selectedSheets: string[]; onSelectedSheets(value: string[]): void; mode: "append" | "replace"; onMode(value: "append" | "replace"): void; progress: number; busy: boolean; stage: DocumentImportStage | "upload-original" | "verify" | "complete" | "idle"; jobId: string; failure: string; onConfirm(): void; onCancel(): void }) {
   const composed = preview.worksheets ? composeImportPreview(preview.worksheets, selectedSheets) : preview;
   const toggleSheet = (name: string, checked: boolean) => onSelectedSheets(checked ? [...selectedSheets, name] : selectedSheets.filter((item) => item !== name));
-  const steps: Array<[typeof stage, string]> = [["start", "创建任务"], ["upload-original", "上传原图"], ["upload-webp", "上传无损 WebP"], ["register", "登记图片"], ["verify", "核验图片"], ["finalize", "提交正文"]];
+  const steps: Array<[typeof stage, string]> = [["start", "创建任务"], ["upload-original", "上传原始图片"], ["register", "登记图片"], ["verify", "核验图片"], ["finalize", "提交正文"]];
   const activeIndex = steps.findIndex(([key]) => key === stage);
   return <section className="import-confirmation">
     <header><div><span>{preview.kind === "workbook" ? "EXCEL PREVIEW" : preview.kind === "web" ? "WEB PREVIEW" : "DOCUMENT PREVIEW"}</span><h2>{preview.title}</h2><p>{preview.warning || "检查内容后再确认导入。"}</p></div><button className="icon-only" type="button" aria-label="取消导入" onClick={onCancel}><X /></button></header>
     {preview.worksheets && <div className="worksheet-picker">{preview.worksheets.map((sheet) => <label key={sheet.name}><input type="checkbox" checked={selectedSheets.includes(sheet.name)} onChange={(event) => toggleSheet(sheet.name, event.target.checked)} /><span><strong>{sheet.name}</strong><small>{sheet.rowCount} 行 · {sheet.columnCount} 列</small></span></label>)}</div>}
     <div className="import-mode"><span>写入方式</span><button type="button" className={mode === "append" ? "active" : ""} onClick={() => onMode("append")}>追加到正文</button><button type="button" className={mode === "replace" ? "active" : ""} onClick={() => onMode("replace")}>替换正文</button></div>
     <div className="import-preview-scroll"><RichContent html={composed.bodyHtml} className="reader-body import-preview-body" /></div>
-    {preview.wordImages && <div className="word-import-summary"><strong>{preview.wordImages.count} 张原图</strong><span>{formatBytes(preview.wordImages.totalOriginalBytes)} · 原图与像素无损 WebP 双份保存</span></div>}
+    {preview.wordImages && <div className="word-import-summary"><strong>{preview.wordImages.count} 张原图</strong><span>{formatBytes(preview.wordImages.totalOriginalBytes)} · 保留原始像素、尺寸和文件格式</span></div>}
     {preview.wordImages && <div className="document-import-status" aria-live="polite"><div>{steps.map(([key, label], index) => <span className={stage === "complete" || (activeIndex >= index && activeIndex !== -1) ? "done" : ""} key={key}>{label}</span>)}</div>{jobId && <small>导入任务：{jobId}</small>}{failure && <p role="alert">{failure}</p>}</div>}
     {progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>正在无损处理并上传图片 {progress}%</strong></div>}
     <footer><span>{preview.kind === "web" ? "网页来源会记录在后台" : preview.wordImages && preview.wordImages.totalOriginalBytes > 100 * 1024 * 1024 ? "正文和图片会保存，超限的原始 Word 不保存为附件" : "确认后原文件会同时保存为私有附件"}</span><button className="button quiet" type="button" disabled={busy} onClick={onCancel}>取消</button><button className="button primary" type="button" disabled={busy || Boolean(preview.worksheets && !selectedSheets.length)} onClick={onConfirm}>{busy ? <LoaderCircle className="spin" /> : <Check />}{busy ? "正在导入" : "确认导入"}</button></footer>

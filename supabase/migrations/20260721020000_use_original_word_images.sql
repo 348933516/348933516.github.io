@@ -1,33 +1,9 @@
--- Durable Word import jobs. Files are uploaded first, then the completed
--- document and its media records are committed together by an Edge Function.
+-- Large Word documents already contain browser-readable PNG images. Reusing
+-- that object for the reading view avoids a second 1:1 copy and removes the
+-- browser-side WebP encoding bottleneck.
 
-create table if not exists public.document_imports (
-  id uuid primary key,
-  content_id uuid not null references public.contents(id) on delete cascade,
-  created_by uuid not null references auth.users(id),
-  expected_images integer not null check (expected_images >= 0),
-  total_original_bytes bigint not null default 0 check (total_original_bytes >= 0),
-  status text not null default 'uploading' check (status in ('uploading', 'completed', 'failed', 'cancelled')),
-  manifest jsonb not null default '[]'::jsonb,
-  error_message text,
-  created_at timestamptz not null default now(),
-  completed_at timestamptz,
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists document_imports_content_created_idx on public.document_imports(content_id, created_at desc);
-create index if not exists document_imports_cleanup_idx on public.document_imports(status, created_at) where status in ('uploading', 'failed', 'cancelled');
-
-drop trigger if exists document_imports_touch on public.document_imports;
-create trigger document_imports_touch before update on public.document_imports for each row execute function public.touch_updated_at();
-
-alter table public.document_imports enable row level security;
-revoke all on public.document_imports from anon, authenticated;
-grant select on public.document_imports to authenticated;
-
-drop policy if exists document_imports_admin_read on public.document_imports;
-create policy document_imports_admin_read on public.document_imports for select to authenticated
-using (public.has_any_role(array['super_admin','editor','uploader','viewer']::public.app_role[]));
+alter table public.document_import_assets
+  drop constraint if exists document_import_assets_original_path_display_path_check;
 
 create or replace function public.finalize_document_import(
   p_import_id uuid,
