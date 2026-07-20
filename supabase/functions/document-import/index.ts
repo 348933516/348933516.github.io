@@ -19,7 +19,6 @@ type ImportAsset = {
 
 const publicBucket = "maplestorynk-public";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const hash = /^[a-f0-9]{64}$/i;
 
 function importError(stage: string, code: string, error: string, status: number, details: Record<string, unknown> = {}) {
   return json({ error, code, stage, ...details }, status);
@@ -52,14 +51,18 @@ function cleanBody(value: string) {
   });
 }
 
-function validAsset(value: unknown, importId: string): value is ImportAsset {
-  if (!value || typeof value !== "object") return false;
+function assetIssues(value: unknown, importId: string) {
+  if (!value || typeof value !== "object") return ["asset"];
   const asset = value as Record<string, unknown>;
   const prefix = `imports/${importId}/`;
-  return uuid.test(String(asset.mediaId || "")) && hash.test(String(asset.hash || ""))
-    && String(asset.originalPath || "").startsWith(prefix) && String(asset.displayPath || "").startsWith(prefix)
-    && Number.isInteger(Number(asset.width)) && Number(asset.width) > 0 && Number.isInteger(Number(asset.height)) && Number(asset.height) > 0
-    && Number(asset.originalSize) > 0 && Number(asset.displaySize) > 0;
+  const issues: string[] = [];
+  if (!uuid.test(String(asset.mediaId || ""))) issues.push("media_id");
+  if (!String(asset.originalPath || "").startsWith(prefix)) issues.push("original_path");
+  if (!String(asset.displayPath || "").startsWith(prefix)) issues.push("display_path");
+  if (String(asset.originalPath || "") === String(asset.displayPath || "")) issues.push("duplicate_path");
+  if (!Number.isFinite(Number(asset.originalSize)) || Number(asset.originalSize) < 1) issues.push("original_size");
+  if (!Number.isFinite(Number(asset.displaySize)) || Number(asset.displaySize) < 1) issues.push("display_size");
+  return issues;
 }
 
 async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
@@ -105,11 +108,15 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
   if (action !== "finalize") return importError("unknown", "UNSUPPORTED_IMPORT_ACTION", "不支持的导入操作。", 400);
   const assets = Array.isArray(body.assets) ? body.assets : [];
-  const invalidAssetIndexes = assets.flatMap((asset, index) => validAsset(asset, importId) ? [] : [index + 1]);
-  const uniqueMediaIds = new Set(assets.map((asset) => validAsset(asset, importId) ? asset.mediaId.toLowerCase() : ""));
+  const invalidAssets = assets.flatMap((asset, index) => {
+    const issues = assetIssues(asset, importId);
+    return issues.length ? [{ index: index + 1, issues }] : [];
+  });
+  const uniqueMediaIds = new Set(assets.map((asset) => asset && typeof asset === "object" ? String((asset as ImportAsset).mediaId || "").toLowerCase() : ""));
   if (job.status !== "uploading") return importError("finalize", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
-  // The fully validated manifest is authoritative: Word preview and extraction can enumerate images differently.
-  if (!assets.length || assets.length > 250 || invalidAssetIndexes.length || uniqueMediaIds.size !== assets.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, invalid_asset_indexes: invalidAssetIndexes.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
+  // Pixel dimensions and a SHA-256 are descriptive metadata. Reject only data
+  // that could detach an uploaded object from this import task.
+  if (!assets.length || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
   const paths = assets.flatMap((asset) => [asset.originalPath, asset.displayPath]);
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
   const presentPaths = new Set((stored || []).map((item) => item.name));

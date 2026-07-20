@@ -230,13 +230,18 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         setImportJobId(wordJob.id);
         activeDocumentImport.current = { id: wordJob.id, assets: [] };
         const { materializeWordDocument } = await import("../../lib/documents");
-        importedBody = await materializeWordDocument(
+        const materializedWord = await materializeWordDocument(
           sourceFile,
           async (image) => {
             return uploadWordImage(image, wordImages.count, wordJob!);
           },
           (current) => notify(`正在无损处理 Word 图片 ${current}/${wordImages.count}`)
         );
+        importedBody = materializedWord;
+        const uploadedAssets = activeDocumentImport.current?.assets || [];
+        if (materializedWord.imageCount !== wordImages.count || uploadedAssets.length !== wordImages.count) {
+          throw new Error(`Word 图片处理未完成：识别 ${wordImages.count} 张，正文生成 ${materializedWord.imageCount} 张，已上传 ${uploadedAssets.length} 张。`);
+        }
       }
       setImportBackup(draft);
       const bodyHtml = sanitizeHtml(importMode === "append" && draft.bodyText.trim() ? `${draft.bodyHtml}<hr>${importedBody.bodyHtml}` : importedBody.bodyHtml);
@@ -269,7 +274,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       activeDocumentImport.current = null;
       const details = error instanceof DocumentImportError ? error.details : {};
       setImportFailure(failureMessage);
-      void reportRuntimeLog({ source: "document-import", message: failureMessage, error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count, importJobId: error instanceof DocumentImportError ? String(details.import_id || importJobId) : importJobId, importStage: error instanceof DocumentImportError ? error.stage : importStage, httpStatus: error instanceof DocumentImportError ? error.status : null, errorCode: error instanceof DocumentImportError ? error.code : null, missingCount: Number(details.missing_count || 0), uploadedImages } });
+      void reportRuntimeLog({ source: "document-import", message: failureMessage, error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count, importJobId: error instanceof DocumentImportError ? String(details.import_id || importJobId) : importJobId, importStage: error instanceof DocumentImportError ? error.stage : importStage, httpStatus: error instanceof DocumentImportError ? error.status : null, errorCode: error instanceof DocumentImportError ? error.code : null, missingCount: Number(details.missing_count || 0), invalidAssetIndexes: Array.isArray(details.invalid_asset_indexes) ? details.invalid_asset_indexes.join(",") : "", manifestDiagnostics: Array.isArray(details.invalid_assets) ? JSON.stringify(details.invalid_assets).slice(0, 500) : "", uploadedImages } });
       notify(failureMessage, true);
     }
     finally { setImporting(false); setImportProgress(0); }
