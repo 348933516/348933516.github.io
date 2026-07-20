@@ -1,4 +1,5 @@
 import mammoth from "mammoth";
+import { documentImportResponseMessage } from "./documentImportResponse";
 
 type UploadSession = {
   supabaseUrl: string;
@@ -8,6 +9,7 @@ type UploadSession = {
   importId: string;
   uploadPrefix: string;
   existingMediaCount: number;
+  expectedImages: number;
 };
 type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer; upload?: UploadSession };
 
@@ -25,17 +27,6 @@ function extensionFor(mime: string) {
   if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
   if (mime.includes("gif")) return "gif";
   return "bin";
-}
-
-async function responseMessage(response: Response) {
-  const text = await response.text();
-  if (!text) return `HTTP ${response.status}`;
-  try {
-    const payload = JSON.parse(text) as { error?: string; message?: string };
-    return payload.error || payload.message || text.slice(0, 500);
-  } catch {
-    return text.slice(0, 500);
-  }
 }
 
 function wait(milliseconds: number) {
@@ -86,7 +77,7 @@ async function uploadAndRegisterImage(original: ArrayBuffer, input: { id: string
     body: original
   });
   if (!stored.ok) {
-    const message = await responseMessage(stored);
+    const message = await documentImportResponseMessage(stored);
     if (!/duplicate|already exists|resource exists/i.test(message)) throw new Error(`图片 ${input.index} 上传失败：${message}`);
   }
 
@@ -113,39 +104,47 @@ async function uploadAndRegisterImage(original: ArrayBuffer, input: { id: string
       method: "DELETE",
       headers: { Authorization: `Bearer ${upload.accessToken}`, apikey: upload.publishableKey }
     });
-    throw new Error(`图片 ${input.index} 登记失败：${await responseMessage(registered)}`);
+    throw new Error(`图片 ${input.index} 登记失败：${await documentImportResponseMessage(registered)}`);
   }
   return { id: input.id, mediaId, displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}` };
 }
 
 async function processDocument(message: StartMessage) {
   let imageCount = 0;
+  let uploadedImageCount = 0;
   let totalOriginalBytes = 0;
-  const result = await mammoth.convertToHtml(
-    { arrayBuffer: message.buffer },
-    {
-      convertImage: mammoth.images.imgElement(async (image) => {
-        imageCount += 1;
-        const id = `word-image-${imageCount}`;
-        const original = await image.readAsArrayBuffer();
-        const mimeType = image.contentType || "application/octet-stream";
-        totalOriginalBytes += original.byteLength;
-        const hash = hex(await crypto.subtle.digest("SHA-256", original));
-        worker.postMessage({ type: "progress", phase: message.mode === "preview" ? "preview" : "encoding", current: imageCount, total: 0 });
+  try {
+    const result = await mammoth.convertToHtml(
+      { arrayBuffer: message.buffer },
+      {
+        convertImage: mammoth.images.imgElement(async (image) => {
+          imageCount += 1;
+          const id = `word-image-${imageCount}`;
+          const original = await image.readAsArrayBuffer();
+          const mimeType = image.contentType || "application/octet-stream";
+          totalOriginalBytes += original.byteLength;
+          const hash = hex(await crypto.subtle.digest("SHA-256", original));
+          worker.postMessage({ type: "progress", phase: message.mode === "preview" ? "preview" : "encoding", current: imageCount, total: message.upload?.expectedImages || 0 });
 
-        if (message.mode === "extract") {
-          if (!message.upload) throw new Error("缺少 Word 图片上传会话。");
-          worker.postMessage({ type: "progress", phase: "upload", current: imageCount, total: 0 });
-          const uploaded = await uploadAndRegisterImage(original, { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType) }, message.upload);
-          worker.postMessage({ type: "asset", asset: uploaded });
-        }
+          if (message.mode === "extract") {
+            if (!message.upload) throw new Error("缺少 Word 图片上传会话。");
+            worker.postMessage({ type: "progress", phase: "upload", current: imageCount, total: message.upload.expectedImages });
+            const uploaded = await uploadAndRegisterImage(original, { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType) }, message.upload);
+            uploadedImageCount += 1;
+            worker.postMessage({ type: "asset", asset: uploaded });
+            worker.postMessage({ type: "progress", phase: "registered", current: uploadedImageCount, total: message.upload.expectedImages });
+          }
 
-        return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
-      }),
-      styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
-    }
-  );
-  worker.postMessage({ type: "complete", html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
+          return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
+        }),
+        styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
+      }
+    );
+    worker.postMessage({ type: "complete", html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : "Word 解析失败";
+    throw new Error(`${messageText}（已登记 ${uploadedImageCount}/${message.upload?.expectedImages || imageCount} 张）`);
+  }
 }
 
 worker.addEventListener("message", (event: MessageEvent<StartMessage>) => {

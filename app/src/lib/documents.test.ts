@@ -60,7 +60,8 @@ describe("document imports", () => {
         bucket: "public",
         importId: "00000000-0000-4000-8000-000000000099",
         uploadPrefix: "imports/00000000-0000-4000-8000-000000000099",
-        existingMediaCount: 0
+        existingMediaCount: 0,
+        expectedImages: 1
       });
       expect(result.uploadedImageCount).toBe(1);
       expect(result.bodyHtml).toContain('data-media-id="00000000-0000-4000-8000-000000000001"');

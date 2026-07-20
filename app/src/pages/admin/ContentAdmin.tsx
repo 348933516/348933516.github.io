@@ -9,10 +9,10 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { RichContent } from "../../components/RichContent";
 import { VideoPlayer } from "../../components/VideoPlayer";
 import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
-import type { ExtractedWordImage, ImportPreview, WorksheetPreview, WordUploadSession } from "../../lib/documents";
+import type { ImportPreview, WorksheetPreview, WordUploadSession } from "../../lib/documents";
 import { randomId } from "../../lib/id";
 import {
-  batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport, registerDocumentImportAsset,
+  batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport,
   loadAdminContent, loadAdminContentList, publishContent, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
@@ -194,28 +194,6 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     if (error) { await supabase.storage.from(stored.bucket).remove([stored.path]); throw error; }
     return true;
   };
-  const uploadWordImage = async (image: ExtractedWordImage, total: number, job: { id: string; uploadPrefix: string }) => {
-    const mediaId = randomId();
-    const base = `${job.uploadPrefix}/${mediaId}`;
-    const originalPath = `${base}-original.${image.extension}`;
-    // Word PNG assets are already pixel-perfect and browser-readable. The
-    // reading view points to the same object instead of creating a second,
-    // expensive WebP conversion on the administrator's machine.
-    const displayPath = originalPath;
-    const original = new File([image.original], `word-image-${image.index}.${image.extension}`, { type: image.mimeType });
-    const asset: DocumentImportAsset = {
-      mediaId, originalPath, displayPath, hash: image.hash, mimeType: image.mimeType,
-      width: image.width, height: image.height, originalSize: original.size, displaySize: original.size,
-      sortOrder: ((content.data?.media.length || 0) + image.index) * 10,
-      title: `图片 ${image.index}`, altText: `图片 ${image.index}`
-    };
-    changeImportStage("upload-original");
-    await uploadWithProgress(original, originalPath, (value) => setImportProgress(Math.round(((image.index - 1 + value.percent / 100) / total) * 100)), undefined, publicMediaBucket);
-    activeDocumentImport.current?.assets.push(asset);
-    changeImportStage("register");
-    await registerDocumentImportAsset(job.id, asset);
-    return { id: image.id, mediaId, displayUrl: publicAssetUrl(displayPath) };
-  };
   const confirmImport = async () => {
     if (!pendingImport || !draft) return;
     const importSnapshot = pendingImport;
@@ -242,7 +220,8 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           bucket: publicMediaBucket,
           importId: wordJob.id,
           uploadPrefix: wordJob.uploadPrefix,
-          existingMediaCount: content.data?.media.length || 0
+          existingMediaCount: content.data?.media.length || 0,
+          expectedImages: wordImages.count
         };
         const { materializeWordDocument } = await import("../../lib/documents");
         const materializedWord = await materializeWordDocument(sourceFile, uploadSession, (current) => {

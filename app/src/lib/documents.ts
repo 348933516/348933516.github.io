@@ -22,17 +22,6 @@ export interface ImportPreview {
   wordImages?: { count: number; totalOriginalBytes: number };
 }
 
-export interface ExtractedWordImage {
-  id: string;
-  index: number;
-  hash: string;
-  mimeType: string;
-  extension: string;
-  original: ArrayBuffer;
-  width: number;
-  height: number;
-}
-
 export interface UploadedWordImage {
   id: string;
   mediaId: string;
@@ -47,6 +36,7 @@ export interface WordUploadSession {
   importId: string;
   uploadPrefix: string;
   existingMediaCount: number;
+  expectedImages: number;
 }
 
 function escapeHtml(value: string) {
@@ -93,7 +83,7 @@ export async function readDocument(file: File): Promise<ImportPreview> {
 
 type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
 
-function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void, upload?: WordUploadSession) {
+function runWordWorker(file: File, mode: "preview" | "extract", onProgress?: (current: number) => void, upload?: WordUploadSession) {
   return new Promise<WordWorkerResult>(async (resolve, reject) => {
     const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
     const uploadedImages: UploadedWordImage[] = [];
@@ -108,16 +98,11 @@ function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image
     worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
       const message = event.data;
       if (message.type === "progress") {
-        onProgress?.(Number(message.current || 0));
+        if (message.phase === "registered") onProgress?.(Number(message.current || 0));
         return;
       }
       if (message.type === "asset") {
         uploadedImages.push(message.asset as unknown as UploadedWordImage);
-        return;
-        if (!onImage) return finish(() => reject(new Error("Word 图片上传接口未配置")));
-        void onImage!(message.asset as unknown as ExtractedWordImage).then(() => {
-          worker.postMessage({ type: "ack", id: (message.asset as unknown as ExtractedWordImage).id });
-        }).catch((error) => finish(() => reject(error)));
         return;
       }
       if (message.type === "error") return finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
@@ -158,7 +143,7 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
 }
 
 export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (current: number) => void) {
-  const result = await runWordWorker(file, "extract", undefined, onProgress, upload);
+  const result = await runWordWorker(file, "extract", onProgress, upload);
   const uploaded = new Map(result.uploadedImages.map((image) => [image.id, image]));
   return {
     bodyHtml: prepareWordHtml(result.html, uploaded),

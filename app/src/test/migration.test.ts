@@ -9,6 +9,7 @@ const removeOfficialAssets = fs.readFileSync(path.resolve(process.cwd(), "supaba
 const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260719031000_remove_stock_media.sql"), "utf8");
 const mediaAndPublicQueries = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720160000_media_documents_public_queries.sql"), "utf8");
 const documentImports = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720190000_document_import_jobs.sql"), "utf8");
+const allowOriginalWordImageDisplay = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721030000_allow_original_word_image_display.sql"), "utf8");
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
@@ -78,5 +79,14 @@ describe("Supabase security migration", () => {
     expect(documentImportFunction).toContain("STORAGE_OBJECTS_MISSING");
     expect(documentImportFunction).toContain("BODY_IMAGE_MAPPING_MISMATCH");
     expect(documentImportFunction).toContain("IMPORT_VERIFICATION_FAILED");
+  });
+
+  it("removes the legacy path inequality constraint before original Word images are registered", () => {
+    expect(allowOriginalWordImageDisplay).toContain("pg_constraint");
+    expect(allowOriginalWordImageDisplay).toContain("pg_get_constraintdef");
+    expect(allowOriginalWordImageDisplay).toContain("original_path");
+    expect(allowOriginalWordImageDisplay).toContain("display_path");
+    expect(allowOriginalWordImageDisplay).toContain("drop constraint %I");
+    expect(allowOriginalWordImageDisplay).toContain("Word import path compatibility constraint is still present");
   });
 });
