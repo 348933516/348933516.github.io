@@ -1103,3 +1103,27 @@ td[data-cell-align="justify"], th[data-cell-align="justify"] { text-align: justi
   color: #b8c9cd;
   background: rgba(101, 227, 194, .06);
 }
+
+/* One shared edge per cell keeps thick, dashed and double borders visible. */
+.editor-surface table[data-table-border],
+.reader-body table[data-table-border] {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  border-top-width: var(--rich-table-border, 1px) !important;
+  border-top-style: var(--rich-table-style, solid) !important;
+  border-top-color: var(--rich-table-color, var(--line)) !important;
+  border-left-width: var(--rich-table-border, 1px) !important;
+  border-left-style: var(--rich-table-style, solid) !important;
+  border-left-color: var(--rich-table-color, var(--line)) !important;
+}
+.editor-surface table[data-table-border] :is(td, th),
+.reader-body table[data-table-border] :is(td, th) {
+  border-top-width: 0 !important;
+  border-left-width: 0 !important;
+  border-right-width: var(--rich-cell-border-width, var(--rich-table-border, 1px)) !important;
+  border-right-style: var(--rich-cell-border-style, var(--rich-table-style, solid)) !important;
+  border-right-color: var(--rich-cell-border-color, var(--rich-table-color, var(--line))) !important;
+  border-bottom-width: var(--rich-cell-border-width, var(--rich-table-border, 1px)) !important;
+  border-bottom-style: var(--rich-cell-border-style, var(--rich-table-style, solid)) !important;
+  border-bottom-color: var(--rich-cell-border-color, var(--rich-table-color, var(--line))) !important;
+}
