@@ -1,25 +1,16 @@
 import mammoth from "mammoth";
-import { documentImportResponseMessage } from "./documentImportResponse";
-import { uploadResumableObject } from "./resumableUpload";
 
-const resumableUploadThreshold = 6 * 1024 * 1024;
-
-type UploadSession = {
-  supabaseUrl: string;
-  publishableKey: string;
-  accessToken: string;
-  bucket: string;
-  importId: string;
-  uploadPrefix: string;
-  existingMediaCount: number;
-  expectedImages: number;
-};
-type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer; upload?: UploadSession };
+type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer };
+type AckMessage = { type: "ack"; id: string; error?: string };
+type IncomingMessage = StartMessage | AckMessage;
 
 const worker = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void;
-  addEventListener(type: "message", handler: (event: MessageEvent<StartMessage>) => void): void;
+  addEventListener(type: "message", handler: (event: MessageEvent<IncomingMessage>) => void): void;
 };
+
+type PendingAck = { resolve(): void; reject(error: Error): void };
+const acknowledgements = new Map<string, PendingAck>();
 
 function hex(buffer: ArrayBuffer) {
   return [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -32,140 +23,46 @@ function extensionFor(mime: string) {
   return "bin";
 }
 
-function wait(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function requestWithRetry(url: string, init: RequestInit, attempts = 3) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await fetch(url, init);
-      if (response.ok || (response.status !== 408 && response.status !== 429 && response.status < 500)) return response;
-      lastError = new Error(`HTTP ${response.status}`);
-    } catch (error) {
-      lastError = error;
-    }
-    if (attempt < attempts - 1) await wait(500 * (2 ** attempt));
-  }
-  throw lastError instanceof Error ? lastError : new Error("网络请求失败");
-}
-
-async function uploadAndRegisterImage(original: ArrayBuffer, input: { id: string; index: number; hash: string; mimeType: string; extension: string }, upload: UploadSession) {
-  const mediaId = crypto.randomUUID();
-  const originalPath = `${upload.uploadPrefix}/${mediaId}-original.${input.extension}`;
-  const asset = {
-    mediaId,
-    originalPath,
-    displayPath: originalPath,
-    hash: input.hash,
-    mimeType: input.mimeType,
-    width: 0,
-    height: 0,
-    originalSize: original.byteLength,
-    displaySize: original.byteLength,
-    sortOrder: (upload.existingMediaCount + input.index) * 10,
-    title: `图片 ${input.index}`,
-    altText: `图片 ${input.index}`
-  };
-  const objectPath = originalPath.split("/").map(encodeURIComponent).join("/");
-  if (original.byteLength > resumableUploadThreshold) {
-    await uploadResumableObject({
-      endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
-      accessToken: upload.accessToken,
-      publishableKey: upload.publishableKey,
-      bucket: upload.bucket,
-      objectPath: originalPath,
-      contentType: input.mimeType,
-      data: original
-    });
-  } else {
-    const stored = await requestWithRetry(`${upload.supabaseUrl}/storage/v1/object/${upload.bucket}/${objectPath}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${upload.accessToken}`,
-        apikey: upload.publishableKey,
-        "Content-Type": input.mimeType,
-        "x-upsert": "false"
-      },
-      body: original
-    });
-    if (!stored.ok) {
-      const message = await documentImportResponseMessage(stored);
-      if (!/duplicate|already exists|resource exists/i.test(message)) throw new Error(`图片 ${input.index} 上传失败：${message}`);
-    }
-  }
-
-  let registered: Response;
-  try {
-    registered = await requestWithRetry(`${upload.supabaseUrl}/functions/v1/document-import`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${upload.accessToken}`,
-        apikey: upload.publishableKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ action: "register", importId: upload.importId, asset })
-    });
-  } catch (error) {
-    await fetch(`${upload.supabaseUrl}/storage/v1/object/${upload.bucket}/${objectPath}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${upload.accessToken}`, apikey: upload.publishableKey }
-    });
-    throw error;
-  }
-  if (!registered.ok) {
-    await fetch(`${upload.supabaseUrl}/storage/v1/object/${upload.bucket}/${objectPath}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${upload.accessToken}`, apikey: upload.publishableKey }
-    });
-    throw new Error(`图片 ${input.index} 登记失败：${await documentImportResponseMessage(registered)}`);
-  }
-  return { id: input.id, mediaId, displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}` };
+function waitForAck(id: string) {
+  return new Promise<void>((resolve, reject) => acknowledgements.set(id, { resolve, reject }));
 }
 
 async function processDocument(message: StartMessage) {
   let imageCount = 0;
-  let uploadedImageCount = 0;
   let totalOriginalBytes = 0;
-  // The session is the authority for a real import. A cached caller can carry
-  // an older mode value, but it must never turn an authenticated import into a
-  // preview-only parse and silently skip every upload.
-  const shouldUpload = Boolean(message.upload?.importId && message.upload.accessToken);
-  try {
-    const result = await mammoth.convertToHtml(
-      { arrayBuffer: message.buffer },
-      {
-        convertImage: mammoth.images.imgElement(async (image) => {
-          imageCount += 1;
-          const id = `word-image-${imageCount}`;
-          const original = await image.readAsArrayBuffer();
-          const mimeType = image.contentType || "application/octet-stream";
-          totalOriginalBytes += original.byteLength;
-          const hash = hex(await crypto.subtle.digest("SHA-256", original));
-          worker.postMessage({ type: "progress", phase: shouldUpload ? "encoding" : "preview", current: imageCount, total: message.upload?.expectedImages || 0 });
+  const result = await mammoth.convertToHtml(
+    { arrayBuffer: message.buffer },
+    {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        imageCount += 1;
+        const id = `word-image-${imageCount}`;
+        const original = await image.readAsArrayBuffer();
+        const mimeType = image.contentType || "application/octet-stream";
+        totalOriginalBytes += original.byteLength;
+        const hash = hex(await crypto.subtle.digest("SHA-256", original));
 
-          if (shouldUpload) {
-            if (!message.upload) throw new Error("缺少 Word 图片上传会话。");
-            worker.postMessage({ type: "progress", phase: "upload", current: imageCount, total: message.upload.expectedImages });
-            const uploaded = await uploadAndRegisterImage(original, { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType) }, message.upload);
-            uploadedImageCount += 1;
-            worker.postMessage({ type: "asset", asset: uploaded });
-            worker.postMessage({ type: "progress", phase: "registered", current: uploadedImageCount, total: message.upload.expectedImages });
-          }
-
-          return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
-        }),
-        styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
-      }
-    );
-    worker.postMessage({ type: "complete", html: result.value, imageCount, uploadedImageCount, uploadAttempted: shouldUpload, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
-  } catch (error) {
-    const messageText = error instanceof Error ? error.message : "Word 解析失败";
-    throw new Error(`${messageText}（已登记 ${uploadedImageCount}/${message.upload?.expectedImages || imageCount} 张）`);
-  }
+        if (message.mode === "extract") {
+          worker.postMessage({ type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original } }, [original]);
+          await waitForAck(id);
+        } else {
+          worker.postMessage({ type: "progress", phase: "preview", current: imageCount });
+        }
+        return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
+      }),
+      styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
+    }
+  );
+  worker.postMessage({ type: "complete", html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
 }
 
-worker.addEventListener("message", (event: MessageEvent<StartMessage>) => {
+worker.addEventListener("message", (event) => {
+  if (event.data.type === "ack") {
+    const pending = acknowledgements.get(event.data.id);
+    if (!pending) return;
+    acknowledgements.delete(event.data.id);
+    if (event.data.error) pending.reject(new Error(event.data.error));
+    else pending.resolve();
+    return;
+  }
   void processDocument(event.data).catch((error) => worker.postMessage({ type: "error", message: error instanceof Error ? error.message : "Word 解析失败" }));
 });

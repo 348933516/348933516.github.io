@@ -32,5 +32,12 @@ describe("Office clipboard conversion", () => {
     expect(result).toContain("测试地图");
     expect(result).toContain('data-cell-border-width="1"');
   });
-});
 
+  it("keeps ordered placeholders for local Office images until the main thread uploads them", () => {
+    const result = normalizeOfficeClipboardHtml('<p>说明</p><img src="file:///C:/word/a.png"><img src="data:image/png;base64,AAAA">', { preserveClipboardImageSlots: true });
+    expect(result).toContain('data-office-image-placeholder="1"');
+    expect(result).toContain('data-office-image-placeholder="2"');
+    expect(result).not.toContain("file://");
+    expect(result).not.toContain("data:image");
+  });
+});

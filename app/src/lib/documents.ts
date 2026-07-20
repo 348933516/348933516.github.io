@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
-import { documentImportResponseMessage } from "./documentImportResponse";
+import { getDocumentImportStatus, registerDocumentImportAsset, type DocumentImportAsset } from "./repository";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
+import { uploadSupabaseTus } from "./tusUpload";
 
 export interface WorksheetPreview {
   name: string;
@@ -29,6 +30,15 @@ export interface UploadedWordImage {
   displayUrl: string;
 }
 
+export interface ParsedWordImage {
+  id: string;
+  index: number;
+  hash: string;
+  mimeType: string;
+  extension: string;
+  original: ArrayBuffer;
+}
+
 export interface WordUploadSession {
   supabaseUrl: string;
   publishableKey: string;
@@ -39,6 +49,16 @@ export interface WordUploadSession {
   existingMediaCount: number;
   expectedImages: number;
 }
+
+export type WordImportProgress = {
+  phase: "parsed" | "uploading" | "uploaded" | "registered" | "resumed" | "retry";
+  imageIndex: number;
+  imageCount: number;
+  loaded?: number;
+  total?: number;
+  retries?: number;
+  detail?: string;
+};
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
@@ -82,17 +102,11 @@ export async function readDocument(file: File): Promise<ImportPreview> {
   return { kind: "document", title: file.name.replace(/\.[^.]+$/, ""), bodyHtml, bodyText: new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || bodyText, images: [], source: file.name };
 }
 
-type WordWorkerResult = { html: string; imageCount: number; uploadedImageCount?: number; uploadAttempted?: boolean; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
+type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[] };
 
-type RegisteredImportAsset = {
-  mediaId: string;
-  displayPath: string;
-};
-
-function runWordWorker(file: File, mode: "preview" | "extract", onProgress?: (current: number) => void, upload?: WordUploadSession) {
+function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ParsedWordImage) => Promise<void>, onProgress?: (current: number) => void) {
   return new Promise<WordWorkerResult>(async (resolve, reject) => {
     const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
-    const uploadedImages: UploadedWordImage[] = [];
     let settled = false;
     const finish = (action: () => void) => {
       if (settled) return;
@@ -104,19 +118,24 @@ function runWordWorker(file: File, mode: "preview" | "extract", onProgress?: (cu
     worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
       const message = event.data;
       if (message.type === "progress") {
-        if (message.phase === "registered") onProgress?.(Number(message.current || 0));
+        onProgress?.(Number(message.current || 0));
         return;
       }
-      if (message.type === "asset") {
-        uploadedImages.push(message.asset as unknown as UploadedWordImage);
+      if (message.type === "image") {
+        if (!onImage) return finish(() => reject(new Error("Word 图片处理器未配置。")));
+        const image = message.image as unknown as ParsedWordImage;
+        void onImage(image).then(() => worker.postMessage({ type: "ack", id: image.id })).catch((error) => {
+          worker.postMessage({ type: "ack", id: image.id, error: error instanceof Error ? error.message : "图片上传失败" });
+          finish(() => reject(error instanceof Error ? error : new Error("图片上传失败")));
+        });
         return;
       }
       if (message.type === "error") return finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
-      if (message.type === "complete") finish(() => resolve({ ...(message as unknown as WordWorkerResult), uploadedImages }));
+      if (message.type === "complete") finish(() => resolve(message as unknown as WordWorkerResult));
     };
     try {
       const buffer = await file.arrayBuffer();
-      worker.postMessage({ type: "start", mode, buffer, upload }, [buffer]);
+      worker.postMessage({ type: "start", mode, buffer }, [buffer]);
     } catch (error) {
       finish(() => reject(error));
     }
@@ -148,14 +167,47 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
   return sanitizeHtml(document.body.innerHTML);
 }
 
-export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (current: number) => void) {
-  const result = await runWordWorker(file, "extract", onProgress, upload);
-  if (!result.uploadAttempted) throw new Error("Word 图片 Worker 未进入上传阶段，请刷新页面后重试。");
-  // The import table is the durable source of truth. Some browsers can defer
-  // high-volume Worker messages while still delivering the completion event.
-  // Reading the server manifest avoids treating that delivery detail as data loss.
-  const registered = await loadRegisteredWordImages(upload);
-  const uploaded = new Map(registered.map((image, index) => [`word-image-${index + 1}`, image]));
+export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (progress: WordImportProgress) => void) {
+  const status = await getDocumentImportStatus(upload.importId);
+  const registeredByIndex = new Map((status.assets || []).map((asset) => [asset.image_index, asset]));
+  const result = await runWordWorker(file, "extract", async (image) => {
+    const existing = registeredByIndex.get(image.index);
+    if (existing) {
+      onProgress?.({ phase: "resumed", imageIndex: image.index, imageCount: upload.expectedImages, detail: "已从服务端清单恢复" });
+      return;
+    }
+    onProgress?.({ phase: "parsed", imageIndex: image.index, imageCount: upload.expectedImages, total: image.original.byteLength });
+    const mediaId = await deterministicUuid(`${upload.importId}:${image.index}`);
+    const originalPath = `${upload.uploadPrefix}/${String(image.index).padStart(3, "0")}-${mediaId}-original.${image.extension}`;
+    const blob = new File([image.original], `word-image-${image.index}.${image.extension}`, { type: image.mimeType });
+    const asset: DocumentImportAsset = {
+      mediaId, imageIndex: image.index, originalPath, displayPath: originalPath, hash: image.hash, mimeType: image.mimeType,
+      width: 0, height: 0, originalSize: blob.size, displaySize: blob.size,
+      sortOrder: (upload.existingMediaCount + image.index) * 10, title: `图片 ${image.index}`, altText: `图片 ${image.index}`
+    };
+    await uploadSupabaseTus({
+      file: blob,
+      endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
+      accessToken: upload.accessToken,
+      publishableKey: upload.publishableKey,
+      bucket: upload.bucket,
+      objectPath: originalPath,
+      fingerprint: `maplestorynk-word:${upload.importId}:${image.index}:${image.hash}`,
+      onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries }),
+      onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: event.detail })
+    });
+    await registerDocumentImportAsset(upload.importId, asset);
+    registeredByIndex.set(image.index, { image_index: image.index, media_id: mediaId, display_path: originalPath });
+    onProgress?.({ phase: "registered", imageIndex: image.index, imageCount: upload.expectedImages });
+  });
+  // The server manifest is authoritative. A browser reload or an interrupted
+  // TUS request must never make a locally remembered image look committed.
+  const completed = await getDocumentImportStatus(upload.importId);
+  const registered = (completed.assets || []).slice().sort((left, right) => left.image_index - right.image_index);
+  if (registered.length !== result.imageCount) {
+    throw new Error(`Word 图片登记不完整：解析 ${result.imageCount} 张，服务端已登记 ${registered.length} 张。`);
+  }
+  const uploaded = new Map(registered.map((asset) => [`word-image-${asset.image_index}`, registeredWordImage(upload, asset)]));
   return {
     bodyHtml: prepareWordHtml(result.html, uploaded),
     bodyText: new DOMParser().parseFromString(result.html, "text/html").body.textContent || "",
@@ -165,28 +217,21 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
   };
 }
 
-async function loadRegisteredWordImages(upload: WordUploadSession): Promise<UploadedWordImage[]> {
-  const response = await fetch(`${upload.supabaseUrl}/functions/v1/document-import`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${upload.accessToken}`,
-      apikey: upload.publishableKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ action: "manifest", importId: upload.importId })
-  });
-  if (!response.ok) throw new Error(`无法核对已上传 Word 图片：${await documentImportResponseMessage(response)}`);
-  const payload = await response.json() as { assets?: RegisteredImportAsset[] };
-  if (!Array.isArray(payload.assets)) throw new Error("无法读取已上传 Word 图片清单。");
-  return payload.assets.map((asset, index) => {
-    if (!asset?.mediaId || !asset.displayPath) throw new Error(`第 ${index + 1} 张 Word 图片登记信息无效。`);
-    const objectPath = asset.displayPath.split("/").map(encodeURIComponent).join("/");
-    return {
-      id: `word-image-${index + 1}`,
-      mediaId: asset.mediaId,
-      displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}`
-    };
-  });
+function registeredWordImage(upload: WordUploadSession, asset: { image_index: number; media_id: string; display_path: string }): UploadedWordImage {
+  const objectPath = asset.display_path.split("/").map(encodeURIComponent).join("/");
+  return {
+    id: `word-image-${asset.image_index}`,
+    mediaId: asset.media_id,
+    displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}`
+  };
+}
+
+async function deterministicUuid(value: string) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hexValue = [...bytes.slice(0, 16)].map((item) => item.toString(16).padStart(2, "0")).join("");
+  return `${hexValue.slice(0, 8)}-${hexValue.slice(8, 12)}-${hexValue.slice(12, 16)}-${hexValue.slice(16, 20)}-${hexValue.slice(20)}`;
 }
 
 async function readWorkbook(file: File): Promise<ImportPreview> {

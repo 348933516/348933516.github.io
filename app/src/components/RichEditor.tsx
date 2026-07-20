@@ -340,6 +340,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const fileRef = useRef<HTMLInputElement | null>(null);
   const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
   const pasteTableRef = useRef<(html: string) => void>(() => undefined);
+  const pasteOfficeHtmlRef = useRef<(html: string, files: File[]) => void>(() => undefined);
   const internalHtml = useRef(sanitizeHtml(value));
   const lastExternalHtml = useRef(sanitizeHtml(value));
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
@@ -386,7 +387,11 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
           pasteImagesRef.current(imageFiles);
           return true;
         }
-        if (imageFiles.length) window.setTimeout(() => pasteImagesRef.current(imageFiles), 0);
+        if (imageFiles.length && html) {
+          event.preventDefault();
+          pasteOfficeHtmlRef.current(html, imageFiles);
+          return true;
+        }
         if (!html) {
           const table = tabSeparatedTextToTableHtml(clipboard.getData("text/plain"));
           if (table) {
@@ -479,6 +484,35 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   pasteTableRef.current = (html) => {
     editor.chain().focus().insertContent(html).run();
     setMessage("已粘贴表格内容。");
+  };
+  pasteOfficeHtmlRef.current = (html, files) => {
+    void (async () => {
+      const normalized = normalizeOfficeClipboardHtml(html, { preserveClipboardImageSlots: true });
+      let uploaded: Array<{ src: string; alt: string; caption?: string }> = [];
+      try {
+        if (!onUploadImages) throw new Error("当前页面没有开启正文图片上传。");
+        uploaded = await onUploadImages(files);
+      } catch (error) {
+        setMessage(error instanceof Error ? `Office 图片上传失败：${error.message}` : "Office 图片上传失败，文字和表格已保留。");
+      }
+      const document = new DOMParser().parseFromString(normalized, "text/html");
+      document.querySelectorAll<HTMLElement>("[data-office-image-placeholder]").forEach((slot, index) => {
+        const image = uploaded[index];
+        if (!image) {
+          slot.textContent = `[图片 ${index + 1} 上传失败]`;
+          return;
+        }
+        const figure = document.createElement("figure");
+        figure.setAttribute("data-editor-image", "true");
+        const item = document.createElement("img");
+        item.src = image.src;
+        item.alt = image.alt;
+        figure.append(item);
+        slot.replaceWith(figure);
+      });
+      editor.chain().focus().insertContent(sanitizeHtml(document.body.innerHTML)).run();
+      if (uploaded.length) setMessage(`已粘贴 Office 内容，并上传 ${uploaded.length}/${files.length} 张图片。`);
+    })();
   };
   const updateTable = (patch: Partial<typeof tablePreset>) => {
     const nextPreset = normalizedTableStyle({ ...tablePresetRef.current, ...patch });

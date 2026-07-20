@@ -1,5 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { composeWorksheetImport, materializeWordDocument, prepareWordHtml, readDocument, type WorksheetPreview } from "./documents";
+import { getDocumentImportStatus, registerDocumentImportAsset } from "./repository";
+import { uploadSupabaseTus } from "./tusUpload";
+
+vi.mock("./repository", () => ({
+  getDocumentImportStatus: vi.fn(),
+  registerDocumentImportAsset: vi.fn()
+}));
+
+vi.mock("./tusUpload", () => ({ uploadSupabaseTus: vi.fn() }));
+
+const emptyStatus = {
+  job: { id: "00000000-0000-4000-8000-000000000099", status: "uploading" as const, expectedImages: 1 },
+  assets: [], events: []
+};
 
 describe("document imports", () => {
   it("composes only the selected worksheets", () => {
@@ -50,7 +64,10 @@ describe("document imports", () => {
       terminate() {}
     }
     vi.stubGlobal("Worker", DirectUploadWorker);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ assets: [{ mediaId: "00000000-0000-4000-8000-000000000001", displayPath: "imports/job/1.png" }] }), { status: 200 })));
+    vi.mocked(getDocumentImportStatus).mockResolvedValueOnce(emptyStatus).mockResolvedValueOnce({
+      ...emptyStatus,
+      assets: [{ image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", display_path: "imports/job/1.png" }]
+    });
     try {
       const file = { arrayBuffer: async () => new ArrayBuffer(8) } as File;
       const result = await materializeWordDocument(file, {
@@ -67,6 +84,60 @@ describe("document imports", () => {
       expect(result.bodyHtml).toContain('data-media-id="00000000-0000-4000-8000-000000000001"');
       expect(result.bodyHtml).toContain("https://project.example.test/storage/v1/object/public/public/imports/job/1.png");
       expect(result.bodyHtml).not.toContain("descript");
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousWorker) vi.stubGlobal("Worker", previousWorker);
+    }
+  });
+
+  it("waits for the main-thread upload and server registration before acknowledging the next Word image", async () => {
+    const previousWorker = globalThis.Worker;
+    const events: string[] = [];
+    const first = { id: "word-image-1", index: 1, hash: "a".repeat(64), mimeType: "image/png", extension: "png", original: new ArrayBuffer(4) };
+    const second = { id: "word-image-2", index: 2, hash: "b".repeat(64), mimeType: "image/png", extension: "png", original: new ArrayBuffer(6) };
+    class AckWorker {
+      onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      postMessage(message: Record<string, unknown>) {
+        if (message.type === "start") queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "image", image: first } })));
+        if (message.type === "ack" && message.id === first.id) {
+          events.push("ack-1");
+          expect(vi.mocked(uploadSupabaseTus)).toHaveBeenCalledTimes(1);
+          expect(vi.mocked(registerDocumentImportAsset)).toHaveBeenCalledTimes(1);
+          queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "image", image: second } })));
+        }
+        if (message.type === "ack" && message.id === second.id) {
+          events.push("ack-2");
+          queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html: '<p><img src="https://word-import.invalid/word-image-1"></p><p><img src="https://word-import.invalid/word-image-2"></p>', imageCount: 2, totalOriginalBytes: 10, warnings: [] } })));
+        }
+      }
+      terminate() {}
+    }
+    vi.stubGlobal("Worker", AckWorker);
+    vi.mocked(uploadSupabaseTus).mockImplementation(async (input) => {
+      input.onProgress?.({ loaded: input.file.size, total: input.file.size, retries: 0, resumed: false });
+      return { uploadUrl: "https://uploads.example.test/1", retries: 0, resumed: false };
+    });
+    vi.mocked(registerDocumentImportAsset).mockResolvedValue({ registered_assets: 1 });
+    vi.mocked(getDocumentImportStatus).mockResolvedValueOnce({ ...emptyStatus, job: { ...emptyStatus.job, expectedImages: 2 } }).mockResolvedValueOnce({
+      ...emptyStatus,
+      job: { ...emptyStatus.job, expectedImages: 2 },
+      assets: [
+        { image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", display_path: "imports/job/1.png" },
+        { image_index: 2, media_id: "00000000-0000-4000-8000-000000000002", display_path: "imports/job/2.png" }
+      ]
+    });
+    try {
+      const file = { name: "maps.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 8, arrayBuffer: async () => new ArrayBuffer(8) } as File;
+      const result = await materializeWordDocument(file, {
+        supabaseUrl: "https://project.example.test", publishableKey: "public-key", accessToken: "access-token", bucket: "public",
+        importId: "00000000-0000-4000-8000-000000000099", uploadPrefix: "imports/00000000-0000-4000-8000-000000000099", existingMediaCount: 0, expectedImages: 2
+      });
+      expect(events).toEqual(["ack-1", "ack-2"]);
+      expect(vi.mocked(uploadSupabaseTus)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(registerDocumentImportAsset).mock.calls.map((call) => call[1].imageIndex)).toEqual([1, 2]);
+      expect(result.uploadedImageCount).toBe(2);
+      expect((result.bodyHtml.match(/data-media-id/g) || [])).toHaveLength(2);
     } finally {
       vi.unstubAllGlobals();
       if (previousWorker) vi.stubGlobal("Worker", previousWorker);

@@ -4,6 +4,7 @@ import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
 
 type ImportAsset = {
   mediaId: string;
+  imageIndex: number;
   originalPath: string;
   displayPath: string;
   hash: string;
@@ -57,11 +58,25 @@ function assetIssues(value: unknown, importId: string) {
   const prefix = `imports/${importId}/`;
   const issues: string[] = [];
   if (!uuid.test(String(asset.mediaId || ""))) issues.push("media_id");
+  if (!Number.isInteger(Number(asset.imageIndex)) || Number(asset.imageIndex) < 1 || Number(asset.imageIndex) > 250) issues.push("image_index");
   if (!String(asset.originalPath || "").startsWith(prefix)) issues.push("original_path");
   if (!String(asset.displayPath || "").startsWith(prefix)) issues.push("display_path");
   if (!Number.isFinite(Number(asset.originalSize)) || Number(asset.originalSize) < 1) issues.push("original_size");
   if (!Number.isFinite(Number(asset.displaySize)) || Number(asset.displaySize) < 1) issues.push("display_size");
   return issues;
+}
+
+async function writeEvent(client: SupabaseClient, importId: string, input: {
+  phase: string; message: string; severity?: "info" | "warning" | "error"; imageIndex?: number;
+  bytesTotal?: number; bytesUploaded?: number; retryCount?: number; httpStatus?: number; errorCode?: string;
+  elapsedMs?: number; details?: Record<string, unknown>;
+}) {
+  await client.from("document_import_events").insert({
+    import_id: importId, image_index: input.imageIndex || null, phase: input.phase, message: input.message.slice(0, 1000),
+    severity: input.severity || "info", bytes_total: input.bytesTotal || null, bytes_uploaded: input.bytesUploaded || null,
+    retry_count: input.retryCount || 0, http_status: input.httpStatus || null, error_code: input.errorCode?.slice(0, 120) || null,
+    elapsed_ms: input.elapsedMs || null, details: input.details || {}
+  });
 }
 
 async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
@@ -72,12 +87,12 @@ async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
 
 async function registeredAssets(client: SupabaseClient, importId: string): Promise<ImportAsset[]> {
   const { data, error } = await client.from("document_import_assets")
-    .select("media_id, original_path, display_path, content_hash, original_mime_type, width, height, original_size_bytes, display_size_bytes, sort_order, title, alt_text")
+    .select("media_id, image_index, original_path, display_path, content_hash, original_mime_type, width, height, original_size_bytes, display_size_bytes, sort_order, title, alt_text")
     .eq("import_id", importId)
-    .order("sort_order");
+    .order("image_index");
   if (error) throw error;
   return (data || []).map((asset) => ({
-    mediaId: asset.media_id, originalPath: asset.original_path, displayPath: asset.display_path,
+    mediaId: asset.media_id, imageIndex: asset.image_index, originalPath: asset.original_path, displayPath: asset.display_path,
     hash: asset.content_hash || "", mimeType: asset.original_mime_type || "application/octet-stream",
     width: asset.width || 0, height: asset.height || 0, originalSize: Number(asset.original_size_bytes),
     displaySize: Number(asset.display_size_bytes), sortOrder: asset.sort_order, title: asset.title, altText: asset.alt_text
@@ -100,9 +115,21 @@ Deno.serve((request) => edgeHandler(request, async () => {
     if (content.version !== expectedVersion) return importError("start", "VERSION_CONFLICT", "资料已被修改，请重新载入后再导入。", 409);
     if (profile.role === "uploader" && (content.created_by !== user.id || content.status !== "draft")) return importError("start", "IMPORT_FORBIDDEN", "上传管理员只能导入自己的草稿。", 403);
     const id = crypto.randomUUID();
-    const { error: insertError } = await client.from("document_imports").insert({ id, content_id: contentId, created_by: user.id, expected_images: expectedImages, total_original_bytes: totalOriginalBytes });
+    const { error: insertError } = await client.from("document_imports").insert({ id, content_id: contentId, created_by: user.id, expected_images: expectedImages, total_original_bytes: totalOriginalBytes, source_file_name: String(body.sourceFileName || "").slice(0, 500) || null, source_file_size: Number(body.sourceFileSize || 0) || null });
     if (insertError) return importError("start", "IMPORT_JOB_CREATE_FAILED", "无法创建导入任务。", 400, { database_error: insertError.message.slice(0, 300) });
+    await writeEvent(client, id, { phase: "created", message: "已创建 Word 导入任务", bytesTotal: totalOriginalBytes, details: { expected_images: expectedImages, source_file_name: String(body.sourceFileName || "").slice(0, 500) } });
     return json({ id, uploadPrefix: `imports/${id}` });
+  }
+
+  if (action === "list") {
+    let query = client.from("document_imports")
+      .select("id, content_id, created_by, status, expected_images, total_original_bytes, source_file_name, source_file_size, error_message, created_at, updated_at")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (profile.role !== "super_admin") query = query.eq("created_by", user.id);
+    const { data, error } = await query;
+    if (error) return importError("list", "IMPORT_LIST_FAILED", "无法读取文档导入日志。", 400, { database_error: error.message.slice(0, 300) });
+    return json({ jobs: data || [] });
   }
 
   const importId = String(body.importId || "");
@@ -113,10 +140,26 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
   if (action === "cancel" || action === "fail") {
     const manifest = Array.isArray(body.manifest) ? body.manifest : job.manifest;
+    const registered = await registeredAssets(client, importId);
     await removeManifestFiles(client, manifest);
-    await removeManifestFiles(client, await registeredAssets(client, importId));
+    await removeManifestFiles(client, registered);
     const { error } = await client.from("document_imports").update({ status: action === "cancel" ? "cancelled" : "failed", manifest, error_message: String(body.error || "").slice(0, 2000) }).eq("id", importId);
     if (error) return importError(action, "IMPORT_CLEANUP_FAILED", "导入清理未完成，可在运行日志中查看详情。", 400, { import_id: importId, database_error: error.message.slice(0, 300) });
+    await writeEvent(client, importId, { phase: action === "cancel" ? "cancelled" : "failed", severity: action === "cancel" ? "warning" : "error", message: String(body.error || (action === "cancel" ? "管理员取消导入" : "导入失败")).slice(0, 1000), details: { removed_assets: registered.length } });
+    return json({ ok: true });
+  }
+
+  if (action === "status") {
+    const assets = await registeredAssets(client, importId);
+    const { data: events } = await client.from("document_import_events").select("*").eq("import_id", importId).order("created_at", { ascending: false }).limit(300);
+    return json({ job: { id: job.id, status: job.status, expectedImages: job.expected_images, sourceFileName: job.source_file_name, sourceFileSize: job.source_file_size, errorMessage: job.error_message }, assets, events: events || [] });
+  }
+
+  if (action === "event") {
+    const event = body.event && typeof body.event === "object" ? body.event as Record<string, unknown> : {};
+    const phase = String(event.phase || "failed");
+    if (!['parsed','uploading','resumed','retry','uploaded','registered','failed'].includes(phase)) return importError("event", "INVALID_IMPORT_EVENT", "导入事件阶段无效。", 400, { import_id: importId });
+    await writeEvent(client, importId, { phase, severity: event.severity === "warning" || event.severity === "error" ? event.severity : "info", message: String(event.message || "导入进度更新"), imageIndex: Number(event.imageIndex || 0) || undefined, bytesTotal: Number(event.bytesTotal || 0) || undefined, bytesUploaded: Number(event.bytesUploaded || 0) || undefined, retryCount: Number(event.retryCount || 0) || undefined, httpStatus: Number(event.httpStatus || 0) || undefined, errorCode: String(event.errorCode || "") || undefined, elapsedMs: Number(event.elapsedMs || 0) || undefined, details: event.details && typeof event.details === "object" ? event.details as Record<string, unknown> : {} });
     return json({ ok: true });
   }
 
@@ -134,16 +177,19 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const issues = assetIssues(asset, importId);
     if (issues.length) return importError("register", "INVALID_IMPORT_ASSET", "当前图片登记信息无效，已停止导入。", 400, { import_id: importId, issues });
     const item = asset as ImportAsset;
+    if (item.imageIndex > Number(job.expected_images)) return importError("register", "IMAGE_INDEX_OUT_OF_RANGE", "图片序号超出本次导入任务的范围。", 400, { import_id: importId, image_index: item.imageIndex, expected_images: job.expected_images });
     const expectedPaths = [...new Set([item.originalPath, item.displayPath])];
     const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", expectedPaths);
     if (storedError || stored?.length !== expectedPaths.length) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
     const { error: insertError } = await client.from("document_import_assets").upsert({
       import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
+      image_index: item.imageIndex,
       content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
       original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, sort_order: item.sortOrder,
       title: item.title, alt_text: item.altText
-    }, { onConflict: "import_id,media_id" });
+    }, { onConflict: "import_id,image_index" });
     if (insertError) return importError("register", "ASSET_REGISTRATION_FAILED", "当前图片无法登记到导入任务。", 400, { import_id: importId, image_order: item.sortOrder, database_error: insertError.message.slice(0, 300) });
+    await writeEvent(client, importId, { phase: "registered", message: `图片 ${item.imageIndex} 已上传并登记`, imageIndex: item.imageIndex, bytesTotal: item.originalSize, bytesUploaded: item.originalSize, details: { mime_type: item.mimeType, storage_path: item.displayPath } });
     const { count, error: countError } = await client.from("document_import_assets").select("media_id", { count: "exact", head: true }).eq("import_id", importId);
     if (countError) return importError("register", "ASSET_COUNT_FAILED", "图片已上传，但无法确认登记数量。", 500, { import_id: importId });
     return json({ registered_assets: count || 0 });
@@ -159,7 +205,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (job.status !== "uploading") return importError("finalize", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
   // Pixel dimensions and a SHA-256 are descriptive metadata. Reject only data
   // that could detach an uploaded object from this import task.
-  if (!assets.length || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
+  const expectedIndexes = Array.from({ length: Number(job.expected_images) }, (_, index) => index + 1);
+  const missingIndexes = expectedIndexes.filter((index) => !assets.some((asset) => asset.imageIndex === index));
+  if (assets.length !== Number(job.expected_images) || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length || missingIndexes.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，导入任务已保留，可重新选择同一份 Word 继续。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, missing_indexes: missingIndexes.slice(0, 20), invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
   const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath]))];
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
   const presentPaths = new Set((stored || []).map((item) => item.name));
@@ -184,5 +232,6 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const assetIds = assets.map((asset) => asset.mediaId);
   const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);
   if (countError || storedImages !== assets.length) return importError("finalize", "IMPORT_VERIFICATION_FAILED", "导入提交后的图片核对失败，请勿发布并查看运行日志。", 500, { import_id: importId, expected_images: assets.length, stored_images: storedImages || 0, body_figures: figureIds.length });
+  await writeEvent(client, importId, { phase: "finalized", message: `已提交正文和 ${storedImages} 张图片`, details: { body_figures: figureIds.length, stored_images: storedImages } });
   return json({ ...data, body_figures: figureIds.length, stored_images: storedImages });
 }));

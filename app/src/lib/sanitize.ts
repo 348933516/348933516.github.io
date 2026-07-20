@@ -12,6 +12,7 @@ const controlledAttributes: Record<string, Set<string>> = {
   "data-cell-border-style": new Set(["solid", "dashed", "dotted", "double", "groove", "ridge", "none"]),
   "data-cell-align": new Set(["left", "center", "right", "justify"]),
   "data-editor-image": new Set(["true"]),
+  "data-office-image-placeholder": new Set(Array.from({ length: 100 }, (_, index) => String(index + 1))),
   "data-placeholder": new Set(["图片说明"])
 };
 
@@ -89,7 +90,7 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
       "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id"
+      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-office-image-placeholder"
     ],
     ALLOW_DATA_ATTR: true
   });

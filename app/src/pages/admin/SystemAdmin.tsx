@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { publicMediaBucket } from "../../lib/config";
 import { randomId } from "../../lib/id";
+import { getDocumentImportStatus, listDocumentImports } from "../../lib/repository";
 import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
@@ -143,13 +144,14 @@ function UserDrawer({
 
 export function HistoryPage({ profile }: { profile: Profile }) {
   const client = useQueryClient();
-  const [tab, setTab] = useState<"revisions" | "audit" | "updates" | "runtime">("audit");
+  const [tab, setTab] = useState<"revisions" | "audit" | "updates" | "runtime" | "imports">("audit");
   const [query, setQuery] = useState("");
   const [action, setAction] = useState("all");
   const [date, setDate] = useState("");
   const [revision, setRevision] = useState<Record<string, unknown> | null>(null);
   const [message, setMessage] = useState("");
   const [errorState, setErrorState] = useState(false);
+  const [selectedImportId, setSelectedImportId] = useState("");
 
   const logs = useQuery({
     queryKey: ["audit-logs"],
@@ -186,6 +188,17 @@ export function HistoryPage({ profile }: { profile: Profile }) {
       return data || [];
     },
     enabled: profile.role !== "uploader"
+  });
+  const documentImports = useQuery({
+    queryKey: ["document-imports"],
+    queryFn: listDocumentImports,
+    enabled: profile.role !== "uploader"
+  });
+  const documentImportStatus = useQuery({
+    queryKey: ["document-import-status", selectedImportId],
+    queryFn: () => getDocumentImportStatus(selectedImportId),
+    enabled: Boolean(selectedImportId) && profile.role !== "uploader",
+    refetchInterval: (query) => query.state.data?.job.status === "uploading" ? 5_000 : false
   });
   const visibleLogs = useMemo(
     () => (logs.data || []).filter((row) => (action === "all" || String(row.action).toUpperCase() === action) && (!date || String(row.created_at).startsWith(date)) && (!query || `${row.action} ${row.entity_type} ${row.entity_id} ${JSON.stringify(row.metadata || {})}`.toLowerCase().includes(query.toLowerCase()))),
@@ -224,11 +237,12 @@ export function HistoryPage({ profile }: { profile: Profile }) {
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
       <header className="admin-page-heading"><div><span>REVISION & AUDIT</span><h1>日志中心</h1><p>查看内容版本、后台变更、版本更新和运行错误。</p></div></header>
-      <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button></div>
+      <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button><button className={tab === "imports" ? "active" : ""} onClick={() => setTab("imports")}><Upload />文档导入</button></div>
       {(tab === "audit" || tab === "runtime") && <div className="history-filters"><label className="search-control"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "audit" ? "搜索操作、记录 ID 或文件信息" : "搜索错误来源、消息或页面"} /></label>{tab === "audit" && <select value={action} onChange={(event) => setAction(event.target.value)}><option value="all">全部操作</option><option value="INSERT">新增</option><option value="UPDATE">更新</option><option value="DELETE">删除</option></select>}<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
       {tab === "revisions" && <section className="admin-panel"><div className="panel-heading"><div><h2>内容版本</h2><p>最近 100 个历史版本</p></div><FileClock /></div><div className="revision-list">{revisions.data?.map((row) => { const content = row.contents as unknown as { title: string; version: number } | null; return <button key={row.id} onClick={() => setRevision(row)}><RotateCcw /><div><strong>{content?.title || row.content_id}</strong><span>历史 v{row.version} · 当前 v{content?.version || "-"}</span></div><time>{formatDate(row.created_at)}</time><Eye /></button>; })}{!revisions.data?.length && <AdminEmpty title="暂无历史版本" />}</div></section>}
       {tab === "audit" && <section className="admin-panel"><div className="panel-heading"><div><h2>操作日志</h2><p>记录资料、媒体、账号和设置的变更。</p></div><Activity /></div><div className="audit-list detailed-audit-list">{visibleLogs.map((log) => <details key={log.id}><summary><span className="activity-dot" /><div><strong>{auditText(String(log.action))} · {String(log.entity_type)}</strong><span>{String((log.metadata as Record<string, unknown>)?.title || log.entity_id)}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>记录 ID：{String(log.entity_id)}</span><span>字段：{String(((log.metadata as Record<string, unknown>)?.changed_fields as string[] || []).join("、") || "新增或删除")}</span><span>媒体：{String((log.metadata as Record<string, unknown>)?.kind || "-")} · {String((log.metadata as Record<string, unknown>)?.mime_type || "-")} · {formatBytes(Number((log.metadata as Record<string, unknown>)?.size_bytes || 0))}</span></div></details>)}{!visibleLogs.length && <AdminEmpty title="没有符合条件的日志" />}</div></section>}
       {tab === "updates" && <ReleaseNotesPanel profile={profile} rows={updates.data || []} onSaved={() => client.invalidateQueries({ queryKey: ["release-notes"] })} />}
+      {tab === "imports" && <section className="admin-panel"><div className="panel-heading"><div><h2>文档导入</h2><p>逐图解析、TUS 上传、服务端登记和提交记录。</p></div><Upload /></div><div className="runtime-log-list">{documentImports.data?.jobs.map((job) => <details key={job.id} open={selectedImportId === job.id}><summary onClick={() => setSelectedImportId(job.id)}><span className={`runtime-severity ${job.status === "failed" ? "error" : job.status === "uploading" ? "warning" : "info"}`} /><div><strong>{job.source_file_name || "Word 导入"} · {job.status}</strong><span>{job.expected_images} 张图片 · {formatBytes(Number(job.total_original_bytes || 0))}</span></div><time>{formatDate(job.created_at)}</time></summary>{selectedImportId === job.id && <div className="audit-detail"><span>任务 ID：{job.id}</span><span>已登记：{documentImportStatus.data?.assets.length ?? "-"}/{job.expected_images}</span>{job.error_message && <span>错误：{job.error_message}</span>}<div className="runtime-log-list">{documentImportStatus.data?.events.map((event) => <details key={event.id}><summary><span className={`runtime-severity ${event.severity}`} /><div><strong>图片 {event.image_index || "-"} · {event.phase}</strong><span>{event.message}</span></div><time>{formatDate(event.created_at)}</time></summary><div className="audit-detail"><span>上传：{formatBytes(Number(event.bytes_uploaded || 0))}/{formatBytes(Number(event.bytes_total || 0))}</span><span>重试：{event.retry_count || 0}{event.http_status ? ` · HTTP ${event.http_status}` : ""}{event.error_code ? ` · ${event.error_code}` : ""}</span>{event.details && Object.keys(event.details).length > 0 && <pre>{JSON.stringify(event.details, null, 2)}</pre>}</div></details>)}{documentImportStatus.isLoading && <AdminLoading label="正在读取逐图导入日志" />}</div></div>}</details>)}{!documentImports.data?.jobs.length && <AdminEmpty title="暂无文档导入任务" />}</div></section>}
       {tab === "runtime" && <section className="admin-panel"><div className="panel-heading"><div><h2>运行日志</h2><p>导入、上传、播放器和前端异常。</p></div><ShieldCheck /></div><div className="runtime-log-list">{visibleRuntime.map((log) => <details className={log.resolved_at ? "resolved" : ""} key={log.id}><summary><span className={`runtime-severity ${log.severity}`} /><div><strong>{String(log.source)} · {String(log.message)}</strong><span>{String(log.route || "-")}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>版本：{String(log.app_version || "-")}</span><span>状态：{log.resolved_at ? `已处理 · ${formatDate(log.resolved_at)}` : "未处理"}</span>{log.context && Object.keys(log.context as Record<string, unknown>).length > 0 && <pre>{JSON.stringify(log.context, null, 2)}</pre>}{log.stack && <pre>{String(log.stack)}</pre>}{profile.role === "super_admin" && !log.resolved_at && <button className="button quiet" onClick={() => resolveRuntime(Number(log.id))}><CheckCircle2 />标记已处理</button>}</div></details>)}{!visibleRuntime.length && <AdminEmpty title="暂无运行错误" />}</div></section>}
       {revision && <RevisionDrawer row={revision} canRestore={profile.role === "super_admin" || profile.role === "editor"} onRestore={() => restore(revision)} onClose={() => setRevision(null)} />}
     </div>

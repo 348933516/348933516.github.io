@@ -44,7 +44,7 @@ function wrapChildren(element: HTMLElement, tagName: string) {
   element.append(wrapper);
 }
 
-export function normalizeOfficeClipboardHtml(value: string) {
+export function normalizeOfficeClipboardHtml(value: string, options: { preserveClipboardImageSlots?: boolean } = {}) {
   const document = new DOMParser().parseFromString(value, "text/html");
   document.querySelectorAll("script,style,meta,link,object,embed,iframe").forEach((element) => element.remove());
   document.querySelectorAll<HTMLElement>("b").forEach((element) => renameElement(element, "strong"));
@@ -83,8 +83,15 @@ export function normalizeOfficeClipboardHtml(value: string) {
     });
   });
 
+  let imageIndex = 0;
   document.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-    if (!/^https:\/\//i.test(image.src)) image.remove();
+    if (/^https:\/\//i.test(image.src)) return;
+    if (!options.preserveClipboardImageSlots) return image.remove();
+    imageIndex += 1;
+    const slot = document.createElement("span");
+    slot.setAttribute("data-office-image-placeholder", String(imageIndex));
+    slot.textContent = `[图片 ${imageIndex} 上传中]`;
+    image.replaceWith(slot);
   });
   return sanitizeHtml(document.body.innerHTML);
 }

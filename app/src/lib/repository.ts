@@ -537,6 +537,7 @@ export async function saveContent(draft: ContentDraft, userId: string) {
 
 export interface DocumentImportAsset {
   mediaId: string;
+  imageIndex: number;
   originalPath: string;
   displayPath: string;
   hash: string;
@@ -555,7 +556,27 @@ export interface DocumentImportJob {
   uploadPrefix: string;
 }
 
-export type DocumentImportStage = "start" | "register" | "finalize" | "fail" | "cancel";
+export interface DocumentImportListItem {
+  id: string;
+  content_id: string;
+  created_by: string;
+  status: "uploading" | "completed" | "failed" | "cancelled";
+  expected_images: number;
+  total_original_bytes: number;
+  source_file_name?: string | null;
+  source_file_size?: number | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentImportStatus {
+  job: { id: string; status: "uploading" | "completed" | "failed" | "cancelled"; expectedImages: number; sourceFileName?: string | null; sourceFileSize?: number | null; errorMessage?: string | null };
+  assets: Array<{ image_index: number; media_id: string; display_path: string; original_path?: string; sort_order?: number }>;
+  events: Array<{ id: number; image_index?: number | null; severity: "info" | "warning" | "error"; phase: string; message: string; bytes_total?: number | null; bytes_uploaded?: number | null; retry_count?: number; http_status?: number | null; error_code?: string | null; elapsed_ms?: number | null; details?: Record<string, unknown>; created_at: string }>;
+}
+
+export type DocumentImportStage = "start" | "list" | "register" | "status" | "event" | "finalize" | "fail" | "cancel";
 
 export class DocumentImportError extends Error {
   readonly stage: DocumentImportStage;
@@ -587,7 +608,7 @@ async function functionErrorPayload(error: unknown) {
 }
 
 async function invokeDocumentImport<T>(body: Record<string, unknown>) {
-  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
+  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "status" ? "status" : body.action === "event" ? "event" : body.action === "list" ? "list" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
   const { data, error } = await supabase.functions.invoke("document-import", { body });
   if (error || data?.error) {
     const response = error ? await functionErrorPayload(error) : { status: null, payload: {} as Record<string, unknown> };
@@ -603,12 +624,24 @@ async function invokeDocumentImport<T>(body: Record<string, unknown>) {
   return data as T;
 }
 
-export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number }) {
+export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number; sourceFileName?: string; sourceFileSize?: number }) {
   return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
 }
 
 export function registerDocumentImportAsset(importId: string, asset: DocumentImportAsset) {
   return invokeDocumentImport<{ registered_assets: number }>({ action: "register", importId, asset });
+}
+
+export function getDocumentImportStatus(importId: string) {
+  return invokeDocumentImport<DocumentImportStatus>({ action: "status", importId });
+}
+
+export function listDocumentImports() {
+  return invokeDocumentImport<{ jobs: DocumentImportListItem[] }>({ action: "list" });
+}
+
+export function logDocumentImportEvent(importId: string, event: Record<string, unknown>) {
+  return invokeDocumentImport<{ ok: boolean }>({ action: "event", importId, event });
 }
 
 export function finalizeDocumentImport(input: { importId: string; expectedVersion: number; bodyHtml: string; sourceRecord: string }) {
