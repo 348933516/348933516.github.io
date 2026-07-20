@@ -121,6 +121,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   if (action === "manifest") {
+    // Browser Worker messages are only progress signals. The registered rows
+    // are the authoritative mapping used to safely assemble the final body.
     if (job.status !== "uploading") return importError("manifest", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
     const assets = await registeredAssets(client, importId);
     return json({ assets });
