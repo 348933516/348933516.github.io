@@ -103,7 +103,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
   if (action !== "finalize") return importError("unknown", "UNSUPPORTED_IMPORT_ACTION", "不支持的导入操作。", 400);
   const assets = Array.isArray(body.assets) ? body.assets : [];
-  if (job.status !== "uploading" || assets.length !== job.expected_images || !assets.every((asset) => validAsset(asset, importId))) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
+  const invalidAssetIndexes = assets.flatMap((asset, index) => validAsset(asset, importId) ? [] : [index + 1]);
+  const uniqueMediaIds = new Set(assets.map((asset) => validAsset(asset, importId) ? asset.mediaId.toLowerCase() : ""));
+  if (job.status !== "uploading") return importError("finalize", "IMPORT_NOT_UPLOADABLE", "导入任务已结束或被取消，请重新开始导入。", 400, { import_id: importId, import_status: job.status });
+  // The fully validated manifest is authoritative: Word preview and extraction can enumerate images differently.
+  if (!assets.length || assets.length > 250 || invalidAssetIndexes.length || uniqueMediaIds.size !== assets.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，已取消本次导入。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, invalid_asset_indexes: invalidAssetIndexes.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
   const paths = assets.flatMap((asset) => [asset.originalPath, asset.displayPath]);
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
   const presentPaths = new Set((stored || []).map((item) => item.name));
