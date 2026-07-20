@@ -1,5 +1,8 @@
 import mammoth from "mammoth";
 import { documentImportResponseMessage } from "./documentImportResponse";
+import { uploadResumableObject } from "./resumableUpload";
+
+const resumableUploadThreshold = 6 * 1024 * 1024;
 
 type UploadSession = {
   supabaseUrl: string;
@@ -66,19 +69,31 @@ async function uploadAndRegisterImage(original: ArrayBuffer, input: { id: string
     altText: `图片 ${input.index}`
   };
   const objectPath = originalPath.split("/").map(encodeURIComponent).join("/");
-  const stored = await requestWithRetry(`${upload.supabaseUrl}/storage/v1/object/${upload.bucket}/${objectPath}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${upload.accessToken}`,
-      apikey: upload.publishableKey,
-      "Content-Type": input.mimeType,
-      "x-upsert": "false"
-    },
-    body: original
-  });
-  if (!stored.ok) {
-    const message = await documentImportResponseMessage(stored);
-    if (!/duplicate|already exists|resource exists/i.test(message)) throw new Error(`图片 ${input.index} 上传失败：${message}`);
+  if (original.byteLength > resumableUploadThreshold) {
+    await uploadResumableObject({
+      endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
+      accessToken: upload.accessToken,
+      publishableKey: upload.publishableKey,
+      bucket: upload.bucket,
+      objectPath: originalPath,
+      contentType: input.mimeType,
+      data: original
+    });
+  } else {
+    const stored = await requestWithRetry(`${upload.supabaseUrl}/storage/v1/object/${upload.bucket}/${objectPath}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${upload.accessToken}`,
+        apikey: upload.publishableKey,
+        "Content-Type": input.mimeType,
+        "x-upsert": "false"
+      },
+      body: original
+    });
+    if (!stored.ok) {
+      const message = await documentImportResponseMessage(stored);
+      if (!/duplicate|already exists|resource exists/i.test(message)) throw new Error(`图片 ${input.index} 上传失败：${message}`);
+    }
   }
 
   let registered: Response;
