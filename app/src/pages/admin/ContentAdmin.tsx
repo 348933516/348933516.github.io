@@ -8,8 +8,8 @@ import {
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { RichContent } from "../../components/RichContent";
 import { VideoPlayer } from "../../components/VideoPlayer";
-import { privateMediaBucket, publicMediaBucket } from "../../lib/config";
-import type { ExtractedWordImage, ImportPreview, WorksheetPreview } from "../../lib/documents";
+import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
+import type { ExtractedWordImage, ImportPreview, WorksheetPreview, WordUploadSession } from "../../lib/documents";
 import { randomId } from "../../lib/id";
 import {
   batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport, registerDocumentImportAsset,
@@ -232,18 +232,27 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         wordJob = await startDocumentImport({ contentId: id, expectedVersion: draft.version, expectedImages: wordImages.count, totalOriginalBytes: wordImages.totalOriginalBytes });
         setImportJobId(wordJob.id);
         activeDocumentImport.current = { id: wordJob.id, assets: [] };
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) throw new Error("登录已过期，请重新登录后再导入。");
+        const uploadSession: WordUploadSession = {
+          supabaseUrl,
+          publishableKey: supabasePublishableKey,
+          accessToken,
+          bucket: publicMediaBucket,
+          importId: wordJob.id,
+          uploadPrefix: wordJob.uploadPrefix,
+          existingMediaCount: content.data?.media.length || 0
+        };
         const { materializeWordDocument } = await import("../../lib/documents");
-        const materializedWord = await materializeWordDocument(
-          sourceFile,
-          async (image) => {
-            return uploadWordImage(image, wordImages.count, wordJob!);
-          },
-          (current) => notify(`正在无损处理 Word 图片 ${current}/${wordImages.count}`)
-        );
+        const materializedWord = await materializeWordDocument(sourceFile, uploadSession, (current) => {
+          changeImportStage("upload-original");
+          setImportProgress(Math.round((current / wordImages.count) * 100));
+          notify(`正在直传 Word 图片 ${current}/${wordImages.count}`);
+        });
         importedBody = materializedWord;
-        const uploadedAssets = activeDocumentImport.current?.assets || [];
-        if (materializedWord.imageCount !== wordImages.count || uploadedAssets.length !== wordImages.count) {
-          throw new Error(`Word 图片处理未完成：识别 ${wordImages.count} 张，正文生成 ${materializedWord.imageCount} 张，已上传 ${uploadedAssets.length} 张。`);
+        if (materializedWord.imageCount !== wordImages.count || materializedWord.uploadedImageCount !== wordImages.count) {
+          throw new Error(`Word 图片处理未完成：识别 ${wordImages.count} 张，正文生成 ${materializedWord.imageCount} 张，已上传 ${materializedWord.uploadedImageCount} 张。`);
         }
       }
       setImportBackup(draft);

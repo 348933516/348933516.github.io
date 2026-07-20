@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { composeWorksheetImport, prepareWordHtml, readDocument, type WorksheetPreview } from "./documents";
+import { describe, expect, it, vi } from "vitest";
+import { composeWorksheetImport, materializeWordDocument, prepareWordHtml, readDocument, type WorksheetPreview } from "./documents";
 
 describe("document imports", () => {
   it("composes only the selected worksheets", () => {
@@ -36,6 +36,40 @@ describe("document imports", () => {
     expect((result.match(/<img\b/g) || [])).toHaveLength(98);
     expect(result).not.toContain("descript");
     expect(result).not.toContain("word-image-placeholder");
+  });
+
+  it("maps Worker-direct uploads into the final Word body without transferring image bytes to the page", async () => {
+    const previousWorker = globalThis.Worker;
+    class DirectUploadWorker {
+      onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      postMessage(message: Record<string, unknown>) {
+        if (message.type !== "start") return;
+        queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "asset", asset: { id: "word-image-1", mediaId: "00000000-0000-4000-8000-000000000001", displayUrl: "https://cdn.example.test/imports/1.png" } } })));
+        queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html: '<p><img src="https://word-import.invalid/word-image-1" alt="descript"></p>', imageCount: 1, totalOriginalBytes: 1024, warnings: [] } })));
+      }
+      terminate() {}
+    }
+    vi.stubGlobal("Worker", DirectUploadWorker);
+    try {
+      const file = { arrayBuffer: async () => new ArrayBuffer(8) } as File;
+      const result = await materializeWordDocument(file, {
+        supabaseUrl: "https://project.example.test",
+        publishableKey: "public-key",
+        accessToken: "access-token",
+        bucket: "public",
+        importId: "00000000-0000-4000-8000-000000000099",
+        uploadPrefix: "imports/00000000-0000-4000-8000-000000000099",
+        existingMediaCount: 0
+      });
+      expect(result.uploadedImageCount).toBe(1);
+      expect(result.bodyHtml).toContain('data-media-id="00000000-0000-4000-8000-000000000001"');
+      expect(result.bodyHtml).toContain("https://cdn.example.test/imports/1.png");
+      expect(result.bodyHtml).not.toContain("descript");
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousWorker) vi.stubGlobal("Worker", previousWorker);
+    }
   });
 
   it("reads xlsx sheets, merged cells and controlled formatting", async () => {

@@ -39,6 +39,16 @@ export interface UploadedWordImage {
   displayUrl: string;
 }
 
+export interface WordUploadSession {
+  supabaseUrl: string;
+  publishableKey: string;
+  accessToken: string;
+  bucket: string;
+  importId: string;
+  uploadPrefix: string;
+  existingMediaCount: number;
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
 }
@@ -81,11 +91,12 @@ export async function readDocument(file: File): Promise<ImportPreview> {
   return { kind: "document", title: file.name.replace(/\.[^.]+$/, ""), bodyHtml, bodyText: new DOMParser().parseFromString(bodyHtml, "text/html").body.textContent || bodyText, images: [], source: file.name };
 }
 
-type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[] };
+type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[]; uploadedImages: UploadedWordImage[] };
 
-function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void) {
+function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void, upload?: WordUploadSession) {
   return new Promise<WordWorkerResult>(async (resolve, reject) => {
     const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
+    const uploadedImages: UploadedWordImage[] = [];
     let settled = false;
     const finish = (action: () => void) => {
       if (settled) return;
@@ -101,18 +112,20 @@ function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image
         return;
       }
       if (message.type === "asset") {
+        uploadedImages.push(message.asset as unknown as UploadedWordImage);
+        return;
         if (!onImage) return finish(() => reject(new Error("Word 图片上传接口未配置")));
-        void onImage(message.asset as unknown as ExtractedWordImage).then(() => {
+        void onImage!(message.asset as unknown as ExtractedWordImage).then(() => {
           worker.postMessage({ type: "ack", id: (message.asset as unknown as ExtractedWordImage).id });
         }).catch((error) => finish(() => reject(error)));
         return;
       }
       if (message.type === "error") return finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
-      if (message.type === "complete") finish(() => resolve(message as unknown as WordWorkerResult));
+      if (message.type === "complete") finish(() => resolve({ ...(message as unknown as WordWorkerResult), uploadedImages }));
     };
     try {
       const buffer = await file.arrayBuffer();
-      worker.postMessage({ type: "start", mode, buffer }, [buffer]);
+      worker.postMessage({ type: "start", mode, buffer, upload }, [buffer]);
     } catch (error) {
       finish(() => reject(error));
     }
@@ -144,18 +157,15 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
   return sanitizeHtml(document.body.innerHTML);
 }
 
-export async function materializeWordDocument(file: File, onImage: (image: ExtractedWordImage) => Promise<UploadedWordImage>, onProgress?: (current: number) => void) {
-  const uploaded = new Map<string, UploadedWordImage>();
-  const result = await runWordWorker(file, "extract", async (image) => {
-    const stored = await onImage(image);
-    uploaded.set(image.id, stored);
-    return stored;
-  }, onProgress);
+export async function materializeWordDocument(file: File, upload: WordUploadSession, onProgress?: (current: number) => void) {
+  const result = await runWordWorker(file, "extract", undefined, onProgress, upload);
+  const uploaded = new Map(result.uploadedImages.map((image) => [image.id, image]));
   return {
     bodyHtml: prepareWordHtml(result.html, uploaded),
     bodyText: new DOMParser().parseFromString(result.html, "text/html").body.textContent || "",
     imageCount: result.imageCount,
-    totalOriginalBytes: result.totalOriginalBytes
+    totalOriginalBytes: result.totalOriginalBytes,
+    uploadedImageCount: result.uploadedImages.length
   };
 }
 
