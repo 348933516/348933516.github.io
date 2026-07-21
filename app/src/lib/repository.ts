@@ -584,7 +584,7 @@ export interface DocumentImportStatusAsset {
   sort_order: number;
 }
 
-export type DocumentImportStage = "start" | "list" | "register" | "status" | "event" | "finalize" | "fail" | "cancel";
+export type DocumentImportStage = "start" | "list" | "register" | "status" | "retry" | "event" | "finalize" | "fail" | "cancel";
 
 export class DocumentImportError extends Error {
   readonly stage: DocumentImportStage;
@@ -616,17 +616,19 @@ async function functionErrorPayload(error: unknown) {
 }
 
 async function invokeDocumentImport<T>(body: Record<string, unknown>) {
-  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "status" ? "status" : body.action === "event" ? "event" : body.action === "list" ? "list" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
+  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "status" ? "status" : body.action === "retry" ? "retry" : body.action === "event" ? "event" : body.action === "list" ? "list" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
   const { data, error } = await supabase.functions.invoke("document-import", { body });
   if (error || data?.error) {
     const response = error ? await functionErrorPayload(error) : { status: null, payload: {} as Record<string, unknown> };
     const payload = { ...response.payload, ...(data && typeof data === "object" ? data as Record<string, unknown> : {}) };
     const code = typeof payload.code === "string" ? payload.code : null;
-    const message = code === "VERSION_CONFLICT"
+    const summary = code === "VERSION_CONFLICT"
       ? "VERSION_CONFLICT"
       : typeof payload.error === "string" && payload.error.trim()
         ? payload.error
         : error?.message || "Document import failed";
+    const databaseError = typeof payload.database_error === "string" ? payload.database_error.trim().slice(0, 1000) : "";
+    const message = databaseError && !summary.includes(databaseError) ? `${summary}（数据库：${databaseError}）` : summary;
     throw new DocumentImportError({ stage, message, status: response.status, code, details: payload });
   }
   return data as T;
@@ -687,6 +689,10 @@ function invalidDocumentImportManifest(importId: string, invalidAssetIndexes: nu
 
 export function listDocumentImports() {
   return invokeDocumentImport<{ jobs: DocumentImportListItem[] }>({ action: "list" });
+}
+
+export function retryDocumentImport(importId: string) {
+  return invokeDocumentImport<{ ok: boolean; registered_assets: number }>({ action: "retry", importId });
 }
 
 export function logDocumentImportEvent(importId: string, event: Record<string, unknown>) {

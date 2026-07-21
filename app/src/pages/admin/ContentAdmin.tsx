@@ -13,7 +13,8 @@ import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSes
 import { randomId } from "../../lib/id";
 import {
   batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport,
-  getDocumentImportStatus, loadAdminContent, loadAdminContentList, logDocumentImportEvent, publishContent, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
+  getDocumentImportStatus, listDocumentImports, loadAdminContent, loadAdminContentList, logDocumentImportEvent, publishContent,
+  retryDocumentImport, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
@@ -171,7 +172,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
   const importErrorMessage = (error: unknown) => {
     if (!(error instanceof DocumentImportError)) return messageOf(error, "导入或原文件上传失败");
-    const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", list: "读取导入任务", register: "登记已上传图片", status: "读取导入状态", event: "记录导入事件", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
+    const stageText: Record<DocumentImportStage, string> = { start: "创建导入任务", list: "读取导入任务", register: "登记已上传图片", status: "读取导入状态", retry: "恢复导入任务", event: "记录导入事件", finalize: "核验并提交图片", fail: "清理导入文件", cancel: "取消导入" };
     const status = error.status ? `（HTTP ${error.status}）` : "";
     if (error.code === "IMPORT_MANIFEST_INCOMPLETE") {
       const invalid = Array.isArray(error.details.invalid_asset_indexes) ? error.details.invalid_asset_indexes.join("、") : "";
@@ -209,15 +210,29 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       let importedBody = imported;
       if (sourceFile?.name.toLowerCase().endsWith(".docx") && wordImages?.count) {
         if (!draft.version) throw new Error("资料版本缺失，请重新打开编辑器后导入");
-        const savedResume = (() => {
+        let savedResume = (() => {
           try { return JSON.parse(sessionStorage.getItem(documentResumeKey) || "null") as { id?: string; fileName?: string; fileSize?: number; expectedImages?: number; uploadPrefix?: string; version?: number } | null; } catch { return null; }
         })();
+        if (!savedResume?.id) {
+          const { jobs } = await listDocumentImports();
+          const candidate = jobs.find((job) => job.content_id === id
+            && job.source_file_name === sourceFile.name
+            && Number(job.source_file_size) === sourceFile.size
+            && Number(job.expected_images) === wordImages.count
+            && (job.status === "uploading" || job.status === "failed"));
+          if (candidate) {
+            savedResume = { id: candidate.id, fileName: sourceFile.name, fileSize: sourceFile.size, expectedImages: wordImages.count, uploadPrefix: `imports/${candidate.id}`, version: draft.version };
+            sessionStorage.setItem(documentResumeKey, JSON.stringify(savedResume));
+          }
+        }
         if (savedResume?.id && savedResume.fileName === sourceFile.name && savedResume.fileSize === sourceFile.size && savedResume.expectedImages === wordImages.count && savedResume.version === draft.version) {
           const resumeStatus = await getDocumentImportStatus(savedResume.id);
-          if (resumeStatus.job.status === "uploading") {
+          const retryingCommit = resumeStatus.job.status === "failed" && resumeStatus.assets.length === wordImages.count;
+          if (retryingCommit) await retryDocumentImport(savedResume.id);
+          if (resumeStatus.job.status === "uploading" || retryingCommit) {
             wordJob = { id: savedResume.id, uploadPrefix: savedResume.uploadPrefix || `imports/${savedResume.id}` };
             registeredImagesRef.current = resumeStatus.assets.length; setRegisteredImages(resumeStatus.assets.length);
-            notify(`继续导入任务：已安全登记 ${resumeStatus.assets.length}/${wordImages.count} 张图片。`);
+            notify(`${retryingCommit ? "正在重试数据库提交" : "继续导入任务"}：已安全登记 ${resumeStatus.assets.length}/${wordImages.count} 张图片，无需重新上传。`);
           } else {
             sessionStorage.removeItem(documentResumeKey);
           }
@@ -301,7 +316,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       });
       const details = error instanceof DocumentImportError ? error.details : {};
       setImportFailure(failureMessage);
-      void reportRuntimeLog({ source: "document-import", message: failureMessage, error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count, importJobId: error instanceof DocumentImportError ? String(details.import_id || importJobId) : importJobId, importStage: error instanceof DocumentImportError ? error.stage : importStageRef.current, httpStatus: error instanceof DocumentImportError ? error.status : null, errorCode: error instanceof DocumentImportError ? error.code : null, missingCount: Number(details.missing_count || 0), invalidAssetIndexes: Array.isArray(details.invalid_asset_indexes) ? details.invalid_asset_indexes.join(",") : "", manifestDiagnostics: Array.isArray(details.invalid_assets) ? JSON.stringify(details.invalid_assets).slice(0, 500) : "", uploadedImages } });
+      void reportRuntimeLog({ source: "document-import", message: failureMessage, error, context: { contentId: id, fileName: sourceFile?.name, imageCount: wordImages?.count, importJobId: error instanceof DocumentImportError ? String(details.import_id || importJobId) : importJobId, importStage: error instanceof DocumentImportError ? error.stage : importStageRef.current, httpStatus: error instanceof DocumentImportError ? error.status : null, errorCode: error instanceof DocumentImportError ? error.code : null, databaseError: typeof details.database_error === "string" ? details.database_error.slice(0, 1500) : "", missingCount: Number(details.missing_count || 0), invalidAssetIndexes: Array.isArray(details.invalid_asset_indexes) ? details.invalid_asset_indexes.join(",") : "", manifestDiagnostics: Array.isArray(details.invalid_assets) ? JSON.stringify(details.invalid_assets).slice(0, 500) : "", uploadedImages } });
       notify(failureMessage, true);
     }
     finally { setImporting(false); setImportProgress(0); }

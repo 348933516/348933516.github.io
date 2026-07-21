@@ -155,6 +155,21 @@ Deno.serve((request) => edgeHandler(request, async () => {
     return json({ job: { id: job.id, status: job.status, expectedImages: job.expected_images, sourceFileName: job.source_file_name, sourceFileSize: job.source_file_size, errorMessage: job.error_message }, assets, events: events || [] });
   }
 
+  if (action === "retry") {
+    const assets = await registeredAssets(client, importId);
+    if (job.status === "completed" || job.status === "cancelled") return importError("retry", "IMPORT_NOT_RETRYABLE", "该导入任务已经结束，不能重新提交。", 400, { import_id: importId, import_status: job.status });
+    if (assets.length !== Number(job.expected_images)) return importError("retry", "IMPORT_MANIFEST_INCOMPLETE", "已登记图片数量不完整，不能直接重试提交。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
+    const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath]))];
+    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
+    const presentPaths = new Set((stored || []).map((item) => item.name));
+    const missingPaths = paths.filter((path) => !presentPaths.has(path));
+    if (storedError || missingPaths.length) return importError("retry", "STORAGE_OBJECTS_MISSING", "部分已登记图片不在存储中，不能直接重试提交。", 400, { import_id: importId, missing_count: missingPaths.length, missing_paths: missingPaths.slice(0, 5) });
+    const { error: retryError } = await client.from("document_imports").update({ status: "uploading", error_message: null }).eq("id", importId);
+    if (retryError) return importError("retry", "IMPORT_RETRY_FAILED", "无法恢复导入任务。", 400, { import_id: importId, database_error: retryError.message.slice(0, 500) });
+    await writeEvent(client, importId, { phase: "status", message: `已保留并恢复 ${assets.length} 张图片，准备重新提交正文`, details: { registered_assets: assets.length } });
+    return json({ ok: true, registered_assets: assets.length });
+  }
+
   if (action === "event") {
     const event = body.event && typeof body.event === "object" ? body.event as Record<string, unknown> : {};
     const phase = String(event.phase || "failed");
@@ -226,8 +241,10 @@ Deno.serve((request) => edgeHandler(request, async () => {
     p_body_html: cleaned, p_body_text: text, p_source_record: String(body.sourceRecord || "").slice(0, 20000), p_manifest: assets
   }).single();
   if (error) {
-    await client.from("document_imports").update({ status: "failed", manifest: assets, error_message: error.message.slice(0, 2000) }).eq("id", importId);
-    return importError("finalize", error.message.includes("VERSION_CONFLICT") ? "VERSION_CONFLICT" : "IMPORT_COMMIT_FAILED", error.message.includes("VERSION_CONFLICT") ? "资料已被修改，请重新载入后再导入。" : "图片已上传，但数据库提交失败，临时文件将自动清理。", error.message.includes("VERSION_CONFLICT") ? 409 : 400, { import_id: importId, database_error: error.message.slice(0, 500) });
+    const databaseError = [error.code, error.message, error.details, error.hint].filter(Boolean).join(" | ").slice(0, 1500);
+    await client.from("document_imports").update({ status: "failed", manifest: assets, error_message: databaseError }).eq("id", importId);
+    await writeEvent(client, importId, { phase: "failed", severity: "error", message: "数据库最终提交失败，已保留全部图片，可直接重试", errorCode: String(error.code || "IMPORT_COMMIT_FAILED"), details: { database_error: databaseError } });
+    return importError("finalize", error.message.includes("VERSION_CONFLICT") ? "VERSION_CONFLICT" : "IMPORT_COMMIT_FAILED", error.message.includes("VERSION_CONFLICT") ? "资料已被修改，请重新载入后再导入。" : "图片已上传并保留，但数据库提交失败；无需重新上传，可直接重试。", error.message.includes("VERSION_CONFLICT") ? 409 : 400, { import_id: importId, database_error: databaseError, registered_assets: assets.length });
   }
   const assetIds = assets.map((asset) => asset.mediaId);
   const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);

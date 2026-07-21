@@ -10,6 +10,7 @@ const removeStockMedia = fs.readFileSync(path.resolve(process.cwd(), "supabase/m
 const mediaAndPublicQueries = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720160000_media_documents_public_queries.sql"), "utf8");
 const documentImports = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720190000_document_import_jobs.sql"), "utf8");
 const allowOriginalWordImageDisplay = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721030000_allow_original_word_image_display.sql"), "utf8");
+const documentImportFinalizeDiagnostics = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721120000_document_import_finalize_diagnostics.sql"), "utf8");
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
@@ -80,6 +81,11 @@ describe("Supabase security migration", () => {
     expect(documentImportFunction).toContain("STORAGE_OBJECTS_MISSING");
     expect(documentImportFunction).toContain("BODY_IMAGE_MAPPING_MISMATCH");
     expect(documentImportFunction).toContain("IMPORT_VERIFICATION_FAILED");
+    expect(documentImportFunction).toContain('action === "retry"');
+    expect(documentImportFunction).toContain("databaseError");
+    expect(documentImportFinalizeDiagnostics).toContain("on conflict (id) do update");
+    expect(documentImportFinalizeDiagnostics).toContain("IMPORT_MEDIA_INSERT_FAILED");
+    expect(documentImportFinalizeDiagnostics).toContain("IMPORT_CONTENT_UPDATE_FAILED");
   });
 
   it("removes the legacy path inequality constraint before original Word images are registered", () => {
