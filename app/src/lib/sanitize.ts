@@ -17,6 +17,23 @@ const controlledAttributes: Record<string, Set<string>> = {
 };
 
 DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName === "data-original-src") {
+    if (!/^https:\/\/[^\s]+$/i.test(data.attrValue)) data.keepAttr = false;
+    return;
+  }
+  if (data.attrName === "srcset") {
+    const candidates = data.attrValue.split(",").map((item) => item.trim()).filter(Boolean);
+    if (!candidates.length || candidates.some((item) => !/^https:\/\/[^\s,]+\s+\d{1,5}w$/i.test(item))) data.keepAttr = false;
+    return;
+  }
+  if (["width", "height"].includes(data.attrName)) {
+    if (!/^\d{1,5}$/.test(data.attrValue) || Number(data.attrValue) < 1) data.keepAttr = false;
+    return;
+  }
+  if (data.attrName === "sizes") {
+    if (data.attrValue !== "(max-width: 720px) 100vw, 1600px") data.keepAttr = false;
+    return;
+  }
   if (data.attrName === "style") {
     const safeDeclarations: string[] = [];
     for (const declaration of data.attrValue.split(";")) {
@@ -63,6 +80,11 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (!controlled.has(data.attrValue.toLowerCase())) data.keepAttr = false;
     return;
   }
+  if (["loading", "decoding"].includes(data.attrName)) {
+    const allowed = data.attrName === "loading" ? new Set(["lazy", "eager"]) : new Set(["async", "sync", "auto"]);
+    if (!allowed.has(data.attrValue.toLowerCase())) data.keepAttr = false;
+    return;
+  }
   if (!["href", "src"].includes(data.attrName)) return;
   if (!/^(?:https:\/\/|#)/i.test(data.attrValue)) data.keepAttr = false;
 });
@@ -88,7 +110,7 @@ export function sanitizeHtml(value?: string | null) {
       "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"
     ],
     ALLOWED_ATTR: [
-      "href", "target", "rel", "src", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth",
+      "href", "target", "rel", "src", "srcset", "sizes", "width", "height", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth", "loading", "decoding", "data-original-src",
       "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
       "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-office-image-placeholder"
     ],

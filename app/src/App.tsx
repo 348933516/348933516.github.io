@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
-import { Outlet, Route, Routes } from "react-router-dom";
+import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { DataProvider } from "./data";
 import { fallbackPublicData, loadPublicHome, readPublicHomeCache } from "./lib/repository";
 import { SiteLayout } from "./components/SiteLayout";
@@ -31,7 +31,9 @@ const LoginPage = lazyWithRefresh(() => import("./pages/LoginPage").then((module
 
 export function App() {
   useEffect(() => installGlobalRuntimeLogging(), []);
-  const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
+  const location = useLocation();
+  const publicRoute = !location.pathname.startsWith("/admin");
+  const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, enabled: publicRoute, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
   const data = site.error
     ? { ...(site.data || fallbackPublicData), loading: false, errorMessage: site.error instanceof Error ? site.error.message : "资料库暂时无法读取" }
     : site.data || fallbackPublicData;

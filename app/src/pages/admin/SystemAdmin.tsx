@@ -156,43 +156,43 @@ export function HistoryPage({ profile }: { profile: Profile }) {
   const logs = useQuery({
     queryKey: ["audit-logs"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(200);
+      const { data, error } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data || [];
     },
-    enabled: profile.role !== "uploader"
+    enabled: profile.role !== "uploader" && tab === "audit"
   });
   const updates = useQuery({
     queryKey: ["release-notes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("release_notes").select("*").order("released_at", { ascending: false });
+      const { data, error } = await supabase.from("release_notes").select("*").order("released_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data || [];
     },
-    enabled: profile.role !== "uploader"
+    enabled: profile.role !== "uploader" && tab === "updates"
   });
   const runtime = useQuery({
     queryKey: ["runtime-logs"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("runtime_logs").select("*").order("created_at", { ascending: false }).limit(300);
+      const { data, error } = await supabase.from("runtime_logs").select("*").order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data || [];
     },
-    enabled: profile.role !== "uploader"
+    enabled: profile.role !== "uploader" && tab === "runtime"
   });
   const revisions = useQuery({
     queryKey: ["content-revisions"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("content_revisions").select("id, content_id, version, snapshot, created_at, created_by, contents(title, version)").order("created_at", { ascending: false }).limit(100);
+      const { data, error } = await supabase.from("content_revisions").select("id, content_id, version, snapshot, created_at, created_by, contents(title, version)").order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data || [];
     },
-    enabled: profile.role !== "uploader"
+    enabled: profile.role !== "uploader" && tab === "revisions"
   });
   const documentImports = useQuery({
     queryKey: ["document-imports"],
     queryFn: listDocumentImports,
-    enabled: profile.role !== "uploader"
+    enabled: profile.role !== "uploader" && tab === "imports"
   });
   const documentImportStatus = useQuery({
     queryKey: ["document-import-status", selectedImportId],

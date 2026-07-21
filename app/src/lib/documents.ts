@@ -30,6 +30,18 @@ export interface UploadedWordImage {
   id: string;
   mediaId: string;
   displayUrl: string;
+  originalUrl?: string;
+  srcset?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface ParsedWordImageVariant {
+  key: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  data: ArrayBuffer;
 }
 
 export interface ParsedWordImage {
@@ -39,6 +51,9 @@ export interface ParsedWordImage {
   mimeType: string;
   extension: string;
   original: ArrayBuffer;
+  width?: number;
+  height?: number;
+  variants?: ParsedWordImageVariant[];
 }
 
 export interface WordUploadSession {
@@ -216,8 +231,18 @@ export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWord
       const resultImage = document.createElement("img");
       resultImage.src = replacement.displayUrl;
       resultImage.alt = label;
+      resultImage.loading = "lazy";
+      resultImage.decoding = "async";
+      if (replacement.srcset) resultImage.srcset = replacement.srcset;
+      if (replacement.width) resultImage.width = replacement.width;
+      if (replacement.height) resultImage.height = replacement.height;
+      resultImage.sizes = "(max-width: 720px) 100vw, 1600px";
+      if (replacement.originalUrl) figure.setAttribute("data-original-src", replacement.originalUrl);
       figure.append(resultImage);
     }
+    const caption = document.createElement("figcaption");
+    caption.setAttribute("data-placeholder", "图片说明");
+    figure.append(caption);
     const parent = image.parentElement;
     if (parent?.tagName === "P" && parent.children.length === 1 && !parent.textContent?.trim()) parent.replaceWith(figure);
     else image.replaceWith(figure);
@@ -238,9 +263,20 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
     const mediaId = await deterministicUuid(`${upload.importId}:${image.index}`);
     const originalPath = `${upload.uploadPrefix}/${String(image.index).padStart(3, "0")}-${mediaId}-original.${image.extension}`;
     const blob = new File([image.original], `word-image-${image.index}.${image.extension}`, { type: image.mimeType });
+    const imageVariants = (image.variants || []).map((variant) => ({
+      key: variant.key,
+      path: `${upload.uploadPrefix}/${String(image.index).padStart(3, "0")}-${mediaId}-${variant.key}.webp`,
+      width: variant.width,
+      height: variant.height,
+      mimeType: variant.mimeType,
+      sizeBytes: variant.data.byteLength,
+      data: variant.data
+    }));
+    const displayVariant = imageVariants.find((variant) => variant.key === "1600") || imageVariants.at(-1);
     const asset: DocumentImportAsset = {
-      mediaId, imageIndex: image.index, originalPath, displayPath: originalPath, hash: image.hash, mimeType: image.mimeType,
-      width: 0, height: 0, originalSize: blob.size, displaySize: blob.size,
+      mediaId, imageIndex: image.index, originalPath, displayPath: displayVariant?.path || originalPath, hash: image.hash, mimeType: image.mimeType,
+      width: image.width || displayVariant?.width || 0, height: image.height || displayVariant?.height || 0, originalSize: blob.size, displaySize: displayVariant?.sizeBytes || blob.size,
+      imageVariants: imageVariants.map(({ data: _data, ...variant }) => variant),
       sortOrder: (upload.existingMediaCount + image.index) * 10, title: `图片 ${image.index}`, altText: `图片 ${image.index}`
     };
     await uploadSupabaseTus({
@@ -254,12 +290,27 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
       onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries }),
       onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: event.detail })
     });
+    for (const variant of imageVariants) {
+      const variantFile = new File([variant.data], `word-image-${image.index}-${variant.key}.webp`, { type: variant.mimeType });
+      await uploadSupabaseTus({
+        file: variantFile,
+        endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
+        accessToken: upload.accessToken,
+        publishableKey: upload.publishableKey,
+        bucket: upload.bucket,
+        objectPath: variant.path,
+        fingerprint: `maplestorynk-word-preview:${upload.importId}:${image.index}:${variant.key}:${image.hash}`,
+        onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries, detail: `正在上传 ${variant.key}px 预览` }),
+        onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: `${variant.key}px 预览：${event.detail || event.phase}` })
+      });
+    }
     await registerDocumentImportAsset(upload.importId, asset);
     registeredByIndex.set(image.index, {
       image_index: image.index,
       media_id: mediaId,
       original_path: originalPath,
-      display_path: originalPath,
+      display_path: asset.displayPath,
+      image_variants: asset.imageVariants,
       sort_order: asset.sortOrder
     });
     onProgress?.({ phase: "registered", imageIndex: image.index, imageCount: upload.expectedImages });
@@ -281,15 +332,21 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
   };
 }
 
-function registeredWordImage(upload: WordUploadSession, asset: { image_index: number; media_id: string; display_path: string }): UploadedWordImage {
+function registeredWordImage(upload: WordUploadSession, asset: { image_index: number; media_id: string; display_path: string; original_path?: string; image_variants?: Array<{ path: string; width: number; height: number }> }): UploadedWordImage {
   if (!asset.display_path || !asset.media_id || !Number.isInteger(asset.image_index)) {
     throw new Error(`Word 图片清单无效：图片 ${asset.image_index || "未知"} 缺少公开路径或媒体编号。图片已保留，请刷新后继续导入。`);
   }
-  const objectPath = asset.display_path.split("/").map(encodeURIComponent).join("/");
+  const publicUrl = (path: string) => `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const variants = Array.isArray(asset.image_variants) ? asset.image_variants : [];
+  const largest = [...variants].sort((left, right) => right.width - left.width)[0];
   return {
     id: `word-image-${asset.image_index}`,
     mediaId: asset.media_id,
-    displayUrl: `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${objectPath}`
+    displayUrl: publicUrl(asset.display_path),
+    originalUrl: asset.original_path ? publicUrl(asset.original_path) : undefined,
+    srcset: variants.map((variant) => `${publicUrl(variant.path)} ${variant.width}w`).join(", ") || undefined,
+    width: largest?.width,
+    height: largest?.height
   };
 }
 

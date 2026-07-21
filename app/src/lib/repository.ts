@@ -71,6 +71,20 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
 
 function mapMedia(row: Record<string, unknown>): ContentMedia {
   const originalPath = row.original_storage_path ? String(row.original_storage_path) : "";
+  const variants = Array.isArray(row.image_variants) ? row.image_variants.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const variant = entry as Record<string, unknown>;
+    const path = String(variant.path || "");
+    if (!path) return [];
+    return [{
+      key: String(variant.key || variant.width || "preview"),
+      src: storageUrl(publicMediaBucket, path),
+      width: Number(variant.width || 0),
+      height: Number(variant.height || 0),
+      mimeType: String(variant.mimeType || variant.mime_type || "image/webp"),
+      sizeBytes: Number(variant.sizeBytes || variant.size_bytes || 0)
+    }];
+  }) : [];
   return {
     id: String(row.id),
     kind: row.kind === "video" ? "video" : "image",
@@ -89,6 +103,7 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     originalSizeBytes: row.original_size_bytes ? Number(row.original_size_bytes) : undefined,
     processingStatus: row.processing_status ? String(row.processing_status) as ContentMedia["processingStatus"] : undefined,
     originalSrc: originalPath ? storageUrl(publicMediaBucket, originalPath) : undefined,
+    imageVariants: variants.length ? variants : undefined,
     videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" : undefined,
     providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined,
     providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined,
@@ -433,13 +448,15 @@ export async function loadAdminContents(): Promise<ContentItem[]> {
   });
 }
 
-export async function loadAdminContentList(): Promise<ContentItem[]> {
-  const { data, error } = await supabase.from("admin_content_list").select("*").order("updated_at", { ascending: false });
-  if (error) throw error;
-  return Promise.all((data || []).map(async (row) => {
+async function mapAdminContentListRows(rows: Array<Record<string, unknown>>) {
+  return Promise.all(rows.map(async (row) => {
     const categoryName = String(row.category_name || "");
     const cover = row.cover_bucket || row.cover_path || row.cover_external_url
-      ? await adminStorageUrl(row.cover_bucket, row.cover_path, row.cover_external_url)
+      ? await adminStorageUrl(
+          row.cover_bucket ? String(row.cover_bucket) : null,
+          row.cover_path ? String(row.cover_path) : null,
+          row.cover_external_url ? String(row.cover_external_url) : null
+        )
       : "";
     const media = cover ? [{
       id: `cover-${row.id}`,
@@ -478,6 +495,52 @@ export async function loadAdminContentList(): Promise<ContentItem[]> {
       publishedAt: row.published_at ? String(row.published_at) : undefined
     } satisfies ContentItem;
   }));
+}
+
+export async function loadAdminContentList(): Promise<ContentItem[]> {
+  const { data, error } = await supabase.from("admin_content_list").select("*").order("updated_at", { ascending: false });
+  if (error) throw error;
+  return mapAdminContentListRows((data || []) as Array<Record<string, unknown>>);
+}
+
+export async function loadAdminDashboardPending(): Promise<ContentItem[]> {
+  const { data, error } = await supabase.from("admin_content_list")
+    .select("*")
+    .in("status", ["draft", "hidden"])
+    .order("updated_at", { ascending: false })
+    .limit(6);
+  if (error) throw error;
+  return mapAdminContentListRows((data || []) as Array<Record<string, unknown>>);
+}
+
+export async function loadAdminDashboardSummary(): Promise<{ published: number; draft: number; hidden: number; trashed: number; storageBytes: number }> {
+  const { data, error } = await supabase.rpc("get_admin_dashboard_summary");
+  if (error) throw error;
+  const value = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  return {
+    published: Number(value.published || 0),
+    draft: Number(value.draft || 0),
+    hidden: Number(value.hidden || 0),
+    trashed: Number(value.trashed || 0),
+    storageBytes: Number(value.storageBytes ?? value.storage_bytes ?? 0)
+  };
+}
+
+export async function loadAdminContentPage(input: { page: number; pageSize?: number; status?: ContentStatus | "all"; categoryId?: string; query?: string; sort?: "updated" | "title" | "order" }) {
+  const pageSize = Math.min(50, Math.max(1, input.pageSize || 20));
+  const page = Math.max(1, input.page || 1);
+  let request = supabase.from("admin_content_list").select("*", { count: "exact" });
+  if (input.status && input.status !== "all") request = request.eq("status", input.status);
+  if (input.categoryId && input.categoryId !== "all") request = request.eq("category_id", input.categoryId);
+  const search = (input.query || "").trim().replace(/[%_,().]/g, " ").replace(/\s+/g, " ");
+  if (search) request = request.or(`title.ilike.%${search}%,summary.ilike.%${search}%,category_name.ilike.%${search}%`);
+  if (input.sort === "title") request = request.order("title", { ascending: true });
+  else if (input.sort === "order") request = request.order("sort_order", { ascending: true }).order("updated_at", { ascending: false });
+  else request = request.order("updated_at", { ascending: false });
+  const from = (page - 1) * pageSize;
+  const { data, error, count } = await request.range(from, from + pageSize - 1);
+  if (error) throw error;
+  return { items: await mapAdminContentListRows((data || []) as Array<Record<string, unknown>>), total: count || 0 };
 }
 
 export async function loadAdminContent(id: string): Promise<ContentItem> {
@@ -546,6 +609,7 @@ export interface DocumentImportAsset {
   height: number;
   originalSize: number;
   displaySize: number;
+  imageVariants?: Array<{ key: string; path: string; width: number; height: number; mimeType: string; sizeBytes: number }>;
   sortOrder: number;
   title: string;
   altText: string;
@@ -582,6 +646,7 @@ export interface DocumentImportStatusAsset {
   display_path: string;
   original_path: string;
   sort_order: number;
+  image_variants?: Array<{ key: string; path: string; width: number; height: number; mimeType: string; sizeBytes: number }>;
 }
 
 export type DocumentImportStage = "start" | "list" | "register" | "status" | "retry" | "event" | "finalize" | "fail" | "cancel";
@@ -659,6 +724,7 @@ function normalizeDocumentImportStatus(value: unknown, importId: string): Docume
     const displayPath = String(asset.display_path ?? asset.displayPath ?? "").trim();
     const originalPath = String(asset.original_path ?? asset.originalPath ?? "").trim();
     const sortOrder = Number(asset.sort_order ?? asset.sortOrder);
+    const imageVariants = Array.isArray(asset.image_variants ?? asset.imageVariants) ? (asset.image_variants ?? asset.imageVariants) as DocumentImportStatusAsset["image_variants"] : [];
     if (!Number.isInteger(imageIndex) || imageIndex < 1 || !mediaId || !displayPath || !originalPath || !Number.isFinite(sortOrder)) {
       invalidAssetIndexes.push(Number.isInteger(imageIndex) && imageIndex > 0 ? imageIndex : offset + 1);
     }
@@ -667,7 +733,8 @@ function normalizeDocumentImportStatus(value: unknown, importId: string): Docume
       media_id: mediaId,
       display_path: displayPath,
       original_path: originalPath,
-      sort_order: sortOrder
+      sort_order: sortOrder,
+      image_variants: imageVariants
     };
   });
   if (invalidAssetIndexes.length) throw invalidDocumentImportManifest(importId, invalidAssetIndexes);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
 import Highlight from "@tiptap/extension-highlight";
@@ -11,7 +11,7 @@ import TableRow from "@tiptap/extension-table-row";
 import TextAlign from "@tiptap/extension-text-align";
 import TextStyle from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
-import { Extension, Node } from "@tiptap/core";
+import { Editor, Extension, Node } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
@@ -26,7 +26,29 @@ import { normalizeInlineMediaHtml } from "../lib/richMedia";
 interface RichEditorProps {
   value: string;
   onChange(html: string, text: string, json: Record<string, unknown>): void;
+  onDirty?: () => void;
+  onSafeMode?: () => void;
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
+}
+
+export interface RichEditorSnapshot {
+  html: string;
+  text: string;
+  json: Record<string, unknown>;
+}
+
+export interface RichEditorHandle {
+  serialize(): RichEditorSnapshot;
+  focus(): void;
+  openSafeMode(): void;
+}
+
+function serializeEditor(editor: Editor): RichEditorSnapshot {
+  return {
+    html: sanitizeHtml(editor.getHTML()),
+    text: editor.getText(),
+    json: editor.getJSON() as Record<string, unknown>
+  };
 }
 
 type PopoverKey = "text-color" | "highlight" | "table-border" | "table-create-border" | "cell-background" | null;
@@ -154,21 +176,57 @@ const FigureImage = Node.create({
     return {
       src: { default: "" },
       alt: { default: "" },
-      mediaId: { default: "" }
+      mediaId: { default: "" },
+      srcset: { default: "" },
+      sizes: { default: "" },
+      width: { default: null },
+      height: { default: null },
+      originalSrc: { default: "" }
     };
   },
   parseHTML() {
     return [{
       tag: "figure[data-editor-image]",
-      contentElement: "figcaption",
+      contentElement: (element) => {
+        const figure = element as HTMLElement;
+        const existing = figure.querySelector("figcaption");
+        if (existing) return existing;
+        const caption = document.createElement("figcaption");
+        caption.setAttribute("data-placeholder", "图片说明");
+        figure.append(caption);
+        return caption;
+      },
       getAttrs: (element) => {
         const image = (element as HTMLElement).querySelector("img");
-        return { src: image?.getAttribute("src") || "", alt: image?.getAttribute("alt") || "", mediaId: (element as HTMLElement).getAttribute("data-media-id") || "" };
+        const figure = element as HTMLElement;
+        return {
+          src: image?.getAttribute("src") || "",
+          alt: image?.getAttribute("alt") || "",
+          mediaId: figure.getAttribute("data-media-id") || "",
+          srcset: image?.getAttribute("srcset") || "",
+          sizes: image?.getAttribute("sizes") || "",
+          width: Number(image?.getAttribute("width")) || null,
+          height: Number(image?.getAttribute("height")) || null,
+          originalSrc: figure.getAttribute("data-original-src") || ""
+        };
       }
     }];
   },
   renderHTML({ node }) {
-    return ["figure", { "data-editor-image": "true", ...(node.attrs.mediaId ? { "data-media-id": node.attrs.mediaId } : {}) }, ["img", { src: node.attrs.src, alt: node.attrs.alt || "" }], ["figcaption", { "data-placeholder": "图片说明" }, 0]];
+    return ["figure", {
+      "data-editor-image": "true",
+      ...(node.attrs.mediaId ? { "data-media-id": node.attrs.mediaId } : {}),
+      ...(node.attrs.originalSrc ? { "data-original-src": node.attrs.originalSrc } : {})
+    }, ["img", {
+      src: node.attrs.src,
+      alt: node.attrs.alt || "",
+      loading: "lazy",
+      decoding: "async",
+      ...(node.attrs.srcset ? { srcset: node.attrs.srcset } : {}),
+      ...(node.attrs.sizes ? { sizes: node.attrs.sizes } : {}),
+      ...(node.attrs.width ? { width: node.attrs.width } : {}),
+      ...(node.attrs.height ? { height: node.attrs.height } : {})
+    }], ["figcaption", { "data-placeholder": "图片说明" }, 0]];
   }
 });
 
@@ -337,7 +395,7 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
   </div>;
 }
 
-export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps) {
+export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, onChange, onDirty, onSafeMode, onUploadImages }, ref) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
@@ -345,6 +403,10 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const pasteOfficeHtmlRef = useRef<(html: string, files: File[]) => void>(() => undefined);
   const internalHtml = useRef(normalizeInlineMediaHtml(value));
   const lastExternalHtml = useRef(normalizeInlineMediaHtml(value));
+  const onChangeRef = useRef(onChange);
+  const onDirtyRef = useRef(onDirty);
+  const onSafeModeRef = useRef(onSafeMode);
+  const changeTimerRef = useRef<number | null>(null);
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const [tablePreset, setTablePreset] = useState({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" });
@@ -353,6 +415,16 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
+  onChangeRef.current = onChange;
+  onDirtyRef.current = onDirty;
+  onSafeModeRef.current = onSafeMode;
+
+  const commitEditorState = (current: Editor) => {
+    const snapshot = serializeEditor(current);
+    internalHtml.current = snapshot.html;
+    lastExternalHtml.current = snapshot.html;
+    onChangeRef.current(snapshot.html, snapshot.text, snapshot.json);
+  };
 
   const editor = useEditor({
     extensions: [
@@ -406,14 +478,40 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
       }
     },
     onUpdate({ editor: current }) {
-      const html = sanitizeHtml(current.getHTML());
-      internalHtml.current = html;
-      onChange(html, current.getText(), current.getJSON() as Record<string, unknown>);
+      onDirtyRef.current?.();
+      if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
+      changeTimerRef.current = window.setTimeout(() => {
+        changeTimerRef.current = null;
+        commitEditorState(current);
+      }, 500);
     },
     onSelectionUpdate({ editor: current }) {
       if (current.isActive("table")) setTableToolsOpen(true);
     }
   });
+
+  useImperativeHandle(ref, () => ({
+    serialize() {
+      if (changeTimerRef.current !== null) {
+        window.clearTimeout(changeTimerRef.current);
+        changeTimerRef.current = null;
+      }
+      if (editor) {
+        const snapshot = serializeEditor(editor);
+        internalHtml.current = snapshot.html;
+        lastExternalHtml.current = snapshot.html;
+        return snapshot;
+      }
+      const html = sanitizeHtml(normalizeInlineMediaHtml(value));
+      return { html, text: new DOMParser().parseFromString(html, "text/html").body.textContent || "", json: {} };
+    },
+    focus() { editor?.commands.focus(); },
+    openSafeMode() { onSafeModeRef.current?.(); }
+  }), [editor, value]);
+
+  useEffect(() => () => {
+    if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const external = normalizeInlineMediaHtml(value);
@@ -509,7 +607,12 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
         const item = document.createElement("img");
         item.src = image.src;
         item.alt = image.alt;
+        item.loading = "lazy";
+        item.decoding = "async";
         figure.append(item);
+        const caption = document.createElement("figcaption");
+        caption.setAttribute("data-placeholder", "图片说明");
+        figure.append(caption);
         slot.replaceWith(figure);
       });
       editor.chain().focus().insertContent(sanitizeHtml(document.body.innerHTML)).run();
@@ -624,4 +727,4 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
       <EditorContent editor={editor} />
     </div>
   );
-}
+});

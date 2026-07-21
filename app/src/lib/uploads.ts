@@ -8,18 +8,29 @@ export interface UploadProgress {
 }
 
 export async function imageToWebp(file: File, maxSide = 2000, quality = 0.86) {
-  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
+  return (await imageToWebpVariant(file, maxSide, quality)).file;
+}
+
+export async function imageToWebpVariant(file: File, maxSide = 1600, quality = 0.92) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return { file, width: 0, height: 0 };
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is unavailable");
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Image conversion failed")), "image/webp", quality));
-  return new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" });
+  try {
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Image conversion failed")), "image/webp", quality));
+    return {
+      file: new File([blob], file.name.replace(/\.[^.]+$/, `-${maxSide}.webp`), { type: "image/webp" }),
+      width: canvas.width,
+      height: canvas.height
+    };
+  } finally {
+    bitmap.close();
+  }
 }
 
 export async function uploadWithProgress(file: File, path: string, onProgress: (progress: UploadProgress) => void, signal?: AbortSignal, bucket = privateMediaBucket, upsert = false) {

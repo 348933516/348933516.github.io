@@ -70,6 +70,7 @@ export interface ContentMedia {
   originalSizeBytes?: number;
   processingStatus?: "ready" | "processing" | "failed";
   originalSrc?: string;
+  imageVariants?: Array<{ key: string; src: string; width: number; height: number; mimeType: string; sizeBytes: number }>;
   videoProvider?: "tencent_vod";
   providerFileId?: string;
   providerAppId?: string;

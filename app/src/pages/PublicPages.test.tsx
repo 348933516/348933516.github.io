@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
@@ -76,6 +76,23 @@ describe("public home", () => {
     expect(screen.getByText("01 篇资料")).toBeInTheDocument();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByText("最近更新")).not.toBeInTheDocument();
+  });
+
+  it("loads only the active carousel image until another slide is selected", () => {
+    const withSlides: PublicData = {
+      ...data,
+      carouselSlides: [
+        data.carouselSlides[0],
+        { ...data.carouselSlides[0], id: "s2", title: "第二张", imageUrl: "https://example.com/second.webp", sortOrder: 20 },
+        { ...data.carouselSlides[0], id: "s3", title: "第三张", imageUrl: "https://example.com/third.webp", sortOrder: 30 }
+      ]
+    };
+    const { container } = render(<MemoryRouter><DataProvider data={withSlides}><HomePage /></DataProvider></MemoryRouter>);
+    expect(container.querySelectorAll(".hero-carousel-image")).toHaveLength(1);
+    expect(container.querySelector('.hero-carousel-image[src="https://example.com/hero.webp"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "切换到第 2 张" }));
+    expect(container.querySelectorAll(".hero-carousel-image")).toHaveLength(2);
+    expect(container.querySelector('.hero-carousel-image[src="https://example.com/second.webp"]')).toBeInTheDocument();
   });
 
   it("uses a full-width reader layout when there is no media outline", () => {

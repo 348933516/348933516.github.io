@@ -18,4 +18,13 @@ describe("rich content reader", () => {
     expect(container.querySelectorAll('img[src="https://example.com/imported.png"]')).toHaveLength(1);
     expect(container.querySelectorAll('img[src="https://example.com/independent.png"]')).toHaveLength(1);
   });
+
+  it("uses responsive previews while keeping the original image available", () => {
+    const html = '<figure data-editor-image="true" data-original-src="https://example.com/original.png"><img src="https://example.com/1600.webp" srcset="https://example.com/960.webp 960w, https://example.com/1600.webp 1600w" sizes="(max-width: 720px) 100vw, 1600px" width="1600" height="900"><figcaption></figcaption></figure>';
+    const { container } = render(<RichContent html={html} />);
+    const image = container.querySelector("figure img");
+    expect(image).toHaveAttribute("srcset");
+    expect(image).toHaveAttribute("width", "1600");
+    expect(container.querySelector('figure a[href="https://example.com/original.png"]')?.contains(image)).toBe(true);
+  });
 });

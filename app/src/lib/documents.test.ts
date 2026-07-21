@@ -54,7 +54,7 @@ describe("document imports", () => {
     expect(result).not.toContain("descript");
   });
 
-  it("keeps every uploaded Word image mapped to a figure without captions", () => {
+  it("keeps every uploaded Word image mapped to a valid figure with an empty caption", () => {
     const uploaded = new Map(Array.from({ length: 98 }, (_, index) => {
       const imageNumber = index + 1;
       return [`word-image-${imageNumber}`, { id: `word-image-${imageNumber}`, mediaId: `00000000-0000-4000-8000-${String(imageNumber).padStart(12, "0")}`, displayUrl: `https://cdn.example.test/imports/${imageNumber}.png` }];
@@ -64,6 +64,7 @@ describe("document imports", () => {
     expect((result.match(/<figure\b/g) || [])).toHaveLength(98);
     expect((result.match(/data-media-id=/g) || [])).toHaveLength(98);
     expect((result.match(/<img\b/g) || [])).toHaveLength(98);
+    expect((result.match(/<figcaption\b/g) || [])).toHaveLength(98);
     expect(result).not.toContain("descript");
     expect(result).not.toContain("word-image-placeholder");
   });
@@ -160,6 +161,85 @@ describe("document imports", () => {
       expect(vi.mocked(registerDocumentImportAsset).mock.calls.map((call) => call[1].imageIndex)).toEqual([1, 2]);
       expect(result.uploadedImageCount).toBe(2);
       expect((result.bodyHtml.match(/data-media-id/g) || [])).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousWorker) vi.stubGlobal("Worker", previousWorker);
+    }
+  });
+
+  it("uploads the original and both responsive variants before registering the image", async () => {
+    const previousWorker = globalThis.Worker;
+    const image = {
+      id: "word-image-1",
+      index: 1,
+      hash: "c".repeat(64),
+      mimeType: "image/png",
+      extension: "png",
+      original: new ArrayBuffer(12),
+      width: 1600,
+      height: 900,
+      variants: [
+        { key: "960", width: 960, height: 540, mimeType: "image/webp", data: new ArrayBuffer(7) },
+        { key: "1600", width: 1600, height: 900, mimeType: "image/webp", data: new ArrayBuffer(9) }
+      ]
+    };
+    class VariantWorker {
+      onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      postMessage(message: Record<string, unknown>) {
+        if (message.type === "start") queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: { type: "image", image } })));
+        if (message.type === "ack") queueMicrotask(() => this.onmessage?.(new MessageEvent("message", { data: {
+          type: "complete",
+          html: '<p><img src="https://word-import.invalid/word-image-1"></p>',
+          imageCount: 1,
+          totalOriginalBytes: 12,
+          warnings: []
+        } })));
+      }
+      terminate() {}
+    }
+    vi.stubGlobal("Worker", VariantWorker);
+    vi.mocked(uploadSupabaseTus).mockResolvedValue({ uploadUrl: "https://uploads.example.test/variant", retries: 0, resumed: false });
+    vi.mocked(registerDocumentImportAsset).mockResolvedValue({ registered_assets: 1 });
+    vi.mocked(getDocumentImportStatus).mockResolvedValueOnce(emptyStatus).mockResolvedValueOnce({
+      ...emptyStatus,
+      assets: [{
+        image_index: 1,
+        media_id: "00000000-0000-4000-8000-000000000001",
+        original_path: "imports/job/001-original.png",
+        display_path: "imports/job/001-1600.webp",
+        image_variants: [
+          { key: "960", path: "imports/job/001-960.webp", width: 960, height: 540, mimeType: "image/webp", sizeBytes: 7 },
+          { key: "1600", path: "imports/job/001-1600.webp", width: 1600, height: 900, mimeType: "image/webp", sizeBytes: 9 }
+        ],
+        sort_order: 10
+      }]
+    });
+    try {
+      const file = { name: "maps.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 12, arrayBuffer: async () => new ArrayBuffer(12) } as File;
+      const result = await materializeWordDocument(file, {
+        supabaseUrl: "https://project.example.test", publishableKey: "public-key", accessToken: "access-token", bucket: "public",
+        importId: "00000000-0000-4000-8000-000000000099", uploadPrefix: "imports/job", existingMediaCount: 0, expectedImages: 1
+      });
+      expect(vi.mocked(uploadSupabaseTus)).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(uploadSupabaseTus).mock.calls.map(([request]) => request.objectPath)).toEqual([
+        expect.stringMatching(/-original\.png$/),
+        expect.stringMatching(/-960\.webp$/),
+        expect.stringMatching(/-1600\.webp$/)
+      ]);
+      expect(vi.mocked(registerDocumentImportAsset)).toHaveBeenCalledWith(
+        "00000000-0000-4000-8000-000000000099",
+        expect.objectContaining({
+          displayPath: expect.stringMatching(/-1600\.webp$/),
+          imageVariants: [
+            expect.objectContaining({ key: "960", width: 960, height: 540, sizeBytes: 7 }),
+            expect.objectContaining({ key: "1600", width: 1600, height: 900, sizeBytes: 9 })
+          ]
+        })
+      );
+      expect(result.bodyHtml).toContain("srcset=");
+      expect(result.bodyHtml).toContain("960w");
+      expect(result.bodyHtml).toContain("1600w");
     } finally {
       vi.unstubAllGlobals();
       if (previousWorker) vi.stubGlobal("Worker", previousWorker);

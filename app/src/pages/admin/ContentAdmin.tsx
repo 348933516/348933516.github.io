@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArchiveRestore, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronLeft, ChevronRight,
@@ -7,13 +7,15 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { RichContent } from "../../components/RichContent";
+import { AppErrorBoundary } from "../../components/AppErrorBoundary";
+import type { RichEditorHandle } from "../../components/RichEditor";
 import { VideoPlayer } from "../../components/VideoPlayer";
 import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
 import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSession } from "../../lib/documents";
 import { randomId } from "../../lib/id";
 import {
   batchContent, cancelDocumentImport, changeContentStatus, deleteContentForever, duplicateContent, finalizeDocumentImport,
-  getDocumentImportStatus, listDocumentImports, loadAdminContent, loadAdminContentList, logDocumentImportEvent, publishContent,
+  getDocumentImportStatus, listDocumentImports, loadAdminContent, loadAdminContentList, loadAdminContentPage, loadAdminDashboardPending, loadAdminDashboardSummary, logDocumentImportEvent, publishContent,
   retryDocumentImport, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
@@ -21,7 +23,7 @@ import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { uploadSupabaseTus } from "../../lib/tusUpload";
-import { imageDimensions, imageToWebp, uploadWithProgress, validateUpload } from "../../lib/uploads";
+import { imageDimensions, imageToWebp, imageToWebpVariant, uploadWithProgress, validateUpload } from "../../lib/uploads";
 import type { Category, ContentDraft, ContentItem, ContentStatus, Profile } from "../../types";
 import {
   AdminEmpty, AdminLoading, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
@@ -42,24 +44,18 @@ function composeImportPreview(worksheets: WorksheetPreview[], selectedNames: str
 }
 
 export function DashboardPage({ profile }: { profile: Profile }) {
-  const contents = useQuery({ queryKey: ["admin-content-list"], queryFn: loadAdminContentList, staleTime: 30_000 });
+  const contents = useQuery({ queryKey: ["admin-dashboard-pending"], queryFn: loadAdminDashboardPending, staleTime: 60_000 });
+  const summary = useQuery({ queryKey: ["admin-dashboard-summary"], queryFn: loadAdminDashboardSummary, staleTime: 60_000 });
   const logs = useQuery({ queryKey: ["dashboard-logs"], queryFn: async () => {
     const { data, error } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(8);
     if (error) throw error; return data || [];
   } });
-  const storage = useQuery({ queryKey: ["dashboard-storage"], queryFn: async () => {
-    const [media, attachments] = await Promise.all([
-      supabase.from("content_media").select("size_bytes"), supabase.from("attachments").select("size_bytes")
-    ]);
-    if (media.error) throw media.error; if (attachments.error) throw attachments.error;
-    return [...(media.data || []), ...(attachments.data || [])].reduce((sum, row) => sum + Number(row.size_bytes || 0), 0);
-  } });
-  if (contents.isLoading) return <AdminLoading label="正在准备工作台" />;
+  if (contents.isLoading || summary.isLoading) return <AdminLoading label="正在准备工作台" />;
   const items = contents.data || [];
-  const count = (status: ContentStatus) => items.filter((item) => item.status === status).length;
+  const metrics = summary.data || { published: 0, draft: 0, hidden: 0, trashed: 0, storageBytes: 0 };
   return <div className="admin-page-stack"><header className="admin-page-heading"><div><span>{profile.displayName} · {roleText[profile.role]}</span><h1>内容工作台</h1><p>集中处理草稿、发布状态和最近操作。</p></div>{canEdit(profile.role) && <Link className="button primary" to="/admin/contents/new"><Plus />新建资料</Link>}</header>
-    <div className="metric-row"><Link to="/admin/contents?status=published"><span>已发布</span><strong>{count("published")}</strong><small>前台可见内容</small></Link><Link to="/admin/contents?status=draft"><span>待处理草稿</span><strong>{count("draft")}</strong><small>继续编辑与发布</small></Link><Link to="/admin/contents?status=hidden"><span>隐藏内容</span><strong>{count("hidden")}</strong><small>仅后台可见</small></Link><Link to="/admin/contents"><span>媒体容量</span><strong>{formatBytes(storage.data || 0)}</strong><small>在每篇资料内管理图片、视频与附件</small></Link></div>
-    <div className="admin-dashboard-grid"><section className="admin-panel"><div className="panel-heading"><div><h2>待处理内容</h2><p>草稿和隐藏资料</p></div><Link to="/admin/contents">查看全部<ChevronRight /></Link></div><CompactContentList items={items.filter((item) => item.status === "draft" || item.status === "hidden").slice(0, 6)} /></section>
+    <div className="metric-row"><Link to="/admin/contents?status=published"><span>已发布</span><strong>{metrics.published}</strong><small>前台可见内容</small></Link><Link to="/admin/contents?status=draft"><span>待处理草稿</span><strong>{metrics.draft}</strong><small>继续编辑与发布</small></Link><Link to="/admin/contents?status=hidden"><span>隐藏内容</span><strong>{metrics.hidden}</strong><small>仅后台可见</small></Link><Link to="/admin/contents"><span>媒体容量</span><strong>{formatBytes(metrics.storageBytes)}</strong><small>在每篇资料内管理图片、视频与附件</small></Link></div>
+    <div className="admin-dashboard-grid"><section className="admin-panel"><div className="panel-heading"><div><h2>待处理内容</h2><p>草稿和隐藏资料</p></div><Link to="/admin/contents">查看全部<ChevronRight /></Link></div><CompactContentList items={items} /></section>
       <section className="admin-panel"><div className="panel-heading"><div><h2>最近操作</h2><p>系统记录的后台变更</p></div><Link to="/admin/history">查看日志<ChevronRight /></Link></div><div className="activity-feed">{logs.data?.map((log) => <div key={log.id}><span className="activity-dot" /><div><strong>{actionText(String(log.action))}</strong><small>{String(log.entity_type)} · {String(log.entity_id).slice(0, 12)}</small></div><time>{formatDate(log.created_at)}</time></div>)}{!logs.data?.length && <AdminEmpty title="暂无操作记录" />}</div></section></div>
   </div>;
 }
@@ -82,7 +78,6 @@ export function ContentListPage({ profile }: { profile: Profile }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const contents = useQuery({ queryKey: ["admin-content-list"], queryFn: loadAdminContentList, staleTime: 30_000 });
   const categories = useAdminCategories();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
@@ -94,59 +89,56 @@ export function ContentListPage({ profile }: { profile: Profile }) {
   const category = params.get("category") || "all";
   const sort = params.get("sort") || "updated";
   const page = Math.max(1, Number(params.get("page") || 1));
+  const pageKey = ["admin-content-page", { status, category, query, sort, page }] as const;
+  const contents = useQuery({ queryKey: pageKey, queryFn: () => loadAdminContentPage({ status, categoryId: category, query, sort: sort as "updated" | "title" | "order", page, pageSize }), staleTime: 30_000, placeholderData: (previous) => previous });
   const updateParam = (name: string, value: string) => { const next = new URLSearchParams(params); if (!value || value === "all" || (name === "sort" && value === "updated")) next.delete(name); else next.set(name, value); if (name !== "page") next.delete("page"); setParams(next); };
-  const filtered = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    const rows = (contents.data || []).filter((item) => (status === "all" || item.status === status) && (category === "all" || item.categoryId === category) && (!term || `${item.title} ${item.summary} ${item.categoryName}`.toLowerCase().includes(term)));
-    return [...rows].sort((a, b) => sort === "title" ? a.title.localeCompare(b.title, "zh-CN") : sort === "order" ? a.sortOrder - b.sortOrder : +new Date(b.updatedAt) - +new Date(a.updatedAt));
-  }, [contents.data, status, category, query, sort]);
-  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const visible = filtered.slice((Math.min(page, pages) - 1) * pageSize, Math.min(page, pages) * pageSize);
-  const refresh = () => { client.invalidateQueries({ queryKey: ["admin-content-list"] }); client.invalidateQueries({ queryKey: ["admin-contents"] }); client.invalidateQueries({ queryKey: ["public-home"] }); client.invalidateQueries({ queryKey: ["public-category"] }); client.invalidateQueries({ queryKey: ["public-content"] }); setSelected(new Set()); };
+  const visible = contents.data?.items || [];
+  const total = contents.data?.total || 0;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const refresh = () => { client.invalidateQueries({ queryKey: ["admin-content-page"] }); client.invalidateQueries({ queryKey: ["admin-content-list"] }); client.invalidateQueries({ queryKey: ["admin-dashboard-pending"] }); client.invalidateQueries({ queryKey: ["admin-dashboard-summary"] }); setSelected(new Set()); };
   const notify = (value: string, error = false) => { setMessage(value); setMessageError(error); };
   const markPending = (ids: string[], value: boolean) => setPendingIds((current) => { const next = new Set(current); ids.forEach((id) => value ? next.add(id) : next.delete(id)); return next; });
   const runStatus = async (item: ContentItem, next: "draft" | "hidden" | "trashed") => {
-    const previous = client.getQueryData<ContentItem[]>(["admin-content-list"]);
-    client.setQueryData<ContentItem[]>(["admin-content-list"], (rows = []) => rows.map((row) => row.id === item.id ? { ...row, status: next, version: row.version + 1 } : row));
+    const previous = client.getQueryData<{ items: ContentItem[]; total: number }>(pageKey);
+    client.setQueryData<{ items: ContentItem[]; total: number }>(pageKey, (current) => current ? { ...current, items: current.items.map((row) => row.id === item.id ? { ...row, status: next, version: row.version + 1 } : row) } : current);
     markPending([item.id], true);
     try { await changeContentStatus(item.id, item.version, next, profile.id); notify(next === "trashed" ? "已移入回收站。" : "状态已更新。"); refresh(); }
-    catch (error) { client.setQueryData(["admin-content-list"], previous); notify(messageOf(error), true); }
+    catch (error) { client.setQueryData(pageKey, previous); notify(messageOf(error), true); }
     finally { markPending([item.id], false); }
   };
   const runPublish = async (item: ContentItem) => { try { await publishContent(item.id, item.version); notify("资料和媒体已发布。"); refresh(); } catch (error) { notify(messageOf(error, "发布失败"), true); } };
   const runDuplicate = async (item: ContentItem) => { try { const copy = await duplicateContent(item.id); notify("已复制为草稿。"); refresh(); navigate(`/admin/contents/${copy.id}`); } catch (error) { notify(messageOf(error, "复制失败"), true); } };
   const runDeleteForever = async (item: ContentItem) => {
-    const previous = client.getQueryData<ContentItem[]>(["admin-content-list"]);
-    client.setQueryData<ContentItem[]>(["admin-content-list"], (rows = []) => rows.filter((row) => row.id !== item.id));
+    const previous = client.getQueryData<{ items: ContentItem[]; total: number }>(pageKey);
+    client.setQueryData<{ items: ContentItem[]; total: number }>(pageKey, (current) => current ? { items: current.items.filter((row) => row.id !== item.id), total: Math.max(0, current.total - 1) } : current);
     markPending([item.id], true);
     try { const result = await deleteContentForever([{ id: item.id, version: item.version }]); if (result.succeeded !== 1) throw new Error(result.results[0]?.error || "删除失败"); notify("资料已删除，关联文件正在后台清理。"); refresh(); }
-    catch (error) { client.setQueryData(["admin-content-list"], previous); notify(messageOf(error, "彻底删除失败"), true); }
+    catch (error) { client.setQueryData(pageKey, previous); notify(messageOf(error, "彻底删除失败"), true); }
     finally { markPending([item.id], false); }
   };
   const runBatch = async (action: "move" | "draft" | "hidden" | "trashed" | "published" | "delete_forever") => {
-    const rows = (contents.data || []).filter((item) => selected.has(item.id)); if (!rows.length) return;
-    const previous = client.getQueryData<ContentItem[]>(["admin-content-list"]);
+    const rows = visible.filter((item) => selected.has(item.id)); if (!rows.length) return;
+    const previous = client.getQueryData<{ items: ContentItem[]; total: number }>(pageKey);
     markPending(rows.map((row) => row.id), true);
-    if (action === "delete_forever") client.setQueryData<ContentItem[]>(["admin-content-list"], (items = []) => items.filter((item) => !selected.has(item.id)));
-    else if (["draft", "hidden", "trashed"].includes(action)) client.setQueryData<ContentItem[]>(["admin-content-list"], (items = []) => items.map((item) => selected.has(item.id) ? { ...item, status: action as ContentStatus, version: item.version + 1 } : item));
+    if (action === "delete_forever") client.setQueryData<{ items: ContentItem[]; total: number }>(pageKey, (current) => current ? { items: current.items.filter((item) => !selected.has(item.id)), total: Math.max(0, current.total - rows.length) } : current);
+    else if (["draft", "hidden", "trashed"].includes(action)) client.setQueryData<{ items: ContentItem[]; total: number }>(pageKey, (current) => current ? { ...current, items: current.items.map((item) => selected.has(item.id) ? { ...item, status: action as ContentStatus, version: item.version + 1 } : item) } : current);
     try {
       if (action === "published") { for (const row of rows) await publishContent(row.id, row.version); notify(`已发布 ${rows.length} 篇资料。`); }
       else if (action === "delete_forever") { const result = await deleteContentForever(rows.map(({ id, version }) => ({ id, version }))); notify(`已彻底删除 ${result.succeeded} 篇资料。`, result.succeeded !== rows.length || Boolean(result.storageWarnings?.length)); }
       else { const result = await batchContent(rows.map(({ id, version }) => ({ id, version })), action, action === "move" ? batchCategory : undefined); notify(`已处理 ${result.succeeded} 篇资料。`, result.succeeded !== rows.length); }
       refresh();
-    } catch (error) { client.setQueryData(["admin-content-list"], previous); notify(messageOf(error, "批量操作失败"), true); }
+    } catch (error) { client.setQueryData(pageKey, previous); notify(messageOf(error, "批量操作失败"), true); }
     finally { markPending(rows.map((row) => row.id), false); }
   };
   if (contents.isLoading) return <AdminLoading label="正在读取内容" />;
-  const counts = Object.fromEntries((["published", "draft", "hidden", "trashed"] as ContentStatus[]).map((key) => [key, (contents.data || []).filter((item) => item.status === key).length]));
-  const selectedRows = (contents.data || []).filter((item) => selected.has(item.id));
+  const selectedRows = visible.filter((item) => selected.has(item.id));
   const canDeleteForever = profile.role === "super_admin" && selectedRows.length > 0 && selectedRows.every((item) => item.status === "trashed");
   return <div className="admin-page-stack"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="admin-page-heading"><div><span>CONTENT LIBRARY</span><h1>内容管理</h1><p>搜索、筛选、批量处理和发布资料。</p></div>{canEdit(profile.role) && <Link className="button primary" to="/admin/contents/new"><Plus />新增资料</Link>}</header>
-    <div className="status-tabs"><button className={status === "all" ? "active" : ""} onClick={() => updateParam("status", "all")}>全部 <span>{contents.data?.length || 0}</span></button>{(["published", "draft", "hidden", "trashed"] as ContentStatus[]).map((key) => <button className={status === key ? "active" : ""} key={key} onClick={() => updateParam("status", key)}>{statusText[key]} <span>{counts[key]}</span></button>)}</div>
+    <div className="status-tabs"><button className={status === "all" ? "active" : ""} onClick={() => updateParam("status", "all")}>全部 {status === "all" && <span>{total}</span>}</button>{(["published", "draft", "hidden", "trashed"] as ContentStatus[]).map((key) => <button className={status === key ? "active" : ""} key={key} onClick={() => updateParam("status", key)}>{statusText[key]} {status === key && <span>{total}</span>}</button>)}</div>
     <div className="admin-filterbar"><label className="search-control"><Search /><input value={query} onChange={(event) => updateParam("q", event.target.value)} placeholder="搜索标题、简介或分类" /></label><select value={category} onChange={(event) => updateParam("category", event.target.value)}><option value="all">全部分类</option>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select value={sort} onChange={(event) => updateParam("sort", event.target.value)}><option value="updated">最近更新</option><option value="title">标题排序</option><option value="order">自定义顺序</option></select></div>
     {selected.size > 0 && <div className="batch-toolbar"><strong>已选择 {selected.size} 项</strong><select value={batchCategory} onChange={(event) => setBatchCategory(event.target.value)}><option value="">移动到分类</option>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button disabled={!batchCategory} onClick={() => runBatch("move")}>移动</button>{canPublish(profile.role) && <><button onClick={() => runBatch("published")}><Check />发布</button><button onClick={() => runBatch("hidden")}><Eye />隐藏</button></>}{profile.role === "super_admin" && <button className="danger" onClick={() => window.confirm("确定将所选内容移入回收站吗？") && runBatch("trashed")}><Trash2 />回收</button>}{canDeleteForever && <button className="danger" onClick={() => window.confirm("确定永久删除所选回收站内容吗？此操作无法撤销。") && runBatch("delete_forever")}><Trash2 />彻底删除</button>}<button className="icon-only" onClick={() => setSelected(new Set())}><X /></button></div>}
     <section className="admin-panel flush"><div className="content-admin-table"><div className="content-table-head"><input type="checkbox" checked={visible.length > 0 && visible.every((item) => selected.has(item.id))} onChange={(event) => setSelected(event.target.checked ? new Set([...selected, ...visible.map((item) => item.id)]) : new Set([...selected].filter((id) => !visible.some((item) => item.id === id))))} /><span>资料</span><span>分类</span><span>状态</span><span>更新时间</span><span>操作</span></div>{visible.map((item) => <div className={`content-table-row${pendingIds.has(item.id) ? " pending" : ""}`} key={item.id}><input type="checkbox" disabled={pendingIds.has(item.id)} checked={selected.has(item.id)} onChange={(event) => { const next = new Set(selected); event.target.checked ? next.add(item.id) : next.delete(item.id); setSelected(next); }} /><ContentThumb item={item} /><div className="content-row-title"><Link to={`/admin/contents/${item.id}`}>{item.title}</Link><span>{item.summary || "暂无简介"}</span></div><span>{item.categoryName}</span><StatusBadge status={item.status} /><time>{formatDate(item.updatedAt)}</time><div className="row-actions">{pendingIds.has(item.id) ? <LoaderCircle className="spin" /> : <>{canEditItem(profile, item) && item.status !== "trashed" && <Link title="编辑" to={`/admin/contents/${item.id}`}><FilePenLine /></Link>}{canEdit(profile.role) && item.status !== "trashed" && <button title="复制为草稿" onClick={() => runDuplicate(item)}><Copy /></button>}{canPublish(profile.role) && item.status !== "trashed" && <button title="发布" onClick={() => runPublish(item)}><Check /></button>}{item.status === "trashed" && canPublish(profile.role) && <button title="恢复草稿" onClick={() => runStatus(item, "draft")}><ArchiveRestore /></button>}{item.status === "trashed" && profile.role === "super_admin" && <button className="danger" title="彻底删除" onClick={() => window.confirm(`确定永久删除“${item.title}”吗？此操作无法撤销。`) && runDeleteForever(item)}><Trash2 /></button>}{profile.role === "super_admin" && item.status !== "trashed" && <button className="danger" title="移入回收站" onClick={() => window.confirm(`确定回收“${item.title}”吗？`) && runStatus(item, "trashed")}><Trash2 /></button>}</>}</div></div>)}{!visible.length && <AdminEmpty title="没有符合条件的资料" detail="调整筛选条件或新建一篇资料。" />}</div></section>
-    <div className="pagination"><span>共 {filtered.length} 条</span><button disabled={page <= 1} onClick={() => updateParam("page", String(page - 1))}><ChevronLeft /></button><strong>{Math.min(page, pages)} / {pages}</strong><button disabled={page >= pages} onClick={() => updateParam("page", String(page + 1))}><ChevronRight /></button></div>
+    <div className="pagination"><span>共 {total} 条</span><button disabled={page <= 1} onClick={() => updateParam("page", String(page - 1))}><ChevronLeft /></button><strong>{Math.min(page, pages)} / {pages}</strong><button disabled={page >= pages} onClick={() => updateParam("page", String(page + 1))}><ChevronRight /></button></div>
   </div>;
 }
 
@@ -163,7 +155,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const { id = "" } = useParams(); const navigate = useNavigate(); const client = useQueryClient();
   const content = useQuery({ queryKey: ["admin-content", id], queryFn: () => loadAdminContent(id), enabled: Boolean(id) });
   const categories = useAdminCategories();
-  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<EditorImportStage>("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const [registeredImages, setRegisteredImages] = useState(0); const [currentImage, setCurrentImage] = useState(0); const [importRetries, setImportRetries] = useState(0); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null); const importStageRef = useRef<EditorImportStage>("idle"); const registeredImagesRef = useRef(0); const currentImageRef = useRef(0); const importRetriesRef = useRef(0);
+  const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<EditorImportStage>("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const [registeredImages, setRegisteredImages] = useState(0); const [currentImage, setCurrentImage] = useState(0); const [importRetries, setImportRetries] = useState(0); const [importComplete, setImportComplete] = useState<{ imageCount: number; jobId: string } | null>(null); const [editorSafeMode, setEditorSafeMode] = useState(false); const loadedVersion = useRef<number | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null); const importStageRef = useRef<EditorImportStage>("idle"); const registeredImagesRef = useRef(0); const currentImageRef = useRef(0); const importRetriesRef = useRef(0); const importProgressRenderRef = useRef(0); const editorRef = useRef<RichEditorHandle | null>(null);
   const changeImportStage = (stage: EditorImportStage) => { importStageRef.current = stage; setImportStage(stage); };
   const storageKey = `maplestorynk-editor-${id}`;
   useEffect(() => { if (!content.data || loadedVersion.current === content.data.version) return; const item = content.data; loadedVersion.current = item.version; const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags }; setDraft(initial); setDirty(false); try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || "null"); if (saved?.version === item.version) setRecovery(saved); } catch { sessionStorage.removeItem(storageKey); } }, [content.data, storageKey]);
@@ -183,8 +175,19 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     }
     return `${stageText[error.stage]}失败${status}：${error.message}`;
   };
-  const save = async () => { if (!draft) return null; setSaving(true); try { const result = await saveContent(draft, profile.id); loadedVersion.current = result.version; setDraft({ ...draft, version: result.version }); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null); notify(result.tagWarning || "草稿已保存到云端。", Boolean(result.tagWarning)); client.invalidateQueries({ queryKey: ["admin-content-list"] }); return result; } catch (error) { notify(error instanceof Error && error.message === "VERSION_CONFLICT" ? "资料已被其他管理员修改，请重新载入后再编辑。" : messageOf(error, "保存失败"), true); return null; } finally { setSaving(false); } };
-  const publish = async () => { if (!draft || !content.data) return; if (!draft.title.trim() || !draft.summary.trim() || !draft.categoryId || (!draft.bodyText.trim() && !content.data.media.length)) return notify("发布前请补齐标题、简介、分类以及正文或媒体。", true); const saved = dirty ? await save() : { version: draft.version }; if (!saved?.version) return; setSaving(true); try { await publishContent(id, saved.version); sessionStorage.removeItem(storageKey); notify("资料已发布。"); client.invalidateQueries({ queryKey: ["public-home"] }); client.invalidateQueries({ queryKey: ["public-category"] }); client.invalidateQueries({ queryKey: ["public-content"] }); client.invalidateQueries({ queryKey: ["admin-content-list"] }); await content.refetch(); } catch (error) { notify(messageOf(error, "发布失败"), true); } finally { setSaving(false); } };
+  const draftWithEditorState = () => {
+    if (!draft) return null;
+    const snapshot = editorRef.current?.serialize();
+    return snapshot ? { ...draft, bodyHtml: snapshot.html, bodyText: snapshot.text, bodyJson: snapshot.json } : draft;
+  };
+  const invalidateContentLists = () => {
+    client.invalidateQueries({ queryKey: ["admin-content-list"] });
+    client.invalidateQueries({ queryKey: ["admin-content-page"] });
+    client.invalidateQueries({ queryKey: ["admin-dashboard-pending"] });
+    client.invalidateQueries({ queryKey: ["admin-dashboard-summary"] });
+  };
+  const save = async (override?: ContentDraft) => { const currentDraft = override || draftWithEditorState(); if (!currentDraft) return null; setSaving(true); try { const result = await saveContent(currentDraft, profile.id); loadedVersion.current = result.version; setDraft({ ...currentDraft, version: result.version }); setDirty(false); sessionStorage.removeItem(storageKey); setRecovery(null); notify(result.tagWarning || "草稿已保存到云端。", Boolean(result.tagWarning)); invalidateContentLists(); return result; } catch (error) { notify(error instanceof Error && error.message === "VERSION_CONFLICT" ? "资料已被其他管理员修改，请重新载入后再编辑。" : messageOf(error, "保存失败"), true); return null; } finally { setSaving(false); } };
+  const publish = async () => { const currentDraft = draftWithEditorState(); if (!currentDraft || !content.data) return; if (!currentDraft.title.trim() || !currentDraft.summary.trim() || !currentDraft.categoryId || (!currentDraft.bodyText.trim() && !content.data.media.length)) return notify("发布前请补齐标题、简介、分类以及正文或媒体。", true); const saved = dirty ? await save(currentDraft) : { version: currentDraft.version }; if (!saved?.version) return; setSaving(true); try { await publishContent(id, saved.version); sessionStorage.removeItem(storageKey); notify("资料已发布。"); client.invalidateQueries({ queryKey: ["public-home"] }); client.invalidateQueries({ queryKey: ["public-category"] }); client.invalidateQueries({ queryKey: ["public-content"] }); invalidateContentLists(); await content.refetch(); } catch (error) { notify(messageOf(error, "发布失败"), true); } finally { setSaving(false); } };
   const goBack = () => { if (!dirty || window.confirm("存在未保存修改，确定离开编辑器吗？")) navigate("/admin/contents"); };
   const stageImport = (preview: ImportPreview, file?: File) => { setPendingImport({ preview, file }); setSelectedSheets(preview.worksheets?.[0] ? [preview.worksheets[0].name] : []); setImportMode(draft?.bodyText.trim() ? "append" : "replace"); notify(`已读取“${preview.title}”，确认后才会写入正文。`); };
   const importFile = async (file: File) => { setImporting(true); try { const { readDocument } = await import("../../lib/documents"); stageImport(await readDocument(file), file); } catch (error) { void reportRuntimeLog({ source: "document-import", message: messageOf(error, "文档读取失败"), error, context: { fileName: file.name, fileType: file.type, fileSize: file.size } }); notify(messageOf(error, "文档读取失败"), true); } finally { setImporting(false); } };
@@ -260,6 +263,10 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         };
         const { materializeWordDocument } = await import("../../lib/documents");
         const materializedWord = await materializeWordDocument(sourceFile, uploadSession, (progress: WordImportProgress) => {
+          const now = performance.now();
+          const milestone = ["fallback", "parsed", "resumed", "retry", "registered", "uploaded"].includes(progress.phase);
+          if (!milestone && now - importProgressRenderRef.current < 250) return;
+          importProgressRenderRef.current = now;
           currentImageRef.current = progress.imageIndex; setCurrentImage(progress.imageIndex);
           importRetriesRef.current = progress.retries || 0; setImportRetries(progress.retries || 0);
           if (progress.phase === "registered") { registeredImagesRef.current = progress.imageIndex; setRegisteredImages(progress.imageIndex); }
@@ -299,9 +306,12 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           try { await preserveOriginal(sourceFile); } catch (attachmentError) { void reportRuntimeLog({ source: "document-import-attachment", message: messageOf(attachmentError, "原始 Word 附件保存失败"), error: attachmentError, context: { fileName: sourceFile.name, fileSize: sourceFile.size } }); }
         }
         await content.refetch();
-        client.invalidateQueries({ queryKey: ["admin-content-list"] });
+        invalidateContentLists();
         client.invalidateQueries({ queryKey: ["admin-media", id] });
         changeImportStage("complete");
+        setImportComplete({ imageCount: finalized.imported_images, jobId: wordJob.id });
+        setEditorSafeMode(false);
+        setTab("body");
         notify(`已安全保存正文和 ${finalized.imported_images}/${wordImages?.count || 0} 张原始图片。`);
       } else {
         update({ title: draft.title || importSnapshot.preview.title, bodyHtml, bodyText, bodyJson: {}, sourceRecord });
@@ -358,11 +368,11 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   if (content.error) return <div className="admin-error"><Database /><h1>资料读取失败</h1><p>{messageOf(content.error)}</p><button className="button" onClick={() => content.refetch()}><RefreshCcw />重新读取</button></div>;
   if (content.isLoading || !draft || !content.data) return <AdminLoading label="正在打开编辑工作区" />;
   if (!canEditItem(profile, content.data)) return <div className="admin-error"><Eye /><h1>仅可查看</h1><p>上传管理员只能编辑自己创建的草稿。</p><button className="button" onClick={() => navigate("/admin/contents")}>返回内容管理</button></div>;
-  return <div className="content-workspace"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="workspace-header"><button className="icon-only" type="button" onClick={goBack}><ArrowLeft /></button><div className="workspace-title"><span><StatusBadge status={content.data.status} /> 版本 {draft.version}{dirty && " · 有未保存修改"}</span><h1>{draft.title || "未命名资料"}</h1></div><div className="workspace-actions"><button className="button quiet" type="button" onClick={() => setTab(tab === "preview" ? "body" : "preview")}><Eye />{tab === "preview" ? "返回编辑" : "预览"}</button><button className="button" disabled={saving || !dirty} type="button" onClick={save}><Save />保存草稿</button>{canPublish(profile.role) && <button className="button primary" disabled={saving} type="button" onClick={publish}><Check />发布</button>}</div></header>
+  return <div className="content-workspace"><AdminToast message={message} error={messageError} onClose={() => setMessage("")} /><header className="workspace-header"><button className="icon-only" type="button" onClick={goBack}><ArrowLeft /></button><div className="workspace-title"><span><StatusBadge status={content.data.status} /> 版本 {draft.version}{dirty && " · 有未保存修改"}</span><h1>{draft.title || "未命名资料"}</h1></div><div className="workspace-actions"><button className="button quiet" type="button" onClick={() => setTab(tab === "preview" ? "body" : "preview")}><Eye />{tab === "preview" ? "返回编辑" : "预览"}</button><button className="button" disabled={saving || !dirty} type="button" onClick={() => { void save(); }}><Save />保存草稿</button>{canPublish(profile.role) && <button className="button primary" disabled={saving} type="button" onClick={publish}><Check />发布</button>}</div></header>
     {recovery && <div className="recovery-banner"><div><strong>发现未提交的本地修改</strong><span>可恢复上次关闭前的编辑内容。</span></div><button onClick={() => { setDraft(recovery); setDirty(true); setRecovery(null); }}>恢复</button><button onClick={() => { sessionStorage.removeItem(storageKey); setRecovery(null); }}>忽略</button></div>}
     <div className="workspace-tabs"><button className={tab === "body" ? "active" : ""} onClick={() => setTab("body")}><FileText />正文</button><button className={tab === "media" ? "active" : ""} onClick={() => setTab("media")}><FileImage />媒体与附件 <span>{content.data.media.length + content.data.attachments.length}</span></button><button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}><Eye />阅读预览</button></div>
-    <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} stage={importStage} jobId={importJobId} failure={importFailure} registeredImages={registeredImages} currentImage={currentImage} retries={importRetries} onConfirm={confirmImport} onCancel={discardPendingImport} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}<Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor value={draft.bodyHtml} onUploadImages={uploadInlineImages} onChange={(bodyHtml, bodyText, bodyJson) => update({ bodyHtml, bodyText, bodyJson })} /></Suspense></>}
-      {tab === "media" && <ContentMediaManager contentId={id} profile={profile} onChanged={async () => { await content.refetch(); client.invalidateQueries({ queryKey: ["admin-content-list"] }); }} />}
+    <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} stage={importStage} jobId={importJobId} failure={importFailure} registeredImages={registeredImages} currentImage={currentImage} retries={importRetries} onConfirm={confirmImport} onCancel={discardPendingImport} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}{importComplete ? <section className="import-complete-summary"><Check /><span>DOCUMENT IMPORT COMPLETE</span><h2>文档与 {importComplete.imageCount} 张原图已安全保存</h2><p>为避免一次加载全部原图，专业编辑器暂未打开。可以先阅读预览，或在需要修改时继续编辑。</p><small>导入任务：{importComplete.jobId}</small><div><button className="button primary" type="button" onClick={() => setTab("preview")}><Eye />阅读预览</button><button className="button quiet" type="button" onClick={() => setImportComplete(null)}><FilePenLine />继续编辑</button></div></section> : editorSafeMode ? <section className="editor-safe-mode"><h2>编辑器安全模式</h2><p>正文以只读方式显示，保存的数据没有丢失。</p><button className="button" type="button" onClick={() => setEditorSafeMode(false)}>重新打开编辑器</button><RichContent html={draft.bodyHtml} /></section> : <AppErrorBoundary scope="rich-editor" resetKey={`${id}:${draft.version}:${editorSafeMode}`} onSafeMode={() => setEditorSafeMode(true)}><Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor ref={editorRef} value={draft.bodyHtml} onDirty={() => setDirty(true)} onSafeMode={() => setEditorSafeMode(true)} onUploadImages={uploadInlineImages} onChange={(bodyHtml, bodyText, bodyJson) => update({ bodyHtml, bodyText, bodyJson })} /></Suspense></AppErrorBoundary>}</>}
+      {tab === "media" && <ContentMediaManager contentId={id} profile={profile} onChanged={async () => { await content.refetch(); invalidateContentLists(); }} />}
       {tab === "preview" && <DraftPreview draft={draft} item={content.data} />}</main>
       <aside className="workspace-inspector"><div className="inspector-heading"><span>CONTENT SETTINGS</span><h2>资料属性</h2></div><label>标题<input value={draft.title} onChange={(event) => update({ title: event.target.value })} /></label><label>简介<textarea value={draft.summary} onChange={(event) => update({ summary: event.target.value })} placeholder="用于列表和搜索结果" /></label><label>分类<select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="inspector-grid"><label>排序<input type="number" value={draft.sortOrder} onChange={(event) => update({ sortOrder: Number(event.target.value) })} /></label><label>路径<input value={draft.slug} onChange={(event) => update({ slug: slugify(event.target.value) })} /></label></div><label>标签<input value={draft.tags.join(", ")} onChange={(event) => update({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 20) })} placeholder="BOSS图, 城镇图" /></label><label>来源记录<textarea value={draft.sourceRecord} onChange={(event) => update({ sourceRecord: event.target.value })} placeholder="仅后台可见" /></label>{canPublish(profile.role) && <label className="checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => update({ featured: event.target.checked })} />首页精选</label>}</aside></div>
   </div>;
@@ -410,7 +420,7 @@ async function loadMediaRecords(contentId: string) {
 
 export function ContentMediaManager({ contentId, profile, onChanged }: { contentId: string; profile: Profile; onChanged(): void | Promise<void> }) {
   const client = useQueryClient(); const records = useQuery({ queryKey: ["admin-media", contentId], queryFn: () => loadMediaRecords(contentId), enabled: Boolean(contentId) });
-  const [progress, setProgress] = useState(0); const [uploadStage, setUploadStage] = useState(""); const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const controller = useRef<AbortController | null>(null); const [dragging, setDragging] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0); const [uploadStage, setUploadStage] = useState(""); const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const controller = useRef<AbortController | null>(null); const [dragging, setDragging] = useState<string | null>(null); const [variantBusyId, setVariantBusyId] = useState<string | null>(null);
   const refresh = async () => { await client.invalidateQueries({ queryKey: ["admin-media", contentId] }); await onChanged(); };
   const notify = (value: string, error = false) => { setMessage(value); setErrorState(error); };
   const upload = async (files: File[]) => {
@@ -443,6 +453,37 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       notify(error instanceof DOMException && error.name === "AbortError" ? "上传已取消。" : messageOf(error, "上传失败"), true);
     } finally { controller.current = null; setProgress(0); setUploadStage(""); }
   };
+  const generateVariants = async (row: MediaRow) => {
+    if (row.kind !== "image" || !row.id || variantBusyId) return;
+    const originalPath = String(row.original_storage_path || row.storage_path || "");
+    const originalUrl = originalPath ? publicAssetUrl(originalPath) : String(row.previewUrl || "");
+    if (!originalUrl) return notify("找不到原始图片，无法生成预览。", true);
+    setVariantBusyId(row.id);
+    const createdPaths: string[] = [];
+    try {
+      const response = await fetch(originalUrl);
+      if (!response.ok) throw new Error(`原图读取失败（HTTP ${response.status}）`);
+      const source = new File([await response.blob()], String(row.title || "image.png"), { type: String(row.original_mime_type || row.mime_type || "image/png") });
+      const variants = [];
+      for (const maxSide of [960, 1600]) {
+        const result = await imageToWebpVariant(source, maxSide, 0.92);
+        const path = `${profile.id}/${contentId}/previews/${row.id}-${maxSide}.webp`;
+        createdPaths.push(path);
+        await uploadWithProgress(result.file, path, (value) => setProgress(value.percent), undefined, publicMediaBucket, true);
+        variants.push({ key: String(maxSide), path, width: result.width, height: result.height, mimeType: result.file.type, sizeBytes: result.file.size });
+      }
+      const display = variants[1] || variants[0];
+      const { error } = await supabase.from("content_media").update({ image_variants: variants, storage_path: display.path, display_storage_path: display.path, size_bytes: display.sizeBytes, width: display.width, height: display.height, mime_type: "image/webp", image_variant_status: "ready" }).eq("id", row.id);
+      if (error) throw error;
+      notify(`已为“${String(row.title || "图片")}”生成 960/1600px 预览，原图保持不变。`);
+      await refresh();
+    } catch (error) {
+      if (createdPaths.length) void supabase.storage.from(publicMediaBucket).remove(createdPaths);
+      void reportRuntimeLog({ source: "media-variants", message: messageOf(error, "图片预览生成失败"), error, context: { contentId, mediaId: row.id } });
+      await supabase.from("content_media").update({ image_variant_status: "failed" }).eq("id", row.id);
+      notify(messageOf(error, "图片预览生成失败"), true);
+    } finally { setVariantBusyId(null); setProgress(0); }
+  };
   const remove = async (table: "content_media" | "attachments", row: MediaRow) => {
     if (!window.confirm("确定删除这个文件吗？此操作无法撤销。")) return;
     const key = ["admin-media", contentId];
@@ -460,11 +501,11 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
   const reorder = async (targetId: string) => { if (!dragging || dragging === targetId || !records.data) return; const rows = [...records.data.media]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); try { await Promise.all(rows.map((row, index) => supabase.from("content_media").update({ sort_order: (index + 1) * 10 }).eq("id", row.id).then(({ error }) => { if (error) throw error; }))); notify("媒体顺序已保存。"); refresh(); } catch (error) { notify(messageOf(error, "排序失败"), true); } };
   if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
   return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>图片自动转 WebP；视频直接上传腾讯云点播并使用内嵌播放器</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
-    <div className="media-library-grid">{records.data?.media.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onMessage={notify} />)}{!records.data?.media.length && <AdminEmpty icon={<ImagePlus />} title="暂无图片或视频" detail="上传后可编辑名称、标注和多级路径。" />}</div>
+    <div className="media-library-grid">{records.data?.media.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onGenerateVariants={() => generateVariants(row)} variantBusy={variantBusyId === row.id} onMessage={notify} />)}{!records.data?.media.length && <AdminEmpty icon={<ImagePlus />} title="暂无图片或视频" detail="上传后可编辑名称、标注和多级路径。" />}</div>
     <section className="attachment-section"><div className="panel-heading"><div><h2>附件</h2><p>Word、PDF、压缩包和文本文件</p></div></div>{records.data?.attachments.map((row) => <div className="attachment-row" key={row.id}><FileText /><div><strong>{String(row.name || "附件")}</strong><span>{String(row.mime_type || "文件")} · {formatBytes(Number(row.size_bytes || 0))}</span></div>{canEdit(profile.role) && <button className="icon-only danger" onClick={() => remove("attachments", row)}><Trash2 /></button>}</div>)}{!records.data?.attachments.length && <AdminEmpty title="暂无附件" />}</section></div>;
 }
 
-function MediaCard({ row, editable, dragging, onDrag, onDrop, onSaved, onRemove, onMessage }: { row: MediaRow; editable: boolean; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onRemove(): void; onMessage(value: string, error?: boolean): void }) {
+function MediaCard({ row, editable, dragging, onDrag, onDrop, onSaved, onRemove, onGenerateVariants, variantBusy, onMessage }: { row: MediaRow; editable: boolean; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onRemove(): void; onGenerateVariants(): void; variantBusy: boolean; onMessage(value: string, error?: boolean): void }) {
   const [title, setTitle] = useState(String(row.title || "")); const [note, setNote] = useState(String(row.note || "")); const [path, setPath] = useState(Array.isArray(row.hierarchy_path) ? row.hierarchy_path.join(" / ") : "");
   const [converting, setConverting] = useState(false);
   const save = async () => { const { error } = await supabase.from("content_media").update({ title: title.trim(), note: note.trim(), hierarchy_path: path.split("/").map((part) => part.trim()).filter(Boolean), alt_text: title.trim() }).eq("id", row.id); if (error) onMessage(error.message, true); else { onMessage("媒体信息已保存。"); onSaved(); } };
@@ -497,7 +538,8 @@ function MediaCard({ row, editable, dragging, onDrag, onDrop, onSaved, onRemove,
     finally { setConverting(false); }
   };
   const playerMedia = { src: String(row.previewUrl || ""), title, mimeType: String(row.mime_type || ""), processingStatus: String(row.processing_status || "ready") as "ready" | "processing" | "failed", videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" as const : undefined, providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined, providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined };
-  return <article className={`media-card${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} />{editable && row.video_provider !== "tencent_vod" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={repairVideo}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}迁移到云点播</button>}{editable && row.video_provider === "tencent_vod" && row.processing_status === "processing" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={checkVod}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}刷新处理状态</button>}</div> : row.previewUrl ? <img src={row.previewUrl} alt={title} /> : <FileImage />}</div><div className="media-card-fields"><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="图片名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="图片标注或说明" /></div>{editable && <div className="media-card-actions"><span>拖动排序</span><button title="保存" onClick={save}><Save /></button><button className="danger" title="删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
+  const needsVariants = row.kind === "image" && (!Array.isArray(row.image_variants) || row.image_variants.length === 0);
+  return <article className={`media-card${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} />{editable && row.video_provider !== "tencent_vod" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={repairVideo}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}迁移到云点播</button>}{editable && row.video_provider === "tencent_vod" && row.processing_status === "processing" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={checkVod}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}刷新处理状态</button>}</div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="图片名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="图片标注或说明" /></div>{editable && <div className="media-card-actions"><span>拖动排序</span>{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <RefreshCcw />}</button>}<button title="保存" onClick={save}><Save /></button><button className="danger" title="删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
 }
 
 export function CategoriesPage({ profile }: { profile: Profile }) {

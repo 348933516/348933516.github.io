@@ -25,6 +25,28 @@ function waitForAck(id: string) {
   return new Promise<void>((resolve, reject) => acknowledgements.set(id, { resolve, reject }));
 }
 
+async function createDisplayVariants(original: ArrayBuffer, mimeType: string) {
+  if (!mimeType.startsWith("image/") || mimeType === "image/gif") return [];
+  const bitmap = await createImageBitmap(new Blob([original], { type: mimeType }));
+  try {
+    const variants = [];
+    for (const maxSide of [960, 1600] as const) {
+      const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = new OffscreenCanvas(width, height);
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("无法创建 Word 图片预览画布");
+      context.drawImage(bitmap, 0, 0, width, height);
+      const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.92 });
+      variants.push({ key: String(maxSide), width, height, mimeType: "image/webp", data: await blob.arrayBuffer() });
+    }
+    return variants;
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function processDocument(message: StartMessage) {
   let imageCount = 0;
   let totalOriginalBytes = 0;
@@ -44,9 +66,13 @@ async function processDocument(message: StartMessage) {
 
           if (message.mode === "extract") {
             const hash = sha256Hex(original);
-            // Structured cloning is slower than transferring ownership, but it
-            // is reliable across browser builds and only one image is in flight.
-            worker.postMessage({ type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original } });
+            const variants = await createDisplayVariants(original, mimeType);
+            const width = variants.at(-1)?.width || 0;
+            const height = variants.at(-1)?.height || 0;
+            worker.postMessage(
+              { type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original, width, height, variants } },
+              [original, ...variants.map((variant) => variant.data)]
+            );
             await waitForAck(id);
           } else {
             worker.postMessage({ type: "progress", phase: "preview", current: imageCount });

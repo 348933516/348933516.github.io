@@ -75,4 +75,13 @@ describe("content sanitization", () => {
     expect(result).toContain('rowspan="2"');
     expect(result).toContain('colwidth="120,120"');
   });
+
+  it("keeps responsive image attributes and rejects unsafe original links", () => {
+    const safe = sanitizeHtml('<figure data-original-src="https://cdn.example.com/original.png"><img src="https://cdn.example.com/1600.webp" srcset="https://cdn.example.com/960.webp 960w, https://cdn.example.com/1600.webp 1600w" sizes="(max-width: 720px) 100vw, 1600px" width="1600" height="900"></figure>');
+    expect(safe).toContain('srcset="https://cdn.example.com/960.webp 960w, https://cdn.example.com/1600.webp 1600w"');
+    expect(safe).toContain('data-original-src="https://cdn.example.com/original.png"');
+    const unsafe = sanitizeHtml('<figure data-original-src="javascript:alert(1)"><img src="https://cdn.example.com/1600.webp" srcset="javascript:alert(1) 1600w"></figure>');
+    expect(unsafe).not.toContain("javascript:");
+    expect(unsafe).not.toContain("data-original-src");
+  });
 });

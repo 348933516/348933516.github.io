@@ -68,11 +68,18 @@ function HomepageCarousel() {
   }, [carouselSlides, settings.carouselEnabled, settings.heroSubtitle, settings.heroTitle, settings.pageBackgroundUrl, settings.tileBackgroundUrl]);
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [loadedSlideIds, setLoadedSlideIds] = useState<Set<string>>(() => new Set(slides[0] ? [slides[0].id] : []));
   const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   useEffect(() => {
     setActive(0);
   }, [slides.length]);
+
+  useEffect(() => {
+    const slide = slides[active];
+    if (!slide) return;
+    setLoadedSlideIds((current) => current.has(slide.id) ? current : new Set(current).add(slide.id));
+  }, [active, slides]);
 
   useEffect(() => {
     if (!settings.carouselAutoplay || paused || reducedMotion || slides.length <= 1) return;
@@ -96,7 +103,8 @@ function HomepageCarousel() {
                   const target = normalizeCarouselTarget(slide.linkUrl);
                   const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
                   const priority = index === 0 ? { fetchpriority: "high" } : {};
-                  const content = <>{image ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} decoding="async" {...priority} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
+                  const shouldLoad = loadedSlideIds.has(slide.id);
+                  const content = <>{image && shouldLoad ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} decoding="async" {...priority} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
                   return target
                     ? <Link className="hero-carousel-slide-link" to={target} tabIndex={index === active ? 0 : -1}>{content}</Link>
                     : <div className="hero-carousel-slide-static">{content}</div>;

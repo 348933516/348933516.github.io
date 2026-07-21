@@ -78,6 +78,15 @@ describe("professional rich editor", () => {
     expect(container.querySelectorAll('.editor-surface img[src="https://example.com/imported.png"]')).toHaveLength(1);
   });
 
+  it("safely parses a legacy imported figure without a figcaption", () => {
+    const mediaId = "123e4567-e89b-42d3-a456-426614174000";
+    const value = `<figure data-editor-image="true" data-media-id="${mediaId}"><img src="https://example.com/legacy.png" alt="图片 1"></figure>`;
+    const { container } = render(<RichEditor value={value} onChange={vi.fn()} />);
+
+    expect(container.querySelectorAll('.editor-surface img[src="https://example.com/legacy.png"]')).toHaveLength(1);
+    expect(container.querySelector(".editor-surface figcaption")).toBeInTheDocument();
+  });
+
   it("pastes tab-separated spreadsheet data as an editable table", async () => {
     const onChange = vi.fn();
     const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} />);

@@ -13,6 +13,7 @@ type ImportAsset = {
   height: number;
   originalSize: number;
   displaySize: number;
+  imageVariants?: Array<{ key: string; path: string; width: number; height: number; mimeType: string; sizeBytes: number }>;
   sortOrder: number;
   title: string;
   altText: string;
@@ -29,8 +30,8 @@ function cleanBody(value: string) {
   return sanitizeHtml(value, {
     allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
     allowedAttributes: {
-      a: ["href", "target", "rel", "title"], img: ["src", "alt", "title"],
-      figure: ["data-editor-image", "data-media-id"], figcaption: ["data-placeholder"],
+      a: ["href", "target", "rel", "title"], img: ["src", "srcset", "sizes", "width", "height", "loading", "decoding", "alt", "title"],
+      figure: ["data-editor-image", "data-media-id", "data-original-src"], figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
       th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
       td: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
@@ -63,6 +64,18 @@ function assetIssues(value: unknown, importId: string) {
   if (!String(asset.displayPath || "").startsWith(prefix)) issues.push("display_path");
   if (!Number.isFinite(Number(asset.originalSize)) || Number(asset.originalSize) < 1) issues.push("original_size");
   if (!Number.isFinite(Number(asset.displaySize)) || Number(asset.displaySize) < 1) issues.push("display_size");
+  if (asset.imageVariants !== undefined) {
+    if (!Array.isArray(asset.imageVariants) || asset.imageVariants.some((entry) => {
+      if (!entry || typeof entry !== "object") return true;
+      const variant = entry as Record<string, unknown>;
+      return !["960", "1600"].includes(String(variant.key || ""))
+        || !String(variant.path || "").startsWith(prefix)
+        || !Number.isInteger(Number(variant.width)) || Number(variant.width) < 1
+        || !Number.isInteger(Number(variant.height)) || Number(variant.height) < 1
+        || String(variant.mimeType || "") !== "image/webp"
+        || !Number.isFinite(Number(variant.sizeBytes)) || Number(variant.sizeBytes) < 1;
+    })) issues.push("image_variants");
+  }
   return issues;
 }
 
@@ -81,13 +94,18 @@ async function writeEvent(client: SupabaseClient, importId: string, input: {
 
 async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
   if (!Array.isArray(manifest)) return;
-  const paths = [...new Set(manifest.flatMap((asset) => asset && typeof asset === "object" ? [String((asset as Record<string, unknown>).originalPath || ""), String((asset as Record<string, unknown>).displayPath || "")] : []).filter(Boolean))];
+  const paths = [...new Set(manifest.flatMap((asset) => {
+    if (!asset || typeof asset !== "object") return [];
+    const value = asset as Record<string, unknown>;
+    const variants = Array.isArray(value.imageVariants) ? value.imageVariants.flatMap((entry) => entry && typeof entry === "object" ? [String((entry as Record<string, unknown>).path || "")] : []) : [];
+    return [String(value.originalPath || ""), String(value.displayPath || ""), ...variants];
+  }).filter(Boolean))];
   if (paths.length) await client.storage.from(publicBucket).remove(paths);
 }
 
 async function registeredAssets(client: SupabaseClient, importId: string): Promise<ImportAsset[]> {
   const { data, error } = await client.from("document_import_assets")
-    .select("media_id, image_index, original_path, display_path, content_hash, original_mime_type, width, height, original_size_bytes, display_size_bytes, sort_order, title, alt_text")
+    .select("media_id, image_index, original_path, display_path, content_hash, original_mime_type, width, height, original_size_bytes, display_size_bytes, image_variants, sort_order, title, alt_text")
     .eq("import_id", importId)
     .order("image_index");
   if (error) throw error;
@@ -95,7 +113,7 @@ async function registeredAssets(client: SupabaseClient, importId: string): Promi
     mediaId: asset.media_id, imageIndex: asset.image_index, originalPath: asset.original_path, displayPath: asset.display_path,
     hash: asset.content_hash || "", mimeType: asset.original_mime_type || "application/octet-stream",
     width: asset.width || 0, height: asset.height || 0, originalSize: Number(asset.original_size_bytes),
-    displaySize: Number(asset.display_size_bytes), sortOrder: asset.sort_order, title: asset.title, altText: asset.alt_text
+    displaySize: Number(asset.display_size_bytes), imageVariants: Array.isArray(asset.image_variants) ? asset.image_variants : [], sortOrder: asset.sort_order, title: asset.title, altText: asset.alt_text
   }));
 }
 
@@ -159,7 +177,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const assets = await registeredAssets(client, importId);
     if (job.status === "completed" || job.status === "cancelled") return importError("retry", "IMPORT_NOT_RETRYABLE", "该导入任务已经结束，不能重新提交。", 400, { import_id: importId, import_status: job.status });
     if (assets.length !== Number(job.expected_images)) return importError("retry", "IMPORT_MANIFEST_INCOMPLETE", "已登记图片数量不完整，不能直接重试提交。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
-    const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath]))];
+    const paths = [...new Set(assets.flatMap((asset) => [
+      asset.originalPath,
+      asset.displayPath,
+      ...(asset.imageVariants || []).map((variant) => variant.path)
+    ]))];
     const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
     const presentPaths = new Set((stored || []).map((item) => item.name));
     const missingPaths = paths.filter((path) => !presentPaths.has(path));
@@ -193,14 +215,14 @@ Deno.serve((request) => edgeHandler(request, async () => {
     if (issues.length) return importError("register", "INVALID_IMPORT_ASSET", "当前图片登记信息无效，已停止导入。", 400, { import_id: importId, issues });
     const item = asset as ImportAsset;
     if (item.imageIndex > Number(job.expected_images)) return importError("register", "IMAGE_INDEX_OUT_OF_RANGE", "图片序号超出本次导入任务的范围。", 400, { import_id: importId, image_index: item.imageIndex, expected_images: job.expected_images });
-    const expectedPaths = [...new Set([item.originalPath, item.displayPath])];
+    const expectedPaths = [...new Set([item.originalPath, item.displayPath, ...(item.imageVariants || []).map((variant) => variant.path)])];
     const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", expectedPaths);
     if (storedError || stored?.length !== expectedPaths.length) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
     const { error: insertError } = await client.from("document_import_assets").upsert({
       import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
       image_index: item.imageIndex,
       content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
-      original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, sort_order: item.imageIndex * 10,
+      original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, image_variants: item.imageVariants || [], sort_order: item.imageIndex * 10,
       title: item.title, alt_text: item.altText
     }, { onConflict: "import_id,image_index" });
     if (insertError) return importError("register", "ASSET_REGISTRATION_FAILED", "当前图片无法登记到导入任务。", 400, { import_id: importId, image_order: item.sortOrder, database_error: insertError.message.slice(0, 300) });
@@ -223,7 +245,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const expectedIndexes = Array.from({ length: Number(job.expected_images) }, (_, index) => index + 1);
   const missingIndexes = expectedIndexes.filter((index) => !assets.some((asset) => asset.imageIndex === index));
   if (assets.length !== Number(job.expected_images) || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length || missingIndexes.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，导入任务已保留，可重新选择同一份 Word 继续。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, missing_indexes: missingIndexes.slice(0, 20), invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
-  const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath]))];
+  const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath, ...(asset.imageVariants || []).map((variant) => variant.path)]))];
   const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
   const presentPaths = new Set((stored || []).map((item) => item.name));
   const missingPaths = paths.filter((path) => !presentPaths.has(path));

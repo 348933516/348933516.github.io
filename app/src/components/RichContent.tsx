@@ -14,6 +14,18 @@ export function prepareRichHtml(value: string) {
     image.setAttribute("loading", "lazy");
     image.setAttribute("decoding", "async");
   });
+  document.querySelectorAll<HTMLElement>("figure[data-original-src]").forEach((figure) => {
+    const image = figure.querySelector(":scope > img");
+    const original = figure.getAttribute("data-original-src");
+    if (!image || !original || image.parentElement?.tagName === "A") return;
+    const link = document.createElement("a");
+    link.href = original;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.title = "查看原图";
+    image.replaceWith(link);
+    link.append(image);
+  });
   return document.body.innerHTML;
 }
 
