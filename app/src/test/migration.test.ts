@@ -12,6 +12,7 @@ const documentImports = fs.readFileSync(path.resolve(process.cwd(), "supabase/mi
 const allowOriginalWordImageDisplay = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721030000_allow_original_word_image_display.sql"), "utf8");
 const documentImportFinalizeDiagnostics = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721120000_document_import_finalize_diagnostics.sql"), "utf8");
 const documentImportOrdering = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721130000_document_import_ordering.sql"), "utf8");
+const documentImportQualifiedVersion = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721140000_document_import_qualified_version.sql"), "utf8");
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
@@ -90,6 +91,9 @@ describe("Supabase security migration", () => {
     expect(documentImportOrdering).toContain("drop constraint if exists document_import_assets_import_id_sort_order_key");
     expect(documentImportOrdering).toContain("sort_order = image_index * 10");
     expect(documentImportFunction).toContain("sort_order: item.imageIndex * 10");
+    expect(documentImportQualifiedVersion).toContain("update public.contents as target_content");
+    expect(documentImportQualifiedVersion).toContain("target_content.version = p_expected_version");
+    expect(documentImportQualifiedVersion).not.toContain("where id = p_content_id and version = p_expected_version");
   });
 
   it("removes the legacy path inequality constraint before original Word images are registered", () => {
