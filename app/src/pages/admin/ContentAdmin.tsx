@@ -6,7 +6,7 @@ import {
   Link2, LoaderCircle, Plus, RefreshCcw, Save, Search, Trash2, Upload, X
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { RichContent, standaloneMedia } from "../../components/RichContent";
+import { RichContent } from "../../components/RichContent";
 import { VideoPlayer } from "../../components/VideoPlayer";
 import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
 import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSession } from "../../lib/documents";
@@ -17,6 +17,7 @@ import {
   retryDocumentImport, saveContent, startDocumentImport, DocumentImportError, type DocumentImportAsset, type DocumentImportStage
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
+import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { uploadSupabaseTus } from "../../lib/tusUpload";

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { RichContent, standaloneMedia } from "../components/RichContent";
+import { RichContent } from "../components/RichContent";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
 import { buildShareUrl, copyShareUrl } from "../lib/share";
 import { loadPublicCategory, loadPublicContent } from "../lib/repository";
+import { standaloneMedia } from "../lib/richMedia";
 import type { ContentItem, ContentMedia } from "../types";
 
 function formatDate(value?: string) {

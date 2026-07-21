@@ -70,6 +70,14 @@ describe("professional rich editor", () => {
     expect(container.querySelector(".editor-surface")).toBeInTheDocument();
   });
 
+  it("parses an imported figure without creating a second image node", () => {
+    const mediaId = "123e4567-e89b-42d3-a456-426614174000";
+    const value = `<figure data-editor-image="true" data-media-id="${mediaId}"><img src="https://example.com/imported.png" alt="图片 1"><figcaption></figcaption></figure>`;
+    const { container } = render(<RichEditor value={value} onChange={vi.fn()} />);
+
+    expect(container.querySelectorAll('.editor-surface img[src="https://example.com/imported.png"]')).toHaveLength(1);
+  });
+
   it("pastes tab-separated spreadsheet data as an editable table", async () => {
     const onChange = vi.fn();
     const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} />);

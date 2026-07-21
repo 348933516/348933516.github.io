@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { normalizeOfficeClipboardHtml, tabSeparatedTextToTableHtml } from "../lib/officeClipboard";
 import { sanitizeHtml } from "../lib/sanitize";
+import { normalizeInlineMediaHtml } from "../lib/richMedia";
 
 interface RichEditorProps {
   value: string;
@@ -159,6 +160,7 @@ const FigureImage = Node.create({
   parseHTML() {
     return [{
       tag: "figure[data-editor-image]",
+      contentElement: "figcaption",
       getAttrs: (element) => {
         const image = (element as HTMLElement).querySelector("img");
         return { src: image?.getAttribute("src") || "", alt: image?.getAttribute("alt") || "", mediaId: (element as HTMLElement).getAttribute("data-media-id") || "" };
@@ -341,8 +343,8 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
   const pasteTableRef = useRef<(html: string) => void>(() => undefined);
   const pasteOfficeHtmlRef = useRef<(html: string, files: File[]) => void>(() => undefined);
-  const internalHtml = useRef(sanitizeHtml(value));
-  const lastExternalHtml = useRef(sanitizeHtml(value));
+  const internalHtml = useRef(normalizeInlineMediaHtml(value));
+  const lastExternalHtml = useRef(normalizeInlineMediaHtml(value));
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const [tablePreset, setTablePreset] = useState({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" });
@@ -414,7 +416,7 @@ export function RichEditor({ value, onChange, onUploadImages }: RichEditorProps)
   });
 
   useEffect(() => {
-    const external = sanitizeHtml(value);
+    const external = normalizeInlineMediaHtml(value);
     if (!editor || external === lastExternalHtml.current) return;
     lastExternalHtml.current = external;
     if (external === internalHtml.current) return;

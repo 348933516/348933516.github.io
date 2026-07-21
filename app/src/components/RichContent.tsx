@@ -1,23 +1,8 @@
 import { useMemo } from "react";
-import { sanitizeHtml } from "../lib/sanitize";
-import type { ContentMedia } from "../types";
-
-export function referencedMediaIds(html: string) {
-  const document = new DOMParser().parseFromString(sanitizeHtml(html), "text/html");
-  return new Set(
-    Array.from(document.querySelectorAll<HTMLElement>("figure[data-media-id]"))
-      .map((figure) => figure.dataset.mediaId || "")
-      .filter(Boolean)
-  );
-}
-
-export function standaloneMedia(html: string, media: ContentMedia[]) {
-  const referenced = referencedMediaIds(html);
-  return media.filter((item) => !referenced.has(item.id));
-}
+import { normalizeInlineMediaHtml } from "../lib/richMedia";
 
 export function prepareRichHtml(value: string) {
-  const document = new DOMParser().parseFromString(sanitizeHtml(value), "text/html");
+  const document = new DOMParser().parseFromString(normalizeInlineMediaHtml(value), "text/html");
   document.querySelectorAll("table").forEach((table) => {
     if (table.parentElement?.classList.contains("rich-table-scroll")) return;
     const wrapper = document.createElement("div");
