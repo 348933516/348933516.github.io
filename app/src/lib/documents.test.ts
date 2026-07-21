@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { composeWorksheetImport, materializeWordDocument, prepareWordHtml, readDocument, type WorksheetPreview } from "./documents";
 import { getDocumentImportStatus, registerDocumentImportAsset } from "./repository";
 import { uploadSupabaseTus } from "./tusUpload";
@@ -10,12 +10,28 @@ vi.mock("./repository", () => ({
 
 vi.mock("./tusUpload", () => ({ uploadSupabaseTus: vi.fn() }));
 
+vi.mock("mammoth", () => {
+  const mammoth = {
+    images: { imgElement: (handler: unknown) => handler },
+    convertToHtml: vi.fn(async (_input: unknown, options: { convertImage(image: { contentType: string; readAsArrayBuffer(): Promise<Uint8Array> }): Promise<{ src: string; alt: string }> }) => {
+      const converted = await options.convertImage({
+        contentType: "image/png",
+        readAsArrayBuffer: async () => new Uint8Array([10, 20, 30])
+      });
+      return { value: `<p><img src="${converted.src}" alt="${converted.alt}"></p>`, messages: [] };
+    })
+  };
+  return { default: mammoth, ...mammoth };
+});
+
 const emptyStatus = {
   job: { id: "00000000-0000-4000-8000-000000000099", status: "uploading" as const, expectedImages: 1 },
   assets: [], events: []
 };
 
 describe("document imports", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("composes only the selected worksheets", () => {
     const sheets: WorksheetPreview[] = [
       { name: "地图", rowCount: 2, columnCount: 2, bodyHtml: "<table><tr><td>地图内容</td></tr></table>", bodyText: "地图内容" },
@@ -52,7 +68,7 @@ describe("document imports", () => {
     expect(result).not.toContain("word-image-placeholder");
   });
 
-  it("maps the durable server manifest even when the Worker completion has no asset messages", async () => {
+  it("uses compatibility parsing when the Worker completes without delivering image messages", async () => {
     const previousWorker = globalThis.Worker;
     class DirectUploadWorker {
       onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
@@ -64,12 +80,15 @@ describe("document imports", () => {
       terminate() {}
     }
     vi.stubGlobal("Worker", DirectUploadWorker);
+    vi.mocked(uploadSupabaseTus).mockResolvedValue({ uploadUrl: "https://uploads.example.test/fallback", retries: 0, resumed: false });
+    vi.mocked(registerDocumentImportAsset).mockResolvedValue({ registered_assets: 1 });
     vi.mocked(getDocumentImportStatus).mockResolvedValueOnce(emptyStatus).mockResolvedValueOnce({
       ...emptyStatus,
       assets: [{ image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", display_path: "imports/job/1.png" }]
     });
     try {
-      const file = { arrayBuffer: async () => new ArrayBuffer(8) } as File;
+      const phases: string[] = [];
+      const file = { name: "maps.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 8, arrayBuffer: async () => new ArrayBuffer(8) } as File;
       const result = await materializeWordDocument(file, {
         supabaseUrl: "https://project.example.test",
         publishableKey: "public-key",
@@ -79,7 +98,10 @@ describe("document imports", () => {
         uploadPrefix: "imports/00000000-0000-4000-8000-000000000099",
         existingMediaCount: 0,
         expectedImages: 1
-      });
+      }, (progress) => phases.push(progress.phase));
+      expect(phases).toContain("fallback");
+      expect(vi.mocked(uploadSupabaseTus)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(registerDocumentImportAsset)).toHaveBeenCalledTimes(1);
       expect(result.uploadedImageCount).toBe(1);
       expect(result.bodyHtml).toContain('data-media-id="00000000-0000-4000-8000-000000000001"');
       expect(result.bodyHtml).toContain("https://project.example.test/storage/v1/object/public/public/imports/job/1.png");

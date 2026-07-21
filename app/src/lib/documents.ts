@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { toTransferableArrayBuffer } from "./documentWorkerBuffer";
 import { getDocumentImportStatus, registerDocumentImportAsset, type DocumentImportAsset } from "./repository";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
@@ -51,7 +52,7 @@ export interface WordUploadSession {
 }
 
 export type WordImportProgress = {
-  phase: "parsed" | "uploading" | "uploaded" | "registered" | "resumed" | "retry";
+  phase: "parsed" | "uploading" | "uploaded" | "registered" | "resumed" | "retry" | "fallback";
   imageIndex: number;
   imageCount: number;
   loaded?: number;
@@ -104,17 +105,26 @@ export async function readDocument(file: File): Promise<ImportPreview> {
 
 type WordWorkerResult = { html: string; imageCount: number; totalOriginalBytes: number; warnings: string[] };
 
-function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ParsedWordImage) => Promise<void>, onProgress?: (current: number) => void) {
+function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image: ParsedWordImage) => Promise<void>, onProgress?: (current: number) => void, onFallback?: () => void) {
   return new Promise<WordWorkerResult>(async (resolve, reject) => {
     const worker = new Worker(new URL("./document.worker.ts", import.meta.url), { type: "module" });
     let settled = false;
+    let deliveredImages = 0;
     const finish = (action: () => void) => {
       if (settled) return;
       settled = true;
       worker.terminate();
       action();
     };
-    worker.onerror = (event) => finish(() => reject(new Error(event.message || "Word Worker 加载失败")));
+    const useCompatibilityParser = (workerError?: Error) => {
+      if (settled) return;
+      if (mode !== "extract" || !onImage) return finish(() => reject(workerError || new Error("Word Worker 加载失败")));
+      settled = true;
+      worker.terminate();
+      onFallback?.();
+      void parseWordWithCompatibilityMode(file, onImage).then(resolve).catch(reject);
+    };
+    worker.onerror = (event) => useCompatibilityParser(new Error(event.message || "Word Worker 加载失败"));
     worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
       const message = event.data;
       if (message.type === "progress") {
@@ -124,14 +134,21 @@ function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image
       if (message.type === "image") {
         if (!onImage) return finish(() => reject(new Error("Word 图片处理器未配置。")));
         const image = message.image as unknown as ParsedWordImage;
+        deliveredImages += 1;
         void onImage(image).then(() => worker.postMessage({ type: "ack", id: image.id })).catch((error) => {
           worker.postMessage({ type: "ack", id: image.id, error: error instanceof Error ? error.message : "图片上传失败" });
           finish(() => reject(error instanceof Error ? error : new Error("图片上传失败")));
         });
         return;
       }
-      if (message.type === "error") return finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
-      if (message.type === "complete") finish(() => resolve(message as unknown as WordWorkerResult));
+      if (message.type === "error") return deliveredImages === 0
+        ? useCompatibilityParser(new Error(String(message.message || "Word 解析失败")))
+        : finish(() => reject(new Error(String(message.message || "Word 解析失败"))));
+      if (message.type === "complete") {
+        const result = message as unknown as WordWorkerResult;
+        if (mode === "extract" && result.imageCount > 0 && deliveredImages === 0) return useCompatibilityParser();
+        finish(() => resolve(result));
+      }
     };
     try {
       const buffer = await file.arrayBuffer();
@@ -140,6 +157,46 @@ function runWordWorker(file: File, mode: "preview" | "extract", onImage?: (image
       finish(() => reject(error));
     }
   });
+}
+
+export async function parseWordWithCompatibilityMode(file: File, onImage: (image: ParsedWordImage) => Promise<void>): Promise<WordWorkerResult> {
+  const mammoth = (await import("mammoth")).default;
+  let imageCount = 0;
+  let deliveredImages = 0;
+  let totalOriginalBytes = 0;
+  let imageFailure: Error | null = null;
+  const result = await mammoth.convertToHtml(
+    { arrayBuffer: await file.arrayBuffer() },
+    {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        try {
+          imageCount += 1;
+          const id = `word-image-${imageCount}`;
+          const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
+          const mimeType = image.contentType || "application/octet-stream";
+          totalOriginalBytes += original.byteLength;
+          const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", original))].map((value) => value.toString(16).padStart(2, "0")).join("");
+          await onImage({ id, index: imageCount, hash, mimeType, extension: wordImageExtension(mimeType), original });
+          deliveredImages += 1;
+          return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
+        } catch (error) {
+          imageFailure = error instanceof Error ? error : new Error("Word 兼容模式图片处理失败");
+          throw imageFailure;
+        }
+      }),
+      styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
+    }
+  );
+  if (imageFailure) throw imageFailure;
+  if (imageCount !== deliveredImages) throw new Error(`Word 兼容模式处理不完整：解析 ${imageCount} 张，已提交 ${deliveredImages} 张。`);
+  return { html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) };
+}
+
+function wordImageExtension(mime: string) {
+  if (mime.includes("png")) return "png";
+  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+  if (mime.includes("gif")) return "gif";
+  return "bin";
 }
 
 export function prepareWordHtml(html: string, uploaded: Map<string, UploadedWordImage>) {
@@ -199,7 +256,7 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
     await registerDocumentImportAsset(upload.importId, asset);
     registeredByIndex.set(image.index, { image_index: image.index, media_id: mediaId, display_path: originalPath });
     onProgress?.({ phase: "registered", imageIndex: image.index, imageCount: upload.expectedImages });
-  });
+  }, undefined, () => onProgress?.({ phase: "fallback", imageIndex: 1, imageCount: upload.expectedImages, detail: "Worker 未输出图片，已切换浏览器兼容解析模式" }));
   // The server manifest is authoritative. A browser reload or an interrupted
   // TUS request must never make a locally remembered image look committed.
   const completed = await getDocumentImportStatus(upload.importId);

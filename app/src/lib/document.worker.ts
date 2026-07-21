@@ -31,30 +31,39 @@ function waitForAck(id: string) {
 async function processDocument(message: StartMessage) {
   let imageCount = 0;
   let totalOriginalBytes = 0;
+  let imageFailure: Error | null = null;
   const result = await mammoth.convertToHtml(
     { arrayBuffer: message.buffer },
     {
       convertImage: mammoth.images.imgElement(async (image) => {
-        imageCount += 1;
-        const id = `word-image-${imageCount}`;
-        // Mammoth's browser implementation returns a Uint8Array despite the
-        // readAsArrayBuffer name. Transfer lists only accept its ArrayBuffer.
-        const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
-        const mimeType = image.contentType || "application/octet-stream";
-        totalOriginalBytes += original.byteLength;
-        const hash = hex(await crypto.subtle.digest("SHA-256", original));
+        try {
+          imageCount += 1;
+          const id = `word-image-${imageCount}`;
+          // Mammoth's browser implementation returns a Uint8Array despite the
+          // readAsArrayBuffer name. Copy it into an exact ArrayBuffer first.
+          const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
+          const mimeType = image.contentType || "application/octet-stream";
+          totalOriginalBytes += original.byteLength;
+          const hash = hex(await crypto.subtle.digest("SHA-256", original));
 
-        if (message.mode === "extract") {
-          worker.postMessage({ type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original } }, [original]);
-          await waitForAck(id);
-        } else {
-          worker.postMessage({ type: "progress", phase: "preview", current: imageCount });
+          if (message.mode === "extract") {
+            // Structured cloning is slower than transferring ownership, but it
+            // is reliable across browser builds and only one image is in flight.
+            worker.postMessage({ type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original } });
+            await waitForAck(id);
+          } else {
+            worker.postMessage({ type: "progress", phase: "preview", current: imageCount });
+          }
+          return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
+        } catch (error) {
+          imageFailure = error instanceof Error ? error : new Error("Word 图片处理失败");
+          throw imageFailure;
         }
-        return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
       }),
       styleMap: ["p[style-name='Title'] => h1:fresh", "p[style-name='Subtitle'] => h2:fresh"]
     }
   );
+  if (imageFailure) throw imageFailure;
   worker.postMessage({ type: "complete", html: result.value, imageCount, totalOriginalBytes, warnings: result.messages.map((entry) => entry.message) });
 }
 

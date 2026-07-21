@@ -251,8 +251,10 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           const ratio = progress.total ? (progress.loaded || 0) / progress.total : completed ? 1 : 0;
           setImportProgress(Math.round(((progress.imageIndex - 1 + ratio) / wordImages.count) * 100));
           changeImportStage(progress.phase === "registered" ? "register" : "upload-original");
-          notify(`Word 图片 ${progress.imageIndex}/${wordImages.count} · ${progress.phase === "registered" ? "已登记" : progress.phase === "resumed" ? "已恢复" : progress.phase === "retry" ? "正在重试" : "正在上传"}`);
-          if (["parsed", "resumed", "retry", "registered", "uploaded"].includes(progress.phase)) {
+          notify(progress.phase === "fallback"
+            ? "Worker 图片通道不可用，已自动切换兼容导入模式。"
+            : `Word 图片 ${progress.imageIndex}/${wordImages.count} · ${progress.phase === "registered" ? "已登记" : progress.phase === "resumed" ? "已恢复" : progress.phase === "retry" ? "正在重试" : "正在上传"}`);
+          if (["fallback", "parsed", "resumed", "retry", "registered", "uploaded"].includes(progress.phase)) {
             void logDocumentImportEvent(wordJob!.id, {
               phase: progress.phase, imageIndex: progress.imageIndex, bytesTotal: progress.total, bytesUploaded: progress.loaded,
               retryCount: progress.retries, message: progress.detail || `图片 ${progress.imageIndex} ${progress.phase}`
