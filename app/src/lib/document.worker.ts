@@ -1,4 +1,5 @@
 import mammoth from "mammoth";
+import { toTransferableArrayBuffer } from "./documentWorkerBuffer";
 
 type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer };
 type AckMessage = { type: "ack"; id: string; error?: string };
@@ -36,7 +37,9 @@ async function processDocument(message: StartMessage) {
       convertImage: mammoth.images.imgElement(async (image) => {
         imageCount += 1;
         const id = `word-image-${imageCount}`;
-        const original = await image.readAsArrayBuffer();
+        // Mammoth's browser implementation returns a Uint8Array despite the
+        // readAsArrayBuffer name. Transfer lists only accept its ArrayBuffer.
+        const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
         const mimeType = image.contentType || "application/octet-stream";
         totalOriginalBytes += original.byteLength;
         const hash = hex(await crypto.subtle.digest("SHA-256", original));
