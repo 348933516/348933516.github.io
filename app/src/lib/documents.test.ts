@@ -244,7 +244,8 @@ describe("document imports", () => {
             expect.objectContaining({ key: "960", width: 960, height: 540, sizeBytes: 7 }),
             expect.objectContaining({ key: "1600", width: 1600, height: 900, sizeBytes: 9 })
           ]
-        })
+        }),
+        expect.any(Function)
       );
       expect(result.bodyHtml).toContain("srcset=");
       expect(result.bodyHtml).toContain("960w");

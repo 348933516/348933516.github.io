@@ -173,7 +173,9 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       const diagnostic = [invalid ? `无效图片序号：${invalid}` : "", duplicate].filter(Boolean).join("；");
       return `${stageText[error.stage]}失败${status}：${error.message}${diagnostic ? `（${diagnostic}）` : ""}`;
     }
-    return `${stageText[error.stage]}失败${status}：${error.message}`;
+    const retryCount = Number(error.details.retry_count || 0);
+    const retryHint = retryCount > 0 ? `（已自动重试 ${retryCount} 次；服务恢复后可继续导入，已登记图片不会重复上传）` : "";
+    return `${stageText[error.stage]}失败${status}：${error.message}${retryHint}`;
   };
   const draftWithEditorState = () => {
     if (!draft) return null;
@@ -273,11 +275,11 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           const completed = progress.phase === "registered" || progress.phase === "resumed";
           const ratio = progress.total ? (progress.loaded || 0) / progress.total : completed ? 1 : 0;
           setImportProgress(Math.round(((progress.imageIndex - 1 + ratio) / wordImages.count) * 100));
-          changeImportStage(progress.phase === "registered" ? "register" : "upload-original");
+          changeImportStage(progress.phase === "registered" || progress.phase === "retry" ? "register" : "upload-original");
           notify(progress.phase === "fallback"
             ? "Worker 图片通道不可用，已自动切换兼容导入模式。"
-            : `Word 图片 ${progress.imageIndex}/${wordImages.count} · ${progress.phase === "registered" ? "已登记" : progress.phase === "resumed" ? "已恢复" : progress.phase === "retry" ? "正在重试" : "正在上传"}`);
-          if (["fallback", "parsed", "resumed", "retry", "registered", "uploaded"].includes(progress.phase)) {
+            : `Word 图片 ${progress.imageIndex}/${wordImages.count} · ${progress.detail || (progress.phase === "registered" ? "已登记" : progress.phase === "resumed" ? "已恢复" : progress.phase === "retry" ? "正在重试" : "正在上传")}`);
+          if (["fallback", "parsed", "resumed", "registered", "uploaded"].includes(progress.phase)) {
             void logDocumentImportEvent(wordJob!.id, {
               phase: progress.phase, imageIndex: progress.imageIndex, bytesTotal: progress.total, bytesUploaded: progress.loaded,
               retryCount: progress.retries, message: progress.detail || `图片 ${progress.imageIndex} ${progress.phase}`

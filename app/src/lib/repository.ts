@@ -667,6 +667,31 @@ export class DocumentImportError extends Error {
   }
 }
 
+export interface DocumentImportRetryInfo {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  status: number | null;
+  code: string | null;
+  message: string;
+}
+
+const documentImportAttempts: Partial<Record<DocumentImportStage, number>> = {
+  list: 4,
+  register: 5,
+  status: 5,
+  retry: 3,
+  event: 4
+};
+
+const transientDocumentImportStatuses = new Set([429, 502, 503, 504]);
+const transientDocumentImportCodes = new Set([
+  "SUPABASE_EDGE_RUNTIME_SERVICE_DEGRADED",
+  "FUNCTIONS_RELAY_ERROR",
+  "FUNCTIONS_FETCH_ERROR",
+  "RATE_LIMITED"
+]);
+
 async function functionErrorPayload(error: unknown) {
   const context = error && typeof error === "object" && "context" in error ? (error as { context?: unknown }).context : null;
   if (!(context instanceof Response)) return { status: null, payload: {} as Record<string, unknown> };
@@ -680,10 +705,32 @@ async function functionErrorPayload(error: unknown) {
   return { status: context.status || null, payload };
 }
 
-async function invokeDocumentImport<T>(body: Record<string, unknown>) {
-  const stage = body.action === "finalize" ? "finalize" : body.action === "register" ? "register" : body.action === "status" ? "status" : body.action === "retry" ? "retry" : body.action === "event" ? "event" : body.action === "list" ? "list" : body.action === "cancel" ? "cancel" : body.action === "fail" ? "fail" : "start";
-  const { data, error } = await supabase.functions.invoke("document-import", { body });
-  if (error || data?.error) {
+function documentImportStage(action: unknown): DocumentImportStage {
+  return action === "finalize" ? "finalize" : action === "register" ? "register" : action === "status" ? "status" : action === "retry" ? "retry" : action === "event" ? "event" : action === "list" ? "list" : action === "cancel" ? "cancel" : action === "fail" ? "fail" : "start";
+}
+
+function documentImportRetryDelay(attempt: number) {
+  const base = Math.min(8_000, 1_000 * (2 ** Math.max(0, attempt - 2)));
+  return Math.round(base * (0.85 + Math.random() * 0.3));
+}
+
+function waitForDocumentImportRetry(delayMs: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+function isTransientDocumentImportFailure(input: { status: number | null; code: string | null; hasTransportError: boolean; payload: Record<string, unknown> }) {
+  if (input.status && transientDocumentImportStatuses.has(input.status)) return true;
+  if (input.code && transientDocumentImportCodes.has(input.code)) return true;
+  return input.hasTransportError && input.status === null && Object.keys(input.payload).length === 0;
+}
+
+async function invokeDocumentImport<T>(body: Record<string, unknown>, onRetry?: (info: DocumentImportRetryInfo) => void) {
+  const stage = documentImportStage(body.action);
+  const maxAttempts = documentImportAttempts[stage] || 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { data, error } = await supabase.functions.invoke("document-import", { body });
+    if (!error && !data?.error) return data as T;
+
     const response = error ? await functionErrorPayload(error) : { status: null, payload: {} as Record<string, unknown> };
     const payload = { ...response.payload, ...(data && typeof data === "object" ? data as Record<string, unknown> : {}) };
     const code = typeof payload.code === "string" ? payload.code : null;
@@ -691,20 +738,35 @@ async function invokeDocumentImport<T>(body: Record<string, unknown>) {
       ? "VERSION_CONFLICT"
       : typeof payload.error === "string" && payload.error.trim()
         ? payload.error
-        : error?.message || "Document import failed";
+        : typeof payload.message === "string" && payload.message.trim()
+          ? payload.message
+          : error?.message || "Document import failed";
     const databaseError = typeof payload.database_error === "string" ? payload.database_error.trim().slice(0, 1000) : "";
     const message = databaseError && !summary.includes(databaseError) ? `${summary}（数据库：${databaseError}）` : summary;
-    throw new DocumentImportError({ stage, message, status: response.status, code, details: payload });
+    const retryable = isTransientDocumentImportFailure({ status: response.status, code, hasTransportError: Boolean(error), payload });
+    if (!retryable || attempt === maxAttempts) {
+      throw new DocumentImportError({
+        stage,
+        message,
+        status: response.status,
+        code,
+        details: { ...payload, attempts: attempt, retry_count: attempt - 1 }
+      });
+    }
+
+    const delayMs = documentImportRetryDelay(attempt + 1);
+    onRetry?.({ attempt: attempt + 1, maxAttempts, delayMs, status: response.status, code, message });
+    await waitForDocumentImportRetry(delayMs);
   }
-  return data as T;
+  throw new DocumentImportError({ stage, message: "Document import failed", details: { attempts: maxAttempts, retry_count: maxAttempts - 1 } });
 }
 
 export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number; sourceFileName?: string; sourceFileSize?: number }) {
   return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
 }
 
-export function registerDocumentImportAsset(importId: string, asset: DocumentImportAsset) {
-  return invokeDocumentImport<{ registered_assets: number }>({ action: "register", importId, asset });
+export function registerDocumentImportAsset(importId: string, asset: DocumentImportAsset, onRetry?: (info: DocumentImportRetryInfo) => void) {
+  return invokeDocumentImport<{ registered_assets: number }>({ action: "register", importId, asset }, onRetry);
 }
 
 export async function getDocumentImportStatus(importId: string) {

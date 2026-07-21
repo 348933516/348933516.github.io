@@ -306,7 +306,17 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
         onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: `${variant.key}px 预览：${event.detail || event.phase}` })
       });
     }
-    await registerDocumentImportAsset(upload.importId, asset);
+    let registrationRetries = 0;
+    await registerDocumentImportAsset(upload.importId, asset, (retry) => {
+      registrationRetries = retry.attempt - 1;
+      onProgress?.({
+        phase: "retry",
+        imageIndex: image.index,
+        imageCount: upload.expectedImages,
+        retries: retry.attempt - 1,
+        detail: `登记服务暂时不可用，正在第 ${retry.attempt}/${retry.maxAttempts} 次尝试`
+      });
+    });
     registeredByIndex.set(image.index, {
       image_index: image.index,
       media_id: mediaId,
@@ -315,7 +325,13 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
       image_variants: asset.imageVariants,
       sort_order: asset.sortOrder
     });
-    onProgress?.({ phase: "registered", imageIndex: image.index, imageCount: upload.expectedImages });
+    onProgress?.({
+      phase: "registered",
+      imageIndex: image.index,
+      imageCount: upload.expectedImages,
+      retries: registrationRetries,
+      detail: registrationRetries ? `登记成功，自动重试 ${registrationRetries} 次` : undefined
+    });
   }, undefined, () => onProgress?.({ phase: "fallback", imageIndex: 1, imageCount: upload.expectedImages, detail: "Worker 未输出图片，已切换浏览器兼容解析模式" }));
   // The server manifest is authoritative. A browser reload or an interrupted
   // TUS request must never make a locally remembered image look committed.
