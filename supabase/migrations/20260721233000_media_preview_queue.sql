@@ -14,5 +14,5 @@ set image_variant_status = case when jsonb_array_length(coalesce(image_variants,
 where kind = 'image';
 
 create index if not exists content_media_variant_queue_idx
-  on public.content_media(image_variant_status, updated_at)
+  on public.content_media(image_variant_status, created_at)
   where kind = 'image';
