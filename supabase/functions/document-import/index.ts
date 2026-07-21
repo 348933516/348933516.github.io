@@ -200,11 +200,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
       import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
       image_index: item.imageIndex,
       content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
-      original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, sort_order: item.sortOrder,
+      original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, sort_order: item.imageIndex * 10,
       title: item.title, alt_text: item.altText
     }, { onConflict: "import_id,image_index" });
     if (insertError) return importError("register", "ASSET_REGISTRATION_FAILED", "当前图片无法登记到导入任务。", 400, { import_id: importId, image_order: item.sortOrder, database_error: insertError.message.slice(0, 300) });
-    await writeEvent(client, importId, { phase: "registered", message: `图片 ${item.imageIndex} 已上传并登记`, imageIndex: item.imageIndex, bytesTotal: item.originalSize, bytesUploaded: item.originalSize, details: { mime_type: item.mimeType, storage_path: item.displayPath } });
+    await writeEvent(client, importId, { phase: "registered", message: `图片 ${item.imageIndex} 已上传并登记`, imageIndex: item.imageIndex, bytesTotal: item.originalSize, bytesUploaded: item.originalSize, details: { mime_type: item.mimeType, storage_path: item.displayPath, sort_order: item.imageIndex * 10 } });
     const { count, error: countError } = await client.from("document_import_assets").select("media_id", { count: "exact", head: true }).eq("import_id", importId);
     if (countError) return importError("register", "ASSET_COUNT_FAILED", "图片已上传，但无法确认登记数量。", 500, { import_id: importId });
     return json({ registered_assets: count || 0 });

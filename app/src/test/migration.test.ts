@@ -11,6 +11,7 @@ const mediaAndPublicQueries = fs.readFileSync(path.resolve(process.cwd(), "supab
 const documentImports = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260720190000_document_import_jobs.sql"), "utf8");
 const allowOriginalWordImageDisplay = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721030000_allow_original_word_image_display.sql"), "utf8");
 const documentImportFinalizeDiagnostics = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721120000_document_import_finalize_diagnostics.sql"), "utf8");
+const documentImportOrdering = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721130000_document_import_ordering.sql"), "utf8");
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
@@ -86,6 +87,9 @@ describe("Supabase security migration", () => {
     expect(documentImportFinalizeDiagnostics).toContain("on conflict (id) do update");
     expect(documentImportFinalizeDiagnostics).toContain("IMPORT_MEDIA_INSERT_FAILED");
     expect(documentImportFinalizeDiagnostics).toContain("IMPORT_CONTENT_UPDATE_FAILED");
+    expect(documentImportOrdering).toContain("drop constraint if exists document_import_assets_import_id_sort_order_key");
+    expect(documentImportOrdering).toContain("sort_order = image_index * 10");
+    expect(documentImportFunction).toContain("sort_order: item.imageIndex * 10");
   });
 
   it("removes the legacy path inequality constraint before original Word images are registered", () => {
