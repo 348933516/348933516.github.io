@@ -84,7 +84,7 @@ describe("document imports", () => {
     vi.mocked(registerDocumentImportAsset).mockResolvedValue({ registered_assets: 1 });
     vi.mocked(getDocumentImportStatus).mockResolvedValueOnce(emptyStatus).mockResolvedValueOnce({
       ...emptyStatus,
-      assets: [{ image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", display_path: "imports/job/1.png" }]
+      assets: [{ image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", original_path: "imports/job/1.png", display_path: "imports/job/1.png", sort_order: 10 }]
     });
     try {
       const phases: string[] = [];
@@ -145,8 +145,8 @@ describe("document imports", () => {
       ...emptyStatus,
       job: { ...emptyStatus.job, expectedImages: 2 },
       assets: [
-        { image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", display_path: "imports/job/1.png" },
-        { image_index: 2, media_id: "00000000-0000-4000-8000-000000000002", display_path: "imports/job/2.png" }
+        { image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", original_path: "imports/job/1.png", display_path: "imports/job/1.png", sort_order: 10 },
+        { image_index: 2, media_id: "00000000-0000-4000-8000-000000000002", original_path: "imports/job/2.png", display_path: "imports/job/2.png", sort_order: 20 }
       ]
     });
     try {
@@ -160,6 +160,61 @@ describe("document imports", () => {
       expect(vi.mocked(registerDocumentImportAsset).mock.calls.map((call) => call[1].imageIndex)).toEqual([1, 2]);
       expect(result.uploadedImageCount).toBe(2);
       expect((result.bodyHtml.match(/data-media-id/g) || [])).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousWorker) vi.stubGlobal("Worker", previousWorker);
+    }
+  });
+
+  it("resumes a complete 98-image server manifest without uploading any image again", async () => {
+    const previousWorker = globalThis.Worker;
+    const images = Array.from({ length: 98 }, (_, index) => ({
+      id: `word-image-${index + 1}`,
+      index: index + 1,
+      hash: String(index + 1).padStart(64, "0"),
+      mimeType: "image/png",
+      extension: "png",
+      original: new ArrayBuffer(1)
+    }));
+    const assets = images.map((image) => ({
+      image_index: image.index,
+      media_id: `00000000-0000-4000-8000-${String(image.index).padStart(12, "0")}`,
+      original_path: `imports/job/${image.index}.png`,
+      display_path: `imports/job/${image.index}.png`,
+      sort_order: image.index * 10
+    }));
+    class ResumeWorker {
+      onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+      onerror: ((event: ErrorEvent) => void) | null = null;
+      postMessage(message: Record<string, unknown>) {
+        if (message.type === "start") queueMicrotask(() => this.sendImage(0));
+        if (message.type === "ack") queueMicrotask(() => this.sendImage(Number(message.id?.toString().replace("word-image-", ""))));
+      }
+      private sendImage(index: number) {
+        if (index < images.length) {
+          this.onmessage?.(new MessageEvent("message", { data: { type: "image", image: images[index] } }));
+          return;
+        }
+        const html = images.map((image) => `<p><img src="https://word-import.invalid/${image.id}"></p>`).join("");
+        this.onmessage?.(new MessageEvent("message", { data: { type: "complete", html, imageCount: 98, totalOriginalBytes: 98, warnings: [] } }));
+      }
+      terminate() {}
+    }
+    vi.stubGlobal("Worker", ResumeWorker);
+    vi.mocked(getDocumentImportStatus)
+      .mockResolvedValueOnce({ ...emptyStatus, job: { ...emptyStatus.job, expectedImages: 98 }, assets })
+      .mockResolvedValueOnce({ ...emptyStatus, job: { ...emptyStatus.job, expectedImages: 98 }, assets });
+    try {
+      const file = { name: "maps.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 98, arrayBuffer: async () => new ArrayBuffer(98) } as File;
+      const result = await materializeWordDocument(file, {
+        supabaseUrl: "https://project.example.test", publishableKey: "public-key", accessToken: "access-token", bucket: "public",
+        importId: "00000000-0000-4000-8000-000000000099", uploadPrefix: "imports/job", existingMediaCount: 0, expectedImages: 98
+      });
+      expect(vi.mocked(uploadSupabaseTus)).not.toHaveBeenCalled();
+      expect(vi.mocked(registerDocumentImportAsset)).not.toHaveBeenCalled();
+      expect(result.uploadedImageCount).toBe(98);
+      expect((result.bodyHtml.match(/data-media-id=/g) || [])).toHaveLength(98);
+      expect((result.bodyHtml.match(/<img\b/g) || [])).toHaveLength(98);
     } finally {
       vi.unstubAllGlobals();
       if (previousWorker) vi.stubGlobal("Worker", previousWorker);

@@ -572,8 +572,16 @@ export interface DocumentImportListItem {
 
 export interface DocumentImportStatus {
   job: { id: string; status: "uploading" | "completed" | "failed" | "cancelled"; expectedImages: number; sourceFileName?: string | null; sourceFileSize?: number | null; errorMessage?: string | null };
-  assets: Array<{ image_index: number; media_id: string; display_path: string; original_path?: string; sort_order?: number }>;
+  assets: DocumentImportStatusAsset[];
   events: Array<{ id: number; image_index?: number | null; severity: "info" | "warning" | "error"; phase: string; message: string; bytes_total?: number | null; bytes_uploaded?: number | null; retry_count?: number; http_status?: number | null; error_code?: string | null; elapsed_ms?: number | null; details?: Record<string, unknown>; created_at: string }>;
+}
+
+export interface DocumentImportStatusAsset {
+  image_index: number;
+  media_id: string;
+  display_path: string;
+  original_path: string;
+  sort_order: number;
 }
 
 export type DocumentImportStage = "start" | "list" | "register" | "status" | "event" | "finalize" | "fail" | "cancel";
@@ -632,8 +640,49 @@ export function registerDocumentImportAsset(importId: string, asset: DocumentImp
   return invokeDocumentImport<{ registered_assets: number }>({ action: "register", importId, asset });
 }
 
-export function getDocumentImportStatus(importId: string) {
-  return invokeDocumentImport<DocumentImportStatus>({ action: "status", importId });
+export async function getDocumentImportStatus(importId: string) {
+  const status = await invokeDocumentImport<unknown>({ action: "status", importId });
+  return normalizeDocumentImportStatus(status, importId);
+}
+
+function normalizeDocumentImportStatus(value: unknown, importId: string): DocumentImportStatus {
+  if (!value || typeof value !== "object") throw invalidDocumentImportManifest(importId, []);
+  const status = value as Record<string, unknown>;
+  const rawAssets = Array.isArray(status.assets) ? status.assets : [];
+  const invalidAssetIndexes: number[] = [];
+  const assets = rawAssets.map((value, offset) => {
+    const asset = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const imageIndex = Number(asset.image_index ?? asset.imageIndex);
+    const mediaId = String(asset.media_id ?? asset.mediaId ?? "").trim();
+    const displayPath = String(asset.display_path ?? asset.displayPath ?? "").trim();
+    const originalPath = String(asset.original_path ?? asset.originalPath ?? "").trim();
+    const sortOrder = Number(asset.sort_order ?? asset.sortOrder);
+    if (!Number.isInteger(imageIndex) || imageIndex < 1 || !mediaId || !displayPath || !originalPath || !Number.isFinite(sortOrder)) {
+      invalidAssetIndexes.push(Number.isInteger(imageIndex) && imageIndex > 0 ? imageIndex : offset + 1);
+    }
+    return {
+      image_index: imageIndex,
+      media_id: mediaId,
+      display_path: displayPath,
+      original_path: originalPath,
+      sort_order: sortOrder
+    };
+  });
+  if (invalidAssetIndexes.length) throw invalidDocumentImportManifest(importId, invalidAssetIndexes);
+  return {
+    job: status.job as DocumentImportStatus["job"],
+    assets,
+    events: Array.isArray(status.events) ? status.events as DocumentImportStatus["events"] : []
+  };
+}
+
+function invalidDocumentImportManifest(importId: string, invalidAssetIndexes: number[]) {
+  return new DocumentImportError({
+    stage: "status",
+    code: "IMPORT_MANIFEST_INVALID",
+    message: "导入任务返回的图片清单格式无效。图片已保留，请刷新页面后继续导入，不要重新创建任务。",
+    details: { import_id: importId, invalid_asset_indexes: invalidAssetIndexes.slice(0, 20) }
+  });
 }
 
 export function listDocumentImports() {

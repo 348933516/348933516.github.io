@@ -255,7 +255,13 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
       onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: event.detail })
     });
     await registerDocumentImportAsset(upload.importId, asset);
-    registeredByIndex.set(image.index, { image_index: image.index, media_id: mediaId, display_path: originalPath });
+    registeredByIndex.set(image.index, {
+      image_index: image.index,
+      media_id: mediaId,
+      original_path: originalPath,
+      display_path: originalPath,
+      sort_order: asset.sortOrder
+    });
     onProgress?.({ phase: "registered", imageIndex: image.index, imageCount: upload.expectedImages });
   }, undefined, () => onProgress?.({ phase: "fallback", imageIndex: 1, imageCount: upload.expectedImages, detail: "Worker 未输出图片，已切换浏览器兼容解析模式" }));
   // The server manifest is authoritative. A browser reload or an interrupted
@@ -276,6 +282,9 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
 }
 
 function registeredWordImage(upload: WordUploadSession, asset: { image_index: number; media_id: string; display_path: string }): UploadedWordImage {
+  if (!asset.display_path || !asset.media_id || !Number.isInteger(asset.image_index)) {
+    throw new Error(`Word 图片清单无效：图片 ${asset.image_index || "未知"} 缺少公开路径或媒体编号。图片已保留，请刷新后继续导入。`);
+  }
   const objectPath = asset.display_path.split("/").map(encodeURIComponent).join("/");
   return {
     id: `word-image-${asset.image_index}`,
