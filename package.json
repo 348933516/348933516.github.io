@@ -20,6 +20,7 @@
     "@fontsource/noto-sans-sc": "5.1.1",
     "@fontsource/noto-serif-sc": "5.1.1",
     "@jsquash/webp": "^1.5.0",
+    "@noble/hashes": "^2.2.0",
     "@supabase/supabase-js": "^2.49.8",
     "@tanstack/react-query": "^5.66.9",
     "@tiptap/core": "2.27.2",

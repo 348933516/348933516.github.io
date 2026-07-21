@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { toTransferableArrayBuffer } from "./documentWorkerBuffer";
+import { sha256Bytes, sha256Hex } from "./hash";
 import { getDocumentImportStatus, registerDocumentImportAsset, type DocumentImportAsset } from "./repository";
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
@@ -175,7 +176,7 @@ export async function parseWordWithCompatibilityMode(file: File, onImage: (image
           const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
           const mimeType = image.contentType || "application/octet-stream";
           totalOriginalBytes += original.byteLength;
-          const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", original))].map((value) => value.toString(16).padStart(2, "0")).join("");
+          const hash = sha256Hex(original);
           await onImage({ id, index: imageCount, hash, mimeType, extension: wordImageExtension(mimeType), original });
           deliveredImages += 1;
           return { src: `https://word-import.invalid/${id}`, alt: `图片 ${imageCount}` };
@@ -284,7 +285,7 @@ function registeredWordImage(upload: WordUploadSession, asset: { image_index: nu
 }
 
 async function deterministicUuid(value: string) {
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  const bytes = sha256Bytes(new TextEncoder().encode(value));
   bytes[6] = (bytes[6] & 0x0f) | 0x50;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hexValue = [...bytes.slice(0, 16)].map((item) => item.toString(16).padStart(2, "0")).join("");

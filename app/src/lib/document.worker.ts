@@ -1,5 +1,6 @@
 import mammoth from "mammoth";
 import { toTransferableArrayBuffer } from "./documentWorkerBuffer";
+import { sha256Hex } from "./hash";
 
 type StartMessage = { type: "start"; mode: "preview" | "extract"; buffer: ArrayBuffer };
 type AckMessage = { type: "ack"; id: string; error?: string };
@@ -12,10 +13,6 @@ const worker = self as unknown as {
 
 type PendingAck = { resolve(): void; reject(error: Error): void };
 const acknowledgements = new Map<string, PendingAck>();
-
-function hex(buffer: ArrayBuffer) {
-  return [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
 
 function extensionFor(mime: string) {
   if (mime.includes("png")) return "png";
@@ -44,9 +41,9 @@ async function processDocument(message: StartMessage) {
           const original = toTransferableArrayBuffer(await image.readAsArrayBuffer() as unknown as ArrayBuffer | ArrayBufferView);
           const mimeType = image.contentType || "application/octet-stream";
           totalOriginalBytes += original.byteLength;
-          const hash = hex(await crypto.subtle.digest("SHA-256", original));
 
           if (message.mode === "extract") {
+            const hash = sha256Hex(original);
             // Structured cloning is slower than transferring ownership, but it
             // is reliable across browser builds and only one image is in flight.
             worker.postMessage({ type: "image", image: { id, index: imageCount, hash, mimeType, extension: extensionFor(mimeType), original } });
