@@ -1,6 +1,7 @@
 import sanitizeHtml from "npm:sanitize-html@2.17.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { compareImportStoragePaths, expectedImportStoragePaths, importStoragePrefix } from "./storage.ts";
 
 type ImportAsset = {
   mediaId: string;
@@ -117,6 +118,18 @@ async function registeredAssets(client: SupabaseClient, importId: string): Promi
   }));
 }
 
+async function verifyImportStorage(client: SupabaseClient, importId: string, assets: ImportAsset[]) {
+  const expectedPaths = expectedImportStoragePaths(assets);
+  const prefix = importStoragePrefix(importId);
+  const { data, error } = await client.schema("storage").from("objects")
+    .select("name")
+    .eq("bucket_id", publicBucket)
+    .like("name", `${prefix}%`)
+    .limit(1000);
+  const comparison = compareImportStoragePaths(expectedPaths, (data || []).map((item) => item.name));
+  return { ...comparison, error };
+}
+
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
   const body = await request.json();
@@ -177,15 +190,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const assets = await registeredAssets(client, importId);
     if (job.status === "completed" || job.status === "cancelled") return importError("retry", "IMPORT_NOT_RETRYABLE", "该导入任务已经结束，不能重新提交。", 400, { import_id: importId, import_status: job.status });
     if (assets.length !== Number(job.expected_images)) return importError("retry", "IMPORT_MANIFEST_INCOMPLETE", "已登记图片数量不完整，不能直接重试提交。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
-    const paths = [...new Set(assets.flatMap((asset) => [
-      asset.originalPath,
-      asset.displayPath,
-      ...(asset.imageVariants || []).map((variant) => variant.path)
-    ]))];
-    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
-    const presentPaths = new Set((stored || []).map((item) => item.name));
-    const missingPaths = paths.filter((path) => !presentPaths.has(path));
-    if (storedError || missingPaths.length) return importError("retry", "STORAGE_OBJECTS_MISSING", "部分已登记图片不在存储中，不能直接重试提交。", 400, { import_id: importId, missing_count: missingPaths.length, missing_paths: missingPaths.slice(0, 5) });
+    const storage = await verifyImportStorage(client, importId, assets);
+    if (storage.error) return importError("retry", "STORAGE_VERIFICATION_FAILED", "存储核验服务暂时不可用，图片和任务均已保留，请稍后重试。", 503, { import_id: importId, database_error: storage.error.message.slice(0, 500), expected_objects: storage.expectedCount });
+    if (storage.missingPaths.length) return importError("retry", "STORAGE_OBJECTS_MISSING", "部分已登记图片不在存储中，不能直接重试提交。", 400, { import_id: importId, expected_objects: storage.expectedCount, found_objects: storage.foundCount, missing_count: storage.missingPaths.length, missing_paths: storage.missingPaths.slice(0, 5) });
     const { error: retryError } = await client.from("document_imports").update({ status: "uploading", error_message: null }).eq("id", importId);
     if (retryError) return importError("retry", "IMPORT_RETRY_FAILED", "无法恢复导入任务。", 400, { import_id: importId, database_error: retryError.message.slice(0, 500) });
     await writeEvent(client, importId, { phase: "status", message: `已保留并恢复 ${assets.length} 张图片，准备重新提交正文`, details: { registered_assets: assets.length } });
@@ -245,11 +252,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const expectedIndexes = Array.from({ length: Number(job.expected_images) }, (_, index) => index + 1);
   const missingIndexes = expectedIndexes.filter((index) => !assets.some((asset) => asset.imageIndex === index));
   if (assets.length !== Number(job.expected_images) || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length || missingIndexes.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，导入任务已保留，可重新选择同一份 Word 继续。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, missing_indexes: missingIndexes.slice(0, 20), invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
-  const paths = [...new Set(assets.flatMap((asset) => [asset.originalPath, asset.displayPath, ...(asset.imageVariants || []).map((variant) => variant.path)]))];
-  const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", paths);
-  const presentPaths = new Set((stored || []).map((item) => item.name));
-  const missingPaths = paths.filter((path) => !presentPaths.has(path));
-  if (storedError || missingPaths.length) return importError("finalize", "STORAGE_OBJECTS_MISSING", "部分图片未成功写入存储，已取消本次导入。", 400, { import_id: importId, expected_objects: paths.length, found_objects: stored?.length || 0, missing_count: missingPaths.length, missing_paths: missingPaths.slice(0, 5) });
+  const storage = await verifyImportStorage(client, importId, assets);
+  if (storage.error) return importError("finalize", "STORAGE_VERIFICATION_FAILED", "存储核验服务暂时不可用，图片和任务均已保留，请稍后重试。", 503, { import_id: importId, database_error: storage.error.message.slice(0, 500), expected_objects: storage.expectedCount });
+  if (storage.missingPaths.length) return importError("finalize", "STORAGE_OBJECTS_MISSING", "部分图片确实未写入存储，任务已保留，可继续导入缺失图片。", 400, { import_id: importId, expected_objects: storage.expectedCount, found_objects: storage.foundCount, missing_count: storage.missingPaths.length, missing_paths: storage.missingPaths.slice(0, 5) });
 
   const cleaned = cleanBody(String(body.bodyHtml || ""));
   if (!cleaned.trim() || cleaned.length > 1_000_000) return importError("finalize", "IMPORTED_BODY_INVALID", "导入正文为空或超过允许大小。", 400, { import_id: importId });
