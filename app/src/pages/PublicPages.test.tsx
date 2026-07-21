@@ -88,6 +88,31 @@ describe("public home", () => {
     expect(container.querySelector(".reader-main")).toBeInTheDocument();
   });
 
+  it("does not render Word images again in the standalone media gallery", () => {
+    const inlineId = "123e4567-e89b-42d3-a456-426614174000";
+    const galleryId = "223e4567-e89b-42d3-a456-426614174000";
+    const withInlineMedia: PublicData = {
+      ...data,
+      contents: [{
+        ...data.contents[0],
+        bodyHtml: `<p>正文图片</p><figure data-editor-image="true" data-media-id="${inlineId}"><img src="https://example.com/inline.png" alt="正文图片"></figure>`,
+        media: [
+          { id: inlineId, kind: "image", src: "https://example.com/inline.png", title: "正文图片", note: "", path: [], altText: "正文图片", sortOrder: 10 },
+          { id: galleryId, kind: "image", src: "https://example.com/gallery.png", title: "独立图片", note: "", path: [], altText: "独立图片", sortOrder: 20 }
+        ]
+      }]
+    };
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/content/first"]}>
+        <DataProvider data={withInlineMedia}><Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes></DataProvider>
+      </MemoryRouter></QueryClientProvider>
+    );
+
+    expect(container.querySelectorAll('img[src="https://example.com/inline.png"]')).toHaveLength(1);
+    expect(container.querySelectorAll('img[src="https://example.com/gallery.png"]')).toHaveLength(1);
+    expect(container.querySelectorAll(".media-row")).toHaveLength(1);
+  });
+
   it("only makes the carousel clickable for public internal targets", () => {
     const linked: PublicData = {
       ...data,

@@ -6,7 +6,7 @@ import {
   Link2, LoaderCircle, Plus, RefreshCcw, Save, Search, Trash2, Upload, X
 } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { RichContent } from "../../components/RichContent";
+import { RichContent, standaloneMedia } from "../../components/RichContent";
 import { VideoPlayer } from "../../components/VideoPlayer";
 import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
 import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSession } from "../../lib/documents";
@@ -385,7 +385,8 @@ function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, o
 }
 
 function DraftPreview({ draft, item }: { draft: ContentDraft; item: ContentItem }) {
-  return <article className="draft-preview"><header><span>{item.categoryName}</span><h1>{draft.title}</h1><p>{draft.summary}</p></header><RichContent html={draft.bodyHtml} />{item.media.map((media) => <PreviewMedia key={media.id} media={media} />)}</article>;
+  const galleryMedia = standaloneMedia(draft.bodyHtml, item.media);
+  return <article className="draft-preview"><header><span>{item.categoryName}</span><h1>{draft.title}</h1><p>{draft.summary}</p></header><RichContent html={draft.bodyHtml} />{galleryMedia.map((media) => <PreviewMedia key={media.id} media={media} />)}</article>;
 }
 
 function PreviewMedia({ media }: { media: ContentItem["media"][number] }) {
