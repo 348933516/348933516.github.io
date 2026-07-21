@@ -83,7 +83,16 @@ describe("document imports", () => {
     vi.stubGlobal("Worker", DirectUploadWorker);
     vi.mocked(uploadSupabaseTus).mockResolvedValue({ uploadUrl: "https://uploads.example.test/fallback", retries: 0, resumed: false });
     vi.mocked(registerDocumentImportAsset).mockResolvedValue({ registered_assets: 1 });
-    vi.mocked(getDocumentImportStatus).mockResolvedValueOnce(emptyStatus).mockResolvedValueOnce({
+    vi.mocked(getDocumentImportStatus).mockResolvedValueOnce({
+      ...emptyStatus,
+      assets: [{
+        image_index: 1,
+        media_id: "00000000-0000-4000-8000-000000000001",
+        original_path: "imports/job/001-original.png",
+        display_path: "imports/job/001-original.png",
+        sort_order: 10
+      }]
+    }).mockResolvedValueOnce({
       ...emptyStatus,
       assets: [{ image_index: 1, media_id: "00000000-0000-4000-8000-000000000001", original_path: "imports/job/1.png", display_path: "imports/job/1.png", sort_order: 10 }]
     });
@@ -254,13 +263,21 @@ describe("document imports", () => {
       hash: String(index + 1).padStart(64, "0"),
       mimeType: "image/png",
       extension: "png",
-      original: new ArrayBuffer(1)
+      original: new ArrayBuffer(1),
+      variants: [
+        { key: "960", width: 960, height: 540, mimeType: "image/webp", data: new ArrayBuffer(1) },
+        { key: "1600", width: 1600, height: 900, mimeType: "image/webp", data: new ArrayBuffer(1) }
+      ]
     }));
     const assets = images.map((image) => ({
       image_index: image.index,
       media_id: `00000000-0000-4000-8000-${String(image.index).padStart(12, "0")}`,
       original_path: `imports/job/${image.index}.png`,
-      display_path: `imports/job/${image.index}.png`,
+      display_path: `imports/job/${image.index}-1600.webp`,
+      image_variants: [
+        { key: "960", path: `imports/job/${image.index}-960.webp`, width: 960, height: 540, mimeType: "image/webp", sizeBytes: 1 },
+        { key: "1600", path: `imports/job/${image.index}-1600.webp`, width: 1600, height: 900, mimeType: "image/webp", sizeBytes: 1 }
+      ],
       sort_order: image.index * 10
     }));
     class ResumeWorker {

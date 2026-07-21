@@ -255,10 +255,12 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
   const registeredByIndex = new Map((status.assets || []).map((asset) => [asset.image_index, asset]));
   const result = await runWordWorker(file, "extract", async (image) => {
     const existing = registeredByIndex.get(image.index);
-    if (existing) {
+    const existingVariantKeys = new Set((existing?.image_variants || []).map((variant) => variant.key));
+    if (existing && existingVariantKeys.has("960") && existingVariantKeys.has("1600")) {
       onProgress?.({ phase: "resumed", imageIndex: image.index, imageCount: upload.expectedImages, detail: "已从服务端清单恢复" });
       return;
     }
+    if (existing) onProgress?.({ phase: "parsed", imageIndex: image.index, imageCount: upload.expectedImages, detail: "旧任务缺少响应式预览，正在补齐" });
     onProgress?.({ phase: "parsed", imageIndex: image.index, imageCount: upload.expectedImages, total: image.original.byteLength });
     const mediaId = await deterministicUuid(`${upload.importId}:${image.index}`);
     const originalPath = `${upload.uploadPrefix}/${String(image.index).padStart(3, "0")}-${mediaId}-original.${image.extension}`;
