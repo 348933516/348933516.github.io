@@ -6,6 +6,7 @@ import {
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { AdminLoading, canEdit, roleText } from "./admin/shared";
+import "../styles/admin.css";
 
 const DashboardPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.DashboardPage })));
 const ContentListPage = lazy(() => import("./admin/ContentAdmin").then((module) => ({ default: module.ContentListPage })));

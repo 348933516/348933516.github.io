@@ -11,7 +11,7 @@ import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
 import type { AppRole, Profile } from "../../types";
-import { AdminEmpty, AdminLoading, AdminToast, formatBytes, formatDate, messageOf, publicAssetUrl, roleText } from "./shared";
+import { AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, formatBytes, formatDate, messageOf, publicAssetUrl, roleText } from "./shared";
 import { CarouselSettings } from "./CarouselSettings";
 
 export function UsersPage({ profile }: { profile: Profile }) {
@@ -57,10 +57,7 @@ export function UsersPage({ profile }: { profile: Profile }) {
   return (
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
-      <header className="admin-page-heading">
-        <div><span>ACCESS CONTROL</span><h1>账号与权限</h1><p>邀请管理员，控制角色和账号状态。</p></div>
-        <button className="button primary" type="button" onClick={() => document.getElementById("invite-form")?.scrollIntoView({ behavior: "smooth" })}><UserPlus />邀请账号</button>
-      </header>
+      <AdminPageHeader title="账号与权限" description="邀请管理员，控制角色和账号状态。" action={<button className="button primary" type="button" onClick={() => document.getElementById("invite-form")?.scrollIntoView({ behavior: "smooth" })}><UserPlus />邀请账号</button>} />
       <section className="admin-panel flush">
         <div className="user-table">
           <div className="user-table-head"><span>账号</span><span>角色</span><span>状态</span><span>创建时间</span><span>操作</span></div>
@@ -123,7 +120,7 @@ function UserDrawer({
   return (
     <div className="drawer-backdrop" role="dialog" aria-modal="true">
       <aside className="user-drawer">
-        <header><div><span>ADMIN ACCOUNT</span><h2>管理账号</h2></div><button className="icon-only" onClick={onClose}><X /></button></header>
+        <header><div><h2>管理账号</h2></div><button className="icon-only" onClick={onClose}><X /></button></header>
         <div className="user-drawer-body">
           <div className="account-summary">
             <span className="user-avatar large">{String(displayName || row.email).slice(0, 1).toUpperCase()}</span>
@@ -236,7 +233,7 @@ export function HistoryPage({ profile }: { profile: Profile }) {
   return (
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
-      <header className="admin-page-heading"><div><span>REVISION & AUDIT</span><h1>日志中心</h1><p>查看内容版本、后台变更、版本更新和运行错误。</p></div></header>
+      <AdminPageHeader title="日志中心" description="查看内容版本、后台变更、版本更新和运行错误。" />
       <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button><button className={tab === "imports" ? "active" : ""} onClick={() => setTab("imports")}><Upload />文档导入</button></div>
       {(tab === "audit" || tab === "runtime") && <div className="history-filters"><label className="search-control"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "audit" ? "搜索操作、记录 ID 或文件信息" : "搜索错误来源、消息或页面"} /></label>{tab === "audit" && <select value={action} onChange={(event) => setAction(event.target.value)}><option value="all">全部操作</option><option value="INSERT">新增</option><option value="UPDATE">更新</option><option value="DELETE">删除</option></select>}<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
       {tab === "revisions" && <section className="admin-panel"><div className="panel-heading"><div><h2>内容版本</h2><p>最近 100 个历史版本</p></div><FileClock /></div><div className="revision-list">{revisions.data?.map((row) => { const content = row.contents as unknown as { title: string; version: number } | null; return <button key={row.id} onClick={() => setRevision(row)}><RotateCcw /><div><strong>{content?.title || row.content_id}</strong><span>历史 v{row.version} · 当前 v{content?.version || "-"}</span></div><time>{formatDate(row.created_at)}</time><Eye /></button>; })}{!revisions.data?.length && <AdminEmpty title="暂无历史版本" />}</div></section>}
@@ -370,7 +367,7 @@ export function SettingsPage({ profile }: { profile: Profile }) {
   return (
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
-      <header className="admin-page-heading"><div><span>SITE APPEARANCE</span><h1>首页与品牌设置</h1><p>集中管理站点文字、Logo、背景和轮播。</p></div></header>
+      <AdminPageHeader title="首页与品牌设置" description="集中管理站点文字、Logo、背景和轮播。" />
       <div className="settings-tabs">
         <button className={tab === "text" ? "active" : ""} onClick={() => setTab("text")}><Settings />品牌文字</button>
         <button className={tab === "assets" ? "active" : ""} onClick={() => setTab("assets")}><ImagePlus />图片与背景</button>

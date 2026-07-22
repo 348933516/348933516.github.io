@@ -39,6 +39,15 @@ export function StatusBadge({ status }: { status: ContentStatus }) {
   return <span className={`status ${status}`}>{statusText[status]}</span>;
 }
 
+export function AdminPageHeader({ title, description, context, action }: {
+  title: string;
+  description?: string;
+  context?: string;
+  action?: React.ReactNode;
+}) {
+  return <header className="admin-page-heading"><div>{context && <span>{context}</span>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</header>;
+}
+
 export function AdminLoading({ label = "正在读取数据" }: { label?: string }) {
   return <div className="admin-loading"><LoaderCircle className="spin" /><span>{label}</span></div>;
 }

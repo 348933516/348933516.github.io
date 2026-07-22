@@ -30,6 +30,17 @@ describe("bundled theme cleanup", () => {
     expect(css).toContain("background: #fff;");
   });
 
+  it("ships one scoped light administration theme with responsive content rows", () => {
+    const globalCss = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
+    const adminCss = fs.readFileSync(path.resolve(sourceRoot, "styles/admin.css"), "utf8");
+    expect(globalCss.match(/^\.admin-shell \{/gm) || []).toHaveLength(1);
+    expect(adminCss).toContain("--admin-sidebar: #191a1e;");
+    expect(adminCss).toContain("--admin-canvas: #f5f5f2;");
+    expect(adminCss).toContain("--admin-accent: #b34242;");
+    expect(adminCss).toContain(".content-admin-table .content-table-row {");
+    expect(adminCss).toContain("@media (prefers-reduced-motion: reduce)");
+  });
+
   it("shows complete carousel artwork in a stable widescreen frame", () => {
     const css = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
     expect(css).toMatch(/\.hero-carousel-frame \{[^}]*aspect-ratio: 16 \/ 9;/);

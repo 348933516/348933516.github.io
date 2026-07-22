@@ -32,18 +32,18 @@ const LoginPage = lazyWithRefresh(() => import("./pages/LoginPage").then((module
 export function App() {
   useEffect(() => installGlobalRuntimeLogging(), []);
   const location = useLocation();
-  const publicRoute = !location.pathname.startsWith("/admin");
+  const publicRoute = !location.pathname.startsWith("/admin") && location.pathname !== "/login";
   const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, enabled: publicRoute, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
   const data = site.error
     ? { ...(site.data || fallbackPublicData), loading: false, errorMessage: site.error instanceof Error ? site.error.message : "资料库暂时无法读取" }
     : site.data || fallbackPublicData;
   return <DataProvider data={data}><Suspense fallback={<div className="boot-state"><LoaderCircle className="spin" /><strong>正在加载管理模块</strong></div>}><Routes>
     <Route path="/admin/*" element={<AdminPage />} />
+    <Route path="/login" element={<LoginPage />} />
     <Route element={<SiteLayout><Outlet /></SiteLayout>}>
       <Route path="/" element={<HomePage />} />
       <Route path="/category/:slug" element={<CategoryPage />} />
       <Route path="/content/:slug" element={<DetailPage />} />
-      <Route path="/login" element={<LoginPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>
   </Routes></Suspense></DataProvider>;
