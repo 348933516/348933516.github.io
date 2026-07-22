@@ -14,6 +14,8 @@ const documentImportFinalizeDiagnostics = fs.readFileSync(path.resolve(process.c
 const documentImportOrdering = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721130000_document_import_ordering.sql"), "utf8");
 const documentImportQualifiedVersion = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260721140000_document_import_qualified_version.sql"), "utf8");
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
+const activeDocumentImport = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260722090000_active_document_import_media_cleanup.sql"), "utf8");
+const saveContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/save-content/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -105,5 +107,23 @@ describe("Supabase security migration", () => {
     expect(allowOriginalWordImageDisplay).toContain("display_path");
     expect(allowOriginalWordImageDisplay).toContain("drop constraint %I");
     expect(allowOriginalWordImageDisplay).toContain("Word import path compatibility constraint is still present");
+  });
+
+  it("atomically replaces previous Word media and queues all old storage variants", () => {
+    expect(activeDocumentImport).toContain("active_document_import_id");
+    expect(activeDocumentImport).toContain("source_import_id");
+    expect(activeDocumentImport).toContain("storage_cleanup_queue");
+    expect(activeDocumentImport).toContain("media.source_import_id = previous_import_id");
+    expect(activeDocumentImport).toContain("delete from public.content_media");
+    expect(activeDocumentImport).toContain("variant->>'path'");
+    expect(activeDocumentImport).toContain("where cm.source_import_id is null");
+    expect(activeDocumentImport).toContain("reorder_content_media");
+  });
+
+  it("preserves responsive Word image attributes when a draft is saved", () => {
+    expect(saveContentFunction).toContain('"srcset", "sizes", "width", "height", "loading", "decoding"');
+    expect(saveContentFunction).toContain('"data-original-src"');
+    expect(saveContentFunction).toContain("cleanImageAttributes");
+    expect(saveContentFunction).toContain("(max-width: 720px) 100vw, 1600px");
   });
 });

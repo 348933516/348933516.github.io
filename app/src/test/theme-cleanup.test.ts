@@ -20,4 +20,13 @@ describe("bundled theme cleanup", () => {
     expect(source).not.toContain("images.unsplash.com");
     expect(source).not.toContain("heroBackgroundUrl");
   });
+
+  it("keeps one color panel definition and one light editor workspace theme", () => {
+    const css = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
+    expect(css.match(/^\.color-panel \{/gm) || []).toHaveLength(1);
+    expect(css).toContain(".workspace-main .editor-shell {");
+    expect(css).toContain(".workspace-main .editor-toolbar,");
+    expect(css).toContain(".workspace-main .color-panel,");
+    expect(css).toContain("background: #fff;");
+  });
 });

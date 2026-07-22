@@ -8,13 +8,28 @@ function cleanSlug(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 160);
 }
 
+function cleanImageAttributes(attribs: Record<string, string>) {
+  const next = { ...attribs };
+  if (next.srcset) {
+    const candidates = next.srcset.split(",").map((item) => item.trim()).filter(Boolean);
+    if (!candidates.length || candidates.some((item) => !/^https:\/\/[^\s,]+\s+\d{1,5}w$/i.test(item))) delete next.srcset;
+  }
+  if (next.sizes !== "(max-width: 720px) 100vw, 1600px") delete next.sizes;
+  for (const key of ["width", "height"] as const) {
+    if (next[key] && (!/^\d{1,5}$/.test(next[key]) || Number(next[key]) < 1)) delete next[key];
+  }
+  if (next.loading && !["lazy", "eager"].includes(next.loading)) delete next.loading;
+  if (next.decoding && !["async", "sync", "auto"].includes(next.decoding)) delete next.decoding;
+  return next;
+}
+
 function cleanBody(value: string) {
   return sanitizeHtml(value, {
     allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
     allowedAttributes: {
       a: ["href", "target", "rel", "title"],
-      img: ["src", "alt", "title"],
-      figure: ["data-editor-image", "data-media-id"],
+      img: ["src", "srcset", "sizes", "width", "height", "loading", "decoding", "alt", "title"],
+      figure: ["data-editor-image", "data-media-id", "data-original-src"],
       figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
       th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
@@ -42,7 +57,15 @@ function cleanBody(value: string) {
     },
     allowedSchemes: ["https"],
     allowProtocolRelative: false,
-    transformTags: { a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }) }
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+      img: (tagName, attribs) => ({ tagName, attribs: cleanImageAttributes(attribs) }),
+      figure: (tagName, attribs) => {
+        const next = { ...attribs };
+        if (next["data-original-src"] && !/^https:\/\/[^\s]+$/i.test(next["data-original-src"])) delete next["data-original-src"];
+        return { tagName, attribs: next };
+      }
+    }
   });
 }
 

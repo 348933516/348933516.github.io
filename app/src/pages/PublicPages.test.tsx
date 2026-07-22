@@ -1,10 +1,16 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DataProvider } from "../data";
+import { loadPublicContent } from "../lib/repository";
 import type { PublicData } from "../types";
 import { DetailPage, HomePage } from "./PublicPages";
+
+vi.mock("../lib/repository", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/repository")>();
+  return { ...actual, loadPublicContent: vi.fn() };
+});
 
 const data: PublicData = {
   backendMode: "structured",
@@ -103,6 +109,28 @@ describe("public home", () => {
     );
     expect(container.querySelector(".reader-layout")).toHaveClass("without-outline");
     expect(container.querySelector(".reader-main")).toBeInTheDocument();
+  });
+
+  it("keeps a stable hook order while remote content changes from loading to loaded", async () => {
+    vi.mocked(loadPublicContent).mockResolvedValueOnce({ item: data.contents[0], siblings: [] });
+    const remoteData: PublicData = { ...data, contents: [] };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter initialEntries={["/content/first"]}>
+            <DataProvider data={remoteData}><Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes></DataProvider>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+
+      expect(screen.getByText("正在读取资料正文")).toBeInTheDocument();
+      await waitFor(() => expect(document.querySelector(".reader-main")).toBeInTheDocument());
+      expect(consoleError.mock.calls.flat().join(" ")).not.toContain("change in the order of Hooks");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("does not render Word images again in the standalone media gallery", () => {

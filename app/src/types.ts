@@ -76,6 +76,7 @@ export interface ContentMedia {
   providerAppId?: string;
   playbackUrl?: string;
   posterUrl?: string;
+  sourceImportId?: string;
 }
 
 export interface Attachment {

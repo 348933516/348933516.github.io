@@ -130,6 +130,47 @@ async function verifyImportStorage(client: SupabaseClient, importId: string, ass
   return { ...comparison, error };
 }
 
+async function processStorageCleanup(client: SupabaseClient, contentId: string) {
+  const staleBefore = new Date(Date.now() - 15 * 60_000).toISOString();
+  await client.from("storage_cleanup_queue")
+    .update({ status: "pending", updated_at: new Date().toISOString() })
+    .eq("content_id", contentId)
+    .eq("status", "processing")
+    .lt("updated_at", staleBefore);
+
+  const { data: queued, error } = await client.from("storage_cleanup_queue")
+    .select("id, storage_bucket, storage_path, retry_count")
+    .eq("content_id", contentId)
+    .in("status", ["pending", "failed"])
+    .order("created_at")
+    .limit(300);
+  if (error || !queued?.length) return { removed: 0, failed: error ? 1 : 0 };
+
+  let removed = 0;
+  let failed = 0;
+  const byBucket = new Map<string, typeof queued>();
+  for (const row of queued) byBucket.set(row.storage_bucket, [...(byBucket.get(row.storage_bucket) || []), row]);
+  for (const [bucket, rows] of byBucket) {
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const batch = rows.slice(offset, offset + 100);
+      const ids = batch.map((row) => row.id);
+      await client.from("storage_cleanup_queue").update({ status: "processing", updated_at: new Date().toISOString() }).in("id", ids);
+      const result = await client.storage.from(bucket).remove(batch.map((row) => row.storage_path));
+      if (result.error) {
+        failed += batch.length;
+        await client.from("storage_cleanup_queue").update({
+          status: "failed", last_error: result.error.message.slice(0, 1000), updated_at: new Date().toISOString()
+        }).in("id", ids);
+        for (const row of batch) await client.from("storage_cleanup_queue").update({ retry_count: Number(row.retry_count || 0) + 1 }).eq("id", row.id);
+      } else {
+        removed += batch.length;
+        await client.from("storage_cleanup_queue").update({ status: "completed", last_error: null, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).in("id", ids);
+      }
+    }
+  }
+  return { removed, failed };
+}
+
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
   const body = await request.json();
@@ -161,6 +202,15 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const { data, error } = await query;
     if (error) return importError("list", "IMPORT_LIST_FAILED", "无法读取文档导入日志。", 400, { database_error: error.message.slice(0, 300) });
     return json({ jobs: data || [] });
+  }
+
+  if (action === "cleanup") {
+    const contentId = String(body.contentId || "");
+    if (!uuid.test(contentId)) return importError("cleanup", "INVALID_CONTENT_ID", "资料编号无效。", 400);
+    const { data: content, error } = await client.from("contents").select("id, created_by, status").eq("id", contentId).maybeSingle();
+    if (error || !content) return importError("cleanup", "CONTENT_NOT_FOUND", "资料不存在或已被删除。", 404);
+    if (profile.role === "uploader" && (content.created_by !== user.id || content.status !== "draft")) return importError("cleanup", "IMPORT_FORBIDDEN", "无权清理该资料的导入文件。", 403);
+    return json(await processStorageCleanup(client, contentId));
   }
 
   const importId = String(body.importId || "");
@@ -276,6 +326,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const assetIds = assets.map((asset) => asset.mediaId);
   const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);
   if (countError || storedImages !== assets.length) return importError("finalize", "IMPORT_VERIFICATION_FAILED", "导入提交后的图片核对失败，请勿发布并查看运行日志。", 500, { import_id: importId, expected_images: assets.length, stored_images: storedImages || 0, body_figures: figureIds.length });
-  await writeEvent(client, importId, { phase: "finalized", message: `已提交正文和 ${storedImages} 张图片`, details: { body_figures: figureIds.length, stored_images: storedImages } });
-  return json({ ...data, body_figures: figureIds.length, stored_images: storedImages });
+  const cleanup = await processStorageCleanup(client, job.content_id);
+  await writeEvent(client, importId, {
+    phase: "finalized",
+    message: `已提交正文和 ${storedImages} 张图片`,
+    details: { body_figures: figureIds.length, stored_images: storedImages, replaced_images: data?.replaced_images || 0, cleanup_files: data?.cleanup_files || 0, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed }
+  });
+  return json({ ...data, body_figures: figureIds.length, stored_images: storedImages, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed });
 }));

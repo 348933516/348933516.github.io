@@ -25,8 +25,9 @@ import { normalizeInlineMediaHtml } from "../lib/richMedia";
 
 interface RichEditorProps {
   value: string;
-  onChange(html: string, text: string, json: Record<string, unknown>): void;
+  onChange?: (html: string, text: string, json: Record<string, unknown>) => void;
   onDirty?: () => void;
+  onSnapshot?: (snapshot: RichEditorSnapshot) => void;
   onSafeMode?: () => void;
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
 }
@@ -227,6 +228,68 @@ const FigureImage = Node.create({
       ...(node.attrs.width ? { width: node.attrs.width } : {}),
       ...(node.attrs.height ? { height: node.attrs.height } : {})
     }], ["figcaption", { "data-placeholder": "图片说明" }, 0]];
+  },
+  addNodeView() {
+    return ({ node }) => {
+      const figure = document.createElement("figure");
+      const image = document.createElement("img");
+      const caption = document.createElement("figcaption");
+      figure.dataset.editorImage = "true";
+      figure.append(image, caption);
+      caption.dataset.placeholder = "图片说明";
+      const blank = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+      let current = node;
+      let visible = false;
+
+      const applyAttributes = () => {
+        const attrs = current.attrs;
+        figure.toggleAttribute("data-media-id", Boolean(attrs.mediaId));
+        if (attrs.mediaId) figure.dataset.mediaId = attrs.mediaId;
+        else delete figure.dataset.mediaId;
+        if (attrs.originalSrc) figure.dataset.originalSrc = attrs.originalSrc;
+        else delete figure.dataset.originalSrc;
+        image.alt = attrs.alt || "";
+        image.loading = "lazy";
+        image.decoding = "async";
+        if (attrs.width) image.width = attrs.width;
+        else image.removeAttribute("width");
+        if (attrs.height) image.height = attrs.height;
+        else image.removeAttribute("height");
+        if (visible) {
+          image.src = attrs.src || blank;
+          if (attrs.srcset) image.srcset = attrs.srcset;
+          else image.removeAttribute("srcset");
+          if (attrs.sizes) image.sizes = attrs.sizes;
+          else image.removeAttribute("sizes");
+        } else {
+          image.removeAttribute("srcset");
+          image.removeAttribute("sizes");
+          image.src = blank;
+        }
+      };
+
+      const observer = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+        const nextVisible = entries.some((entry) => entry.isIntersecting);
+        if (nextVisible === visible) return;
+        visible = nextVisible;
+        applyAttributes();
+      }, { rootMargin: "1200px 0px" });
+      visible = !observer;
+      applyAttributes();
+      observer?.observe(figure);
+
+      return {
+        dom: figure,
+        contentDOM: caption,
+        update(updatedNode) {
+          if (updatedNode.type.name !== "figureImage") return false;
+          current = updatedNode;
+          applyAttributes();
+          return true;
+        },
+        destroy() { observer?.disconnect(); }
+      };
+    };
   }
 });
 
@@ -395,7 +458,7 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
   </div>;
 }
 
-export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, onChange, onDirty, onSafeMode, onUploadImages }, ref) {
+export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, onChange, onDirty, onSnapshot, onSafeMode, onUploadImages }, ref) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
@@ -405,8 +468,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const lastExternalHtml = useRef(normalizeInlineMediaHtml(value));
   const onChangeRef = useRef(onChange);
   const onDirtyRef = useRef(onDirty);
+  const onSnapshotRef = useRef(onSnapshot);
   const onSafeModeRef = useRef(onSafeMode);
   const changeTimerRef = useRef<number | null>(null);
+  const idleCallbackRef = useRef<number | null>(null);
+  const lastSnapshotAtRef = useRef(0);
+  const largeDocumentRef = useRef(value.length > 500_000 || (value.match(/<figure\b/gi)?.length || 0) > 50);
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const [tablePreset, setTablePreset] = useState({ borderWidth: "1", borderStyle: "solid", borderColor: "#2b3a40" });
@@ -417,14 +484,8 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const [message, setMessage] = useState("");
   onChangeRef.current = onChange;
   onDirtyRef.current = onDirty;
+  onSnapshotRef.current = onSnapshot;
   onSafeModeRef.current = onSafeMode;
-
-  const commitEditorState = (current: Editor) => {
-    const snapshot = serializeEditor(current);
-    internalHtml.current = snapshot.html;
-    lastExternalHtml.current = snapshot.html;
-    onChangeRef.current(snapshot.html, snapshot.text, snapshot.json);
-  };
 
   const editor = useEditor({
     extensions: [
@@ -480,10 +541,31 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     onUpdate({ editor: current }) {
       onDirtyRef.current?.();
       if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
+      if (idleCallbackRef.current !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleCallbackRef.current);
+        idleCallbackRef.current = null;
+      }
+      const sinceLastSnapshot = performance.now() - lastSnapshotAtRef.current;
+      const snapshotDelay = largeDocumentRef.current && lastSnapshotAtRef.current > 0
+        ? Math.max(5_000, 30_000 - sinceLastSnapshot)
+        : 5_000;
       changeTimerRef.current = window.setTimeout(() => {
         changeTimerRef.current = null;
-        commitEditorState(current);
-      }, 500);
+        const saveRecoverySnapshot = () => {
+          idleCallbackRef.current = null;
+          const snapshot = serializeEditor(current);
+          internalHtml.current = snapshot.html;
+          lastExternalHtml.current = snapshot.html;
+          lastSnapshotAtRef.current = performance.now();
+          onSnapshotRef.current?.(snapshot);
+          onChangeRef.current?.(snapshot.html, snapshot.text, snapshot.json);
+        };
+        if ("requestIdleCallback" in window) {
+          idleCallbackRef.current = window.requestIdleCallback(saveRecoverySnapshot, { timeout: 2_000 });
+        } else {
+          saveRecoverySnapshot();
+        }
+      }, snapshotDelay);
     },
     onSelectionUpdate({ editor: current }) {
       if (current.isActive("table")) setTableToolsOpen(true);
@@ -500,6 +582,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
         const snapshot = serializeEditor(editor);
         internalHtml.current = snapshot.html;
         lastExternalHtml.current = snapshot.html;
+        onChangeRef.current?.(snapshot.html, snapshot.text, snapshot.json);
         return snapshot;
       }
       const html = sanitizeHtml(normalizeInlineMediaHtml(value));
@@ -511,6 +594,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
 
   useEffect(() => () => {
     if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
+    if (idleCallbackRef.current !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallbackRef.current);
   }, []);
 
   useEffect(() => {

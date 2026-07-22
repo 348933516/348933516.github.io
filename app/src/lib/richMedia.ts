@@ -19,7 +19,7 @@ export function standaloneMedia(html: string, media: ContentMedia[]) {
   return media.filter((item) => !referenced.has(item.id));
 }
 
-export function normalizeInlineMediaHtml(html: string) {
+export function normalizeInlineMediaDocument(html: string) {
   const document = parseRichHtml(html);
   const representedSources = new Set(
     Array.from(document.querySelectorAll<HTMLImageElement>("figure[data-media-id] > img[src]"))
@@ -32,5 +32,9 @@ export function normalizeInlineMediaHtml(html: string) {
     if (representedSources.has(image.getAttribute("src") || "")) image.remove();
   });
 
-  return document.body.innerHTML;
+  return document;
+}
+
+export function normalizeInlineMediaHtml(html: string) {
+  return normalizeInlineMediaDocument(html).body.innerHTML;
 }

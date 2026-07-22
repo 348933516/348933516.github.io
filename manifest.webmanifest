@@ -1,11 +1,9 @@
 {
   "name": "MapleStoryNK 资料百科",
   "short_name": "MapleStoryNK",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#080d10",
   "theme_color": "#080d10",
-  "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
-  ]
+  "icons": [{ "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

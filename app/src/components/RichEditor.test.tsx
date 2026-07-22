@@ -1,6 +1,7 @@
+import { createRef } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RichEditor } from "./RichEditor";
+import { RichEditor, type RichEditorHandle } from "./RichEditor";
 
 describe("professional rich editor", () => {
   it("exposes typography, alignment and table controls", () => {
@@ -28,14 +29,14 @@ describe("professional rich editor", () => {
   });
 
   it("writes the selected border preset into the newly inserted table and every cell", async () => {
-    const onChange = vi.fn();
-    render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    const ref = createRef<RichEditorHandle>();
+    render(<RichEditor ref={ref} value="<p>正文</p>" />);
     fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
     fireEvent.change(screen.getByLabelText("线宽"), { target: { value: "8" } });
     fireEvent.change(screen.getByLabelText("线型"), { target: { value: "double" } });
     fireEvent.click(screen.getByRole("button", { name: "2 行 4 列" }));
     await waitFor(() => {
-      const html = onChange.mock.calls.at(-1)?.[0] || "";
+      const html = ref.current?.serialize().html || "";
       expect(html).toContain('data-table-border="8"');
       expect(html).toContain('data-table-style="double"');
       expect(html).toContain('data-cell-border-width="8"');
@@ -50,14 +51,14 @@ describe("professional rich editor", () => {
   });
 
   it("persists a selected custom table color in the table and its cells", async () => {
-    const onChange = vi.fn();
-    render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    const ref = createRef<RichEditorHandle>();
+    render(<RichEditor ref={ref} value="<p>正文</p>" />);
     fireEvent.click(screen.getByRole("button", { name: "插入表格" }));
     fireEvent.click(screen.getByRole("button", { name: "线色" }));
     fireEvent.click(screen.getByTitle("#ff938d"));
     fireEvent.click(screen.getByRole("button", { name: "2 行 4 列" }));
     await waitFor(() => {
-      const html = onChange.mock.calls.at(-1)?.[0] || "";
+      const html = ref.current?.serialize().html || "";
       expect(html).toContain('data-table-color="#ff938d"');
       expect(html).toContain('data-cell-border-color="#ff938d"');
       expect(html).toContain('--rich-cell-border-color: #ff938d');
@@ -88,8 +89,8 @@ describe("professional rich editor", () => {
   });
 
   it("pastes tab-separated spreadsheet data as an editable table", async () => {
-    const onChange = vi.fn();
-    const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} />);
+    const ref = createRef<RichEditorHandle>();
+    const { container } = render(<RichEditor ref={ref} value="<p>正文</p>" />);
     const surface = container.querySelector<HTMLElement>('[contenteditable="true"]');
     expect(surface).toBeTruthy();
     fireEvent.paste(surface!, {
@@ -98,15 +99,15 @@ describe("professional rich editor", () => {
         getData: (type: string) => type === "text/plain" ? "名称\t等级\n测试地图\t200" : ""
       }
     });
-    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0] || "").toContain("<table"));
-    expect(onChange.mock.calls.at(-1)?.[0]).toContain("测试地图");
+    await waitFor(() => expect(ref.current?.serialize().html || "").toContain("<table"));
+    expect(ref.current?.serialize().html).toContain("测试地图");
   });
 
   it("uploads and inserts an image pasted from the clipboard", async () => {
-    const onChange = vi.fn();
+    const ref = createRef<RichEditorHandle>();
     const image = new File(["image"], "clipboard.png", { type: "image/png" });
     const onUploadImages = vi.fn(async () => [{ src: "https://cdn.example.test/clipboard.png", alt: "clipboard" }]);
-    const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} onUploadImages={onUploadImages} />);
+    const { container } = render(<RichEditor ref={ref} value="<p>正文</p>" onUploadImages={onUploadImages} />);
     const surface = container.querySelector<HTMLElement>('[contenteditable="true"]');
     fireEvent.paste(surface!, {
       clipboardData: {
@@ -115,6 +116,19 @@ describe("professional rich editor", () => {
       }
     });
     await waitFor(() => expect(onUploadImages).toHaveBeenCalledWith([image]));
-    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0] || "").toContain("https://cdn.example.test/clipboard.png"));
+    await waitFor(() => expect(ref.current?.serialize().html || "").toContain("https://cdn.example.test/clipboard.png"));
+  });
+
+  it("marks editing as dirty without serializing the whole document immediately", async () => {
+    const onChange = vi.fn();
+    const onDirty = vi.fn();
+    const { container } = render(<RichEditor value="<p>正文</p>" onChange={onChange} onDirty={onDirty} />);
+    const surface = container.querySelector<HTMLElement>('[contenteditable="true"]');
+    expect(surface).toBeTruthy();
+    fireEvent.paste(surface!, {
+      clipboardData: { items: [], getData: (type: string) => type === "text/plain" ? "新增正文" : "" }
+    });
+    await waitFor(() => expect(onDirty).toHaveBeenCalled());
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

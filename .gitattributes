@@ -1,1 +1,2 @@
-preview/assets/*.js -diff
+assets/* -text -diff
+preview/assets/* -text -diff

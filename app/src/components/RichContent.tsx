@@ -1,8 +1,13 @@
 import { useMemo } from "react";
-import { normalizeInlineMediaHtml } from "../lib/richMedia";
+import { normalizeInlineMediaDocument } from "../lib/richMedia";
 
-export function prepareRichHtml(value: string) {
-  const document = new DOMParser().parseFromString(normalizeInlineMediaHtml(value), "text/html");
+export function prepareRichDocument(value: string) {
+  const document = normalizeInlineMediaDocument(value);
+  const referencedMediaIds = new Set(
+    Array.from(document.querySelectorAll<HTMLElement>("figure[data-media-id]"))
+      .map((figure) => figure.dataset.mediaId || "")
+      .filter(Boolean)
+  );
   document.querySelectorAll("table").forEach((table) => {
     if (table.parentElement?.classList.contains("rich-table-scroll")) return;
     const wrapper = document.createElement("div");
@@ -26,10 +31,14 @@ export function prepareRichHtml(value: string) {
     image.replaceWith(link);
     link.append(image);
   });
-  return document.body.innerHTML;
+  return { html: document.body.innerHTML, referencedMediaIds };
 }
 
-export function RichContent({ html, className = "reader-body" }: { html: string; className?: string }) {
-  const prepared = useMemo(() => prepareRichHtml(html), [html]);
-  return <div className={className} dangerouslySetInnerHTML={{ __html: prepared }} />;
+export function prepareRichHtml(value: string) {
+  return prepareRichDocument(value).html;
+}
+
+export function RichContent({ html, className = "reader-body", prepared = false }: { html: string; className?: string; prepared?: boolean }) {
+  const rendered = useMemo(() => prepared ? html : prepareRichHtml(html), [html, prepared]);
+  return <div className={className} dangerouslySetInnerHTML={{ __html: rendered }} />;
 }

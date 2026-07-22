@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { RichContent } from "../components/RichContent";
+import { prepareRichDocument, RichContent } from "../components/RichContent";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
 import { buildShareUrl, copyShareUrl } from "../lib/share";
 import { loadPublicCategory, loadPublicContent } from "../lib/repository";
-import { standaloneMedia } from "../lib/richMedia";
 import type { ContentItem, ContentMedia } from "../types";
 
 function formatDate(value?: string) {
@@ -172,6 +171,7 @@ export function DetailPage() {
   const localItem = contents.find((content) => content.slug === slug);
   const result = useQuery({ queryKey: ["public-content", slug], queryFn: () => loadPublicContent(slug), enabled: !localItem, staleTime: 5 * 60_000 });
   const item = localItem || result.data?.item;
+  const richDocument = useMemo(() => prepareRichDocument(item?.bodyHtml || ""), [item?.bodyHtml]);
   if (!localItem && result.isLoading) return <PublicRouteLoading label="正在读取资料正文" />;
   if (result.error) return <PublicRouteError error={result.error} retry={() => result.refetch()} />;
   if (!item) return <NotFoundPage />;
@@ -180,12 +180,12 @@ export function DetailPage() {
   const position = categoryItems.findIndex((content) => content.id === item.id);
   const previous = position > 0 ? categoryItems[position - 1] : null;
   const next = position >= 0 && position < categoryItems.length - 1 ? categoryItems[position + 1] : null;
-  const galleryMedia = standaloneMedia(item.bodyHtml, item.media);
+  const galleryMedia = item.media.filter((media) => !richDocument.referencedMediaIds.has(media.id));
   const outline = galleryMedia.map((media) => media.path).flat().filter((value, index, all) => value && all.indexOf(value) === index);
   return <div className="page-width detail-page">
     <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
     <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
-      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><RichContent html={item.bodyHtml} />
+      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><RichContent html={richDocument.html} prepared />
       {galleryMedia.map((media) => <figure className="media-row" key={media.id} id={`media-${encodeURIComponent(media.path.at(-1) || media.id)}`}>{media.kind === "video" ? <VideoMedia media={media} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
       {item.attachments.length > 0 && <section className="attachment-list"><h2>相关附件</h2>{item.attachments.map((attachment) => <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}><Download /><span><strong>{attachment.name}</strong><small>{attachment.sizeBytes ? `${(attachment.sizeBytes / 1024 / 1024).toFixed(1)} MB` : "下载附件"}</small></span></a>)}</section>}</div></div>
     </article>

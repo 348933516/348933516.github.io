@@ -108,7 +108,8 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined,
     providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined,
     playbackUrl: row.playback_url ? safeUrl(String(row.playback_url)) : undefined,
-    posterUrl: row.poster_url ? safeUrl(String(row.poster_url)) : undefined
+    posterUrl: row.poster_url ? safeUrl(String(row.poster_url)) : undefined,
+    sourceImportId: row.source_import_id ? String(row.source_import_id) : undefined
   };
 }
 
@@ -544,15 +545,15 @@ export async function loadAdminContentPage(input: { page: number; pageSize?: num
 }
 
 export async function loadAdminContent(id: string): Promise<ContentItem> {
-  const [contentResult, mediaResult, attachmentResult, tagResult] = await Promise.all([
+  const [contentResult, mediaCountResult, attachmentCountResult, tagResult] = await Promise.all([
     supabase.from("contents").select("*, categories!inner(id, slug, name)").eq("id", id).single(),
-    supabase.from("content_media").select("*").eq("content_id", id).order("sort_order"),
-    supabase.from("attachments").select("*").eq("content_id", id).order("sort_order"),
+    supabase.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", id),
+    supabase.from("attachments").select("id", { count: "exact", head: true }).eq("content_id", id),
     supabase.from("content_tags").select("tags(name)").eq("content_id", id)
   ]);
   if (contentResult.error) throw contentResult.error;
-  if (mediaResult.error) throw mediaResult.error;
-  if (attachmentResult.error) throw attachmentResult.error;
+  if (mediaCountResult.error) throw mediaCountResult.error;
+  if (attachmentCountResult.error) throw attachmentCountResult.error;
   if (tagResult.error) throw tagResult.error;
   const row = contentResult.data;
   const category = row.categories as { id: string; slug: string; name: string };
@@ -576,13 +577,34 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
       const tag = Array.isArray(entry.tags) ? entry.tags[0] : entry.tags;
       return tag && typeof tag === "object" && "name" in tag ? [String(tag.name)] : [];
     }),
-    media: await Promise.all((mediaResult.data || []).map(async (mediaRow) => ({ ...mapMedia(mediaRow), src: await adminStorageUrl(mediaRow.storage_bucket, mediaRow.storage_path, mediaRow.external_url) }))),
-    attachments: await Promise.all((attachmentResult.data || []).map(async (attachmentRow) => ({ ...mapAttachment(attachmentRow), url: await adminStorageUrl(attachmentRow.storage_bucket, attachmentRow.storage_path, attachmentRow.external_url) }))),
+    media: [],
+    attachments: [],
+    mediaCount: mediaCountResult.count || 0,
+    attachmentCount: attachmentCountResult.count || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
     publishedAt: row.published_at
   };
+}
+
+export async function loadAdminStandaloneMedia(contentId: string): Promise<ContentMedia[]> {
+  const { data, error } = await supabase.from("content_media")
+    .select("*")
+    .eq("content_id", contentId)
+    .is("source_import_id", null)
+    .order("sort_order");
+  if (error) throw error;
+  return Promise.all((data || []).map(async (row) => ({
+    ...mapMedia(row),
+    src: await adminStorageUrl(row.storage_bucket, row.storage_path, row.external_url)
+  })));
+}
+
+export async function loadAdminCategoryCounts() {
+  const { data, error } = await supabase.rpc("get_admin_category_counts");
+  if (error) throw error;
+  return new Map<string, number>(((data || []) as Array<Record<string, unknown>>).map((row) => [String(row.category_id), Number(row.content_count || 0)]));
 }
 
 export async function saveContent(draft: ContentDraft, userId: string) {
@@ -649,7 +671,7 @@ export interface DocumentImportStatusAsset {
   image_variants?: Array<{ key: string; path: string; width: number; height: number; mimeType: string; sizeBytes: number }>;
 }
 
-export type DocumentImportStage = "start" | "list" | "register" | "status" | "retry" | "event" | "finalize" | "fail" | "cancel";
+export type DocumentImportStage = "start" | "list" | "register" | "status" | "retry" | "event" | "finalize" | "fail" | "cancel" | "cleanup";
 
 export class DocumentImportError extends Error {
   readonly stage: DocumentImportStage;
@@ -681,7 +703,8 @@ const documentImportAttempts: Partial<Record<DocumentImportStage, number>> = {
   register: 5,
   status: 5,
   retry: 3,
-  event: 4
+  event: 4,
+  cleanup: 3
 };
 
 const transientDocumentImportStatuses = new Set([429, 502, 503, 504]);
@@ -706,7 +729,7 @@ async function functionErrorPayload(error: unknown) {
 }
 
 function documentImportStage(action: unknown): DocumentImportStage {
-  return action === "finalize" ? "finalize" : action === "register" ? "register" : action === "status" ? "status" : action === "retry" ? "retry" : action === "event" ? "event" : action === "list" ? "list" : action === "cancel" ? "cancel" : action === "fail" ? "fail" : "start";
+  return action === "finalize" ? "finalize" : action === "register" ? "register" : action === "status" ? "status" : action === "retry" ? "retry" : action === "event" ? "event" : action === "list" ? "list" : action === "cancel" ? "cancel" : action === "fail" ? "fail" : action === "cleanup" ? "cleanup" : "start";
 }
 
 function documentImportRetryDelay(attempt: number) {
@@ -763,6 +786,10 @@ async function invokeDocumentImport<T>(body: Record<string, unknown>, onRetry?: 
 
 export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number; sourceFileName?: string; sourceFileSize?: number }) {
   return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
+}
+
+export function cleanupDocumentImportMedia(contentId: string) {
+  return invokeDocumentImport<{ removed: number; failed: number }>({ action: "cleanup", contentId });
 }
 
 export function registerDocumentImportAsset(importId: string, asset: DocumentImportAsset, onRetry?: (info: DocumentImportRetryInfo) => void) {
@@ -829,7 +856,7 @@ export function logDocumentImportEvent(importId: string, event: Record<string, u
 }
 
 export function finalizeDocumentImport(input: { importId: string; expectedVersion: number; bodyHtml: string; sourceRecord: string }) {
-  return invokeDocumentImport<{ content_id: string; version: number; imported_images: number }>({ action: "finalize", ...input });
+  return invokeDocumentImport<{ content_id: string; version: number; imported_images: number; replaced_images: number; cleanup_files: number; cleanup_removed: number; cleanup_failed: number }>({ action: "finalize", ...input });
 }
 
 export function cancelDocumentImport(importId: string, assets: DocumentImportAsset[], error?: string) {

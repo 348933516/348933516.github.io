@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { RichContent } from "./RichContent";
+import { prepareRichDocument, RichContent } from "./RichContent";
 
 describe("rich content reader", () => {
   it("wraps each table in a responsive scrolling region", () => {
@@ -26,5 +26,12 @@ describe("rich content reader", () => {
     expect(image).toHaveAttribute("srcset");
     expect(image).toHaveAttribute("width", "1600");
     expect(container.querySelector('figure a[href="https://example.com/original.png"]')?.contains(image)).toBe(true);
+  });
+
+  it("collects referenced media while preparing the body in one parse", () => {
+    const mediaId = "123e4567-e89b-42d3-a456-426614174000";
+    const prepared = prepareRichDocument(`<figure data-editor-image="true" data-media-id="${mediaId}"><img src="https://example.com/image.png"><figcaption></figcaption></figure>`);
+    expect(prepared.referencedMediaIds).toEqual(new Set([mediaId]));
+    expect(prepared.html).toContain("loading=\"lazy\"");
   });
 });

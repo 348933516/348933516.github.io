@@ -49,8 +49,41 @@ export function installGlobalRuntimeLogging() {
   };
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);
+  let performanceObserver: PerformanceObserver | null = null;
+  let performanceTimer: number | null = null;
+  const longTasks: number[] = [];
+  if ("PerformanceObserver" in window) {
+    try {
+      performanceObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (entry.duration >= 50 && longTasks.length < 100) longTasks.push(Math.round(entry.duration));
+        if (!longTasks.length || performanceTimer !== null) return;
+        performanceTimer = window.setTimeout(() => {
+          performanceTimer = null;
+          const durations = longTasks.splice(0);
+          const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number; jsHeapSizeLimit?: number } }).memory;
+          void reportRuntimeLog({
+            source: "performance",
+            severity: "warning",
+            message: `检测到 ${durations.length} 个主线程长任务`,
+            context: {
+              count: durations.length,
+              totalDurationMs: durations.reduce((sum, duration) => sum + duration, 0),
+              maxDurationMs: Math.max(...durations),
+              usedHeapBytes: memory?.usedJSHeapSize,
+              heapLimitBytes: memory?.jsHeapSizeLimit
+            }
+          });
+        }, 10_000);
+      });
+      performanceObserver.observe({ type: "longtask", buffered: true });
+    } catch {
+      performanceObserver = null;
+    }
+  }
   return () => {
     window.removeEventListener("error", onError);
     window.removeEventListener("unhandledrejection", onRejection);
+    performanceObserver?.disconnect();
+    if (performanceTimer !== null) window.clearTimeout(performanceTimer);
   };
 }

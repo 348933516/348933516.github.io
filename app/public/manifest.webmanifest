@@ -1,7 +1,7 @@
 {
   "name": "MapleStoryNK 资料百科",
   "short_name": "MapleStoryNK",
-  "start_url": "/preview/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#080d10",
   "theme_color": "#080d10",
