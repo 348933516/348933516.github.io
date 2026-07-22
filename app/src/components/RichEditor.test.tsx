@@ -71,6 +71,22 @@ describe("professional rich editor", () => {
     expect(container.querySelector(".editor-surface")).toBeInTheDocument();
   });
 
+  it("shows a live heading outline and focuses the selected editor section", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<RichEditor value="<h1>总览</h1><p>正文</p><h2>图片说明</h2><p>说明</p>" />);
+      expect(await screen.findByRole("button", { name: "总览" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "图片说明" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "图片说明" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "图片说明" })).toHaveClass("active"));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it("parses an imported figure without creating a second image node", () => {
     const mediaId = "123e4567-e89b-42d3-a456-426614174000";
     const value = `<figure data-editor-image="true" data-media-id="${mediaId}"><img src="https://example.com/imported.png" alt="图片 1"><figcaption></figcaption></figure>`;

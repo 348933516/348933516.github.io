@@ -34,4 +34,18 @@ describe("rich content reader", () => {
     expect(prepared.referencedMediaIds).toEqual(new Set([mediaId]));
     expect(prepared.html).toContain("loading=\"lazy\"");
   });
+
+  it("builds stable unique outline targets for h1 through h4", () => {
+    const prepared = prepareRichDocument("<h1>地图展示</h1><h2>可爱风</h2><h2>可爱风</h2><h3>★ 特殊 / 标题</h3><h4>   </h4>");
+
+    expect(prepared.outline.map((item) => [item.label, item.level, item.targetId])).toEqual([
+      ["地图展示", 1, "section-地图展示"],
+      ["可爱风", 2, "section-可爱风"],
+      ["可爱风", 2, "section-可爱风-2"],
+      ["★ 特殊 / 标题", 3, "section-特殊-标题"]
+    ]);
+    const document = new DOMParser().parseFromString(prepared.html, "text/html");
+    expect(document.getElementById("section-可爱风-2")?.textContent).toBe("可爱风");
+    expect(document.querySelector("h4")?.hasAttribute("id")).toBe(false);
+  });
 });

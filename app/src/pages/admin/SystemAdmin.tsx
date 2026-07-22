@@ -495,12 +495,12 @@ export function SiteMiniPreview({ settings, onOpenCarousel }: { settings: Record
           {slides.isLoading ? <div className="mini-carousel-state">正在读取轮播图</div> : slides.error ? <div className="mini-carousel-state error">轮播图读取失败</div> : slide ? (
             <div className="mini-carousel-frame">
               {slideImage ? <img src={slideImage} alt="" /> : <i />}
-              <div><span>MAPLESTORYNK</span><strong>{slide.title || "未命名轮播"}</strong>{slide.subtitle && <p>{slide.subtitle}</p>}{slide.link_label && <em>{slide.link_label}</em>}</div>
+              <div><strong>{slide.title || "未命名轮播"}</strong>{slide.subtitle && <p>{slide.subtitle}</p>}{slide.link_label && <em>{slide.link_label}</em>}</div>
               {visibleSlides.length > 1 && <nav>{visibleSlides.slice(0, 5).map((item, index) => <b className={index === 0 ? "active" : ""} key={item.id} />)}</nav>}
             </div>
           ) : <div className="mini-carousel-state empty"><strong>还没有轮播图</strong><span>去轮播图页新增图片、标题和说明。</span>{onOpenCarousel && <button className="button quiet" type="button" onClick={onOpenCarousel}>去新增轮播</button>}</div>}
         </section>
-        <section><small>CATALOG</small><h3>{String(settings.category_title)}</h3><p>{String(settings.category_subtitle)}</p><div><i /><i /><i /><i /></div></section>
+        <section><h3>{String(settings.category_title)}</h3><p>{String(settings.category_subtitle)}</p><div><i /><i /><i /><i /></div></section>
       </main>
     </section>
   );

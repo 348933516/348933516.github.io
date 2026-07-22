@@ -2,6 +2,8 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const base = process.env.VITE_BASE_PATH || "/preview/";
+const outputDir = process.env.VITE_OUTPUT_DIR || "../preview";
+const formalBuild = process.env.VITE_FORMAL_BUILD === "1";
 
 export default defineConfig({
   root: "app",
@@ -17,8 +19,8 @@ export default defineConfig({
   ],
   worker: { format: "es" },
   build: {
-    outDir: "../preview",
-    emptyOutDir: true,
+    outDir: outputDir,
+    emptyOutDir: !formalBuild,
     sourcemap: false
   },
   test: {

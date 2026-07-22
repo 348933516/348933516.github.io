@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
 import Highlight from "@tiptap/extension-highlight";
@@ -22,6 +22,8 @@ import {
 import { normalizeOfficeClipboardHtml, tabSeparatedTextToTableHtml } from "../lib/officeClipboard";
 import { sanitizeHtml } from "../lib/sanitize";
 import { normalizeInlineMediaHtml } from "../lib/richMedia";
+import { BackToTop, DocumentOutline } from "./DocumentNavigation";
+import type { OutlineItem } from "./DocumentNavigation";
 
 interface RichEditorProps {
   value: string;
@@ -42,6 +44,39 @@ export interface RichEditorHandle {
   serialize(): RichEditorSnapshot;
   focus(): void;
   openSafeMode(): void;
+}
+
+interface EditorOutlineItem extends OutlineItem {
+  nodePosition: number;
+  selectionPosition: number;
+  endPosition: number;
+}
+
+function extractEditorOutline(editor: Editor): EditorOutlineItem[] {
+  const result: EditorOutlineItem[] = [];
+  editor.state.doc.descendants((node, position) => {
+    if (node.type.name !== "heading") return;
+    const label = node.textContent.replace(/\s+/g, " ").trim();
+    if (!label) return;
+    result.push({
+      id: `editor-outline-${position}`,
+      label,
+      level: Number(node.attrs.level) || 1,
+      kind: "heading",
+      targetId: `editor-heading-${position}`,
+      nodePosition: position,
+      selectionPosition: Math.min(position + 1, editor.state.doc.content.size),
+      endPosition: position + node.nodeSize
+    });
+  });
+  return result;
+}
+
+function sameEditorOutline(left: EditorOutlineItem[], right: EditorOutlineItem[]) {
+  return left.length === right.length && left.every((item, index) => {
+    const other = right[index];
+    return item.id === other.id && item.label === other.label && item.level === other.level && item.endPosition === other.endPosition;
+  });
 }
 
 function serializeEditor(editor: Editor): RichEditorSnapshot {
@@ -472,6 +507,8 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const onSafeModeRef = useRef(onSafeMode);
   const changeTimerRef = useRef<number | null>(null);
   const idleCallbackRef = useRef<number | null>(null);
+  const outlineTimerRef = useRef<number | null>(null);
+  const editorOutlineRef = useRef<EditorOutlineItem[]>([]);
   const lastSnapshotAtRef = useRef(0);
   const largeDocumentRef = useRef(value.length > 500_000 || (value.match(/<figure\b/gi)?.length || 0) > 50);
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
@@ -482,10 +519,34 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [message, setMessage] = useState("");
+  const [editorOutline, setEditorOutline] = useState<EditorOutlineItem[]>([]);
+  const [activeHeadingId, setActiveHeadingId] = useState("");
   onChangeRef.current = onChange;
   onDirtyRef.current = onDirty;
   onSnapshotRef.current = onSnapshot;
   onSafeModeRef.current = onSafeMode;
+
+  const updateActiveHeading = useCallback((current: Editor, entries = editorOutlineRef.current) => {
+    const selection = current.state.selection.from;
+    const active = entries.find((item) => selection >= item.nodePosition && selection <= item.endPosition)
+      || [...entries].reverse().find((item) => item.nodePosition < selection);
+    setActiveHeadingId(active?.id || "");
+  }, []);
+
+  const scheduleEditorOutline = useCallback((current: Editor, immediate = false) => {
+    if (outlineTimerRef.current !== null) window.clearTimeout(outlineTimerRef.current);
+    const update = () => {
+      outlineTimerRef.current = null;
+      const next = extractEditorOutline(current);
+      if (!sameEditorOutline(editorOutlineRef.current, next)) {
+        editorOutlineRef.current = next;
+        setEditorOutline(next);
+      }
+      updateActiveHeading(current, next);
+    };
+    if (immediate) update();
+    else outlineTimerRef.current = window.setTimeout(update, 120);
+  }, [updateActiveHeading]);
 
   const editor = useEditor({
     extensions: [
@@ -506,6 +567,9 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       StyledTableCell
     ],
     content: internalHtml.current,
+    onCreate({ editor: current }) {
+      scheduleEditorOutline(current, true);
+    },
     editorProps: {
       attributes: { class: "editor-surface" },
       transformPastedHTML: (html) => normalizeOfficeClipboardHtml(html),
@@ -540,6 +604,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     },
     onUpdate({ editor: current }) {
       onDirtyRef.current?.();
+      scheduleEditorOutline(current);
       if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
       if (idleCallbackRef.current !== null && "cancelIdleCallback" in window) {
         window.cancelIdleCallback(idleCallbackRef.current);
@@ -569,6 +634,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     },
     onSelectionUpdate({ editor: current }) {
       if (current.isActive("table")) setTableToolsOpen(true);
+      updateActiveHeading(current);
     }
   });
 
@@ -594,6 +660,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
 
   useEffect(() => () => {
     if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
+    if (outlineTimerRef.current !== null) window.clearTimeout(outlineTimerRef.current);
     if (idleCallbackRef.current !== null && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallbackRef.current);
   }, []);
 
@@ -618,7 +685,25 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
+  const getEditorScrollTarget = useCallback(() => {
+    if (fullscreen) return shellRef.current;
+    return shellRef.current?.closest<HTMLElement>(".workspace-main") || shellRef.current;
+  }, [fullscreen]);
+
   if (!editor) return <div className="editor-surface">编辑器加载中...</div>;
+
+  const navigateEditorOutline = (outlineItem: OutlineItem) => {
+    const item = editorOutlineRef.current.find((entry) => entry.id === outlineItem.id);
+    if (!item) return;
+    editor.chain().focus().setTextSelection(item.selectionPosition).run();
+    setActiveHeadingId(item.id);
+    window.requestAnimationFrame(() => {
+      const node = editor.view.nodeDOM(item.nodePosition);
+      if (!(node instanceof HTMLElement)) return;
+      const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      node.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    });
+  };
 
   const textStyle = editor.getAttributes("textStyle");
   const tableAttributes = editor.getAttributes("table");
@@ -808,7 +893,11 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
         </div>}
       </div>
       {message && <div className="editor-message">{message}</div>}
-      <EditorContent editor={editor} />
+      <div className={`editor-document-layout ${editorOutline.length ? "with-outline" : "without-outline"}`}>
+        {editorOutline.length > 0 && <DocumentOutline items={editorOutline} activeId={activeHeadingId} className="editor-document-outline" onNavigate={navigateEditorOutline} />}
+        <div className="editor-document-canvas"><EditorContent editor={editor} /></div>
+      </div>
+      <BackToTop getScrollTarget={getEditorScrollTarget} className="editor-back-to-top" />
     </div>
   );
 });

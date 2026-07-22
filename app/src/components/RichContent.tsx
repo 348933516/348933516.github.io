@@ -1,8 +1,43 @@
 import { useMemo } from "react";
 import { normalizeInlineMediaDocument } from "../lib/richMedia";
+import type { OutlineItem } from "./DocumentNavigation";
+
+function outlineToken(value: string) {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{L}\p{N}_-]/gu, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64) || "section";
+}
 
 export function prepareRichDocument(value: string) {
   const document = normalizeInlineMediaDocument(value);
+  const headingCounts = new Map<string, number>();
+  const outline: OutlineItem[] = [];
+  document.querySelectorAll<HTMLElement>("h1, h2, h3, h4").forEach((heading) => {
+    const label = (heading.textContent || "").replace(/\s+/g, " ").trim();
+    if (!label) {
+      heading.removeAttribute("id");
+      return;
+    }
+    const token = outlineToken(label);
+    const occurrence = (headingCounts.get(token) || 0) + 1;
+    headingCounts.set(token, occurrence);
+    const targetId = `section-${token}${occurrence > 1 ? `-${occurrence}` : ""}`;
+    heading.id = targetId;
+    heading.classList.add("rich-section-heading");
+    outline.push({
+      id: `outline-${targetId}`,
+      label,
+      level: Number(heading.tagName.slice(1)),
+      kind: "heading",
+      targetId
+    });
+  });
   const referencedMediaIds = new Set(
     Array.from(document.querySelectorAll<HTMLElement>("figure[data-media-id]"))
       .map((figure) => figure.dataset.mediaId || "")
@@ -31,7 +66,7 @@ export function prepareRichDocument(value: string) {
     image.replaceWith(link);
     link.append(image);
   });
-  return { html: document.body.innerHTML, referencedMediaIds };
+  return { html: document.body.innerHTML, referencedMediaIds, outline };
 }
 
 export function prepareRichHtml(value: string) {

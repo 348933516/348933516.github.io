@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { BackToTop, DocumentOutline } from "../components/DocumentNavigation";
+import type { OutlineItem } from "../components/DocumentNavigation";
 import { prepareRichDocument, RichContent } from "../components/RichContent";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { useSiteData } from "../data";
@@ -17,6 +19,28 @@ function formatDate(value?: string) {
 
 function cover(item: ContentItem) {
   return item.media.find((media) => media.kind === "image")?.src || "";
+}
+
+function buildMediaOutline(mediaItems: ContentMedia[]): OutlineItem[] {
+  const seen = new Set<string>();
+  const result: OutlineItem[] = [];
+  mediaItems.forEach((media) => {
+    const segments = media.path.map((part) => part.trim()).filter(Boolean);
+    if (!segments.length && media.title.trim()) segments.push(media.title.trim());
+    segments.forEach((label, index) => {
+      const pathKey = segments.slice(0, index + 1).join("\u001f");
+      if (seen.has(pathKey)) return;
+      seen.add(pathKey);
+      result.push({
+        id: `outline-media-${media.id}-${index}`,
+        label,
+        level: Math.min(index + 1, 4),
+        kind: "media",
+        targetId: `media-${media.id}`
+      });
+    });
+  });
+  return result;
 }
 
 function ContentCard({ item }: { item: ContentItem }) {
@@ -100,7 +124,7 @@ function HomepageCarousel() {
                 {(() => {
                   const image = slide.imageUrl || settings.pageBackgroundUrl || settings.tileBackgroundUrl || "";
                   const target = normalizeCarouselTarget(slide.linkUrl);
-                  const overlay = <div className="hero-carousel-overlay"><div><span>MAPLESTORYNK</span><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
+                  const overlay = <div className="hero-carousel-overlay"><div><h1>{slide.title}</h1><p>{slide.subtitle}</p></div>{target && <span className="hero-carousel-cta">{slide.linkLabel || "查看详情"}<ChevronRight /></span>}</div>;
                   const priority = index === 0 ? { fetchpriority: "high" } : {};
                   const shouldLoad = loadedSlideIds.has(slide.id);
                   const content = <>{image && shouldLoad ? <img className="hero-carousel-image" src={image} alt={slide.title || "轮播图"} loading={index === 0 ? "eager" : "lazy"} decoding="async" {...priority} /> : <div className="hero-carousel-placeholder" />}{overlay}</>;
@@ -128,17 +152,16 @@ export function HomePage() {
     <>
       <HomepageCarousel />
       <section className="page-width section-block">
-        <div className="section-heading"><div><span>CATALOG</span><h2>{settings.categoryTitle}</h2><p>{settings.categorySubtitle}</p></div></div>
+        <div className="section-heading"><div><h2>{settings.categoryTitle}</h2><p>{settings.categorySubtitle}</p></div></div>
         {errorMessage && <div className="public-inline-error"><strong>资料暂时无法更新</strong><span>{errorMessage}</span></div>}
         {loading && !categories.length && <div className="category-grid public-skeleton-grid">{[1, 2, 3, 4].map((item) => <div className="category-entry public-skeleton" key={item}><span /><div><i /><b /><i /></div></div>)}</div>}
         <div className="category-grid">
           {categories.map((category) => {
-            const count = category.contentCount ?? contents.filter((item) => item.categoryId === category.id).length;
             const firstContentImage = contents.find((item) => item.categoryId === category.id && item.media.some((media) => media.kind === "image" && media.src))?.media.find((media) => media.kind === "image" && media.src)?.src;
             const categoryCover = category.imageUrl || settings.tileBackgroundUrl || category.firstMediaUrl || firstContentImage;
             return <Link className="category-entry" key={category.id} to={`/category/${category.slug}`}>
               <div className="category-visual">{categoryCover ? <img src={categoryCover} alt="" loading="lazy" /> : <FolderOpen />}</div>
-              <div><span>{String(count).padStart(2, "0")} 篇资料</span><h3>{category.name}</h3><p>{category.description}</p></div><ChevronRight />
+              <div><h3>{category.name}</h3><p>{category.description}</p></div><ChevronRight />
             </Link>;
           })}
         </div>
@@ -181,12 +204,13 @@ export function DetailPage() {
   const previous = position > 0 ? categoryItems[position - 1] : null;
   const next = position >= 0 && position < categoryItems.length - 1 ? categoryItems[position + 1] : null;
   const galleryMedia = item.media.filter((media) => !richDocument.referencedMediaIds.has(media.id));
-  const outline = galleryMedia.map((media) => media.path).flat().filter((value, index, all) => value && all.indexOf(value) === index);
+  const outline = [...richDocument.outline, ...buildMediaOutline(galleryMedia)];
   return <div className="page-width detail-page">
+    <BackToTop blocked={Boolean(lightbox)} />
     <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
     <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
-      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <aside className="reader-outline"><strong>图片目录</strong>{outline.map((entry) => <a key={entry} href={`#media-${encodeURIComponent(entry)}`}>{entry}</a>)}</aside>}<div className="reader-main"><RichContent html={richDocument.html} prepared />
-      {galleryMedia.map((media) => <figure className="media-row" key={media.id} id={`media-${encodeURIComponent(media.path.at(-1) || media.id)}`}>{media.kind === "video" ? <VideoMedia media={media} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
+      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <DocumentOutline items={outline} observe className="reader-document-outline" />}<div className="reader-main"><RichContent html={richDocument.html} prepared />
+      {galleryMedia.map((media) => <figure className="media-row" key={media.id} id={`media-${media.id}`}>{media.kind === "video" ? <VideoMedia media={media} /> : <button type="button" className="media-image-button" onClick={() => setLightbox(media.src)}><img src={media.src} alt={media.altText || media.title} loading="lazy" /><span><Maximize2 />放大查看</span></button>}<figcaption><small>{media.path.join(" / ")}</small><h2>{media.title}</h2>{media.note && <p>{media.note}</p>}</figcaption></figure>)}
       {item.attachments.length > 0 && <section className="attachment-list"><h2>相关附件</h2>{item.attachments.map((attachment) => <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}><Download /><span><strong>{attachment.name}</strong><small>{attachment.sizeBytes ? `${(attachment.sizeBytes / 1024 / 1024).toFixed(1)} MB` : "下载附件"}</small></span></a>)}</section>}</div></div>
     </article>
     <nav className="previous-next">{previous ? <Link to={`/content/${previous.slug}`}><ArrowLeft /><span>上一篇<strong>{previous.title}</strong></span></Link> : <span />}{next && <Link to={`/content/${next.slug}`}><span>下一篇<strong>{next.title}</strong></span><ArrowRight /></Link>}</nav>

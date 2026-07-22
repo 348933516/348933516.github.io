@@ -29,4 +29,13 @@ describe("bundled theme cleanup", () => {
     expect(css).toContain(".workspace-main .color-panel,");
     expect(css).toContain("background: #fff;");
   });
+
+  it("shows complete carousel artwork in a stable widescreen frame", () => {
+    const css = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
+    expect(css).toMatch(/\.hero-carousel-frame \{[^}]*aspect-ratio: 16 \/ 9;/);
+    expect(css).toMatch(/\.hero-carousel-image \{[^}]*object-fit: contain;/);
+    expect(css).toMatch(/\.carousel-upload-box img \{[^}]*object-fit: contain;/);
+    expect(css).toMatch(/\.carousel-slide-preview img \{[^}]*object-fit: contain;/);
+    expect(css).toMatch(/\.mini-carousel-frame > img,[^}]*object-fit: contain;/);
+  });
 });

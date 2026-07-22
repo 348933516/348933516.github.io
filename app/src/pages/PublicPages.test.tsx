@@ -79,7 +79,9 @@ describe("public home", () => {
     expect(screen.getByText("轮播图内容")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "资料目录" })).toBeInTheDocument();
     expect(screen.getAllByText("WZ业务目录").length).toBeGreaterThan(0);
-    expect(screen.getByText("01 篇资料")).toBeInTheDocument();
+    expect(container.querySelector(".hero-carousel-overlay > div > span")).toBeNull();
+    expect(container.querySelector(".section-heading > div > span")).toBeNull();
+    expect(container.querySelector(".category-entry div > span")).toBeNull();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByText("最近更新")).not.toBeInTheDocument();
   });
@@ -109,6 +111,38 @@ describe("public home", () => {
     );
     expect(container.querySelector(".reader-layout")).toHaveClass("without-outline");
     expect(container.querySelector(".reader-main")).toBeInTheDocument();
+  });
+
+  it("merges document headings and nested media paths into one button-based outline", () => {
+    const withOutline: PublicData = {
+      ...data,
+      contents: [{
+        ...data.contents[0],
+        bodyHtml: "<h2>正文章节</h2><p>内容</p>",
+        media: [{
+          id: "gallery-1",
+          kind: "image",
+          src: "https://example.com/gallery.png",
+          title: "可爱风地图",
+          note: "",
+          path: ["主题地图", "可爱风"],
+          altText: "可爱风地图",
+          sortOrder: 10
+        }]
+      }]
+    };
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/content/first"]}>
+        <DataProvider data={withOutline}><Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes></DataProvider>
+      </MemoryRouter></QueryClientProvider>
+    );
+
+    expect(container.querySelector(".reader-layout")).toHaveClass("with-outline");
+    expect(screen.getByRole("button", { name: "正文章节" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "主题地图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "可爱风" })).toBeInTheDocument();
+    expect(container.querySelector('.document-outline-panel a[href^="#"]')).toBeNull();
+    expect(container.querySelector("#media-gallery-1")).toBeInTheDocument();
   });
 
   it("keeps a stable hook order while remote content changes from loading to loaded", async () => {
