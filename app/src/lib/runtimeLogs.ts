@@ -1,3 +1,4 @@
+import { longTaskMinimumMs, longTaskReportCooldownMs, shouldReportLongTasks, summarizeLongTasks, type LongTaskSample } from "./performanceDiagnostics";
 import { supabase } from "./supabase";
 
 export type RuntimeSeverity = "info" | "warning" | "error";
@@ -8,6 +9,7 @@ export interface RuntimeLogInput {
   severity?: RuntimeSeverity;
   error?: unknown;
   context?: Record<string, unknown>;
+  route?: string;
 }
 
 function safeContext(value: Record<string, unknown> = {}) {
@@ -17,6 +19,14 @@ function safeContext(value: Record<string, unknown> = {}) {
     if (["number", "boolean"].includes(typeof item) || item == null) return [key, item];
     return [key, String(item).slice(0, 500)];
   }));
+}
+
+function currentRoute() {
+  return `${window.location.pathname}${window.location.hash}`;
+}
+
+function appVersion() {
+  return import.meta.env.VITE_APP_VERSION || (window.location.pathname.startsWith("/preview") ? "preview" : "production");
 }
 
 export async function reportRuntimeLog(input: RuntimeLogInput) {
@@ -30,8 +40,8 @@ export async function reportRuntimeLog(input: RuntimeLogInput) {
       source: input.source.slice(0, 80),
       message: input.message.slice(0, 1000),
       stack: error?.stack?.slice(0, 8000) || null,
-      route: `${window.location.pathname}${window.location.hash}`.slice(0, 500),
-      app_version: import.meta.env.VITE_APP_VERSION || "preview",
+      route: (input.route || currentRoute()).slice(0, 500),
+      app_version: appVersion(),
       context: safeContext(input.context)
     });
   } catch {
@@ -49,41 +59,66 @@ export function installGlobalRuntimeLogging() {
   };
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);
+
   let performanceObserver: PerformanceObserver | null = null;
   let performanceTimer: number | null = null;
-  const longTasks: number[] = [];
+  const pendingByRoute = new Map<string, LongTaskSample[]>();
+  const lastReportedAt = new Map<string, number>();
+
   if ("PerformanceObserver" in window) {
     try {
       performanceObserver = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) if (entry.duration >= 50 && longTasks.length < 100) longTasks.push(Math.round(entry.duration));
-        if (!longTasks.length || performanceTimer !== null) return;
+        const route = currentRoute();
+        const samples = pendingByRoute.get(route) || [];
+        for (const entry of list.getEntries()) {
+          if (entry.duration >= longTaskMinimumMs && samples.length < 30) {
+            samples.push({ durationMs: entry.duration, startTimeMs: entry.startTime, route });
+          }
+        }
+        if (samples.length) pendingByRoute.set(route, samples);
+        if (!pendingByRoute.size || performanceTimer !== null) return;
+
         performanceTimer = window.setTimeout(() => {
           performanceTimer = null;
-          const durations = longTasks.splice(0);
+          const now = Date.now();
           const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number; jsHeapSizeLimit?: number } }).memory;
-          void reportRuntimeLog({
-            source: "performance",
-            severity: "warning",
-            message: `检测到 ${durations.length} 个主线程长任务`,
-            context: {
-              count: durations.length,
-              totalDurationMs: durations.reduce((sum, duration) => sum + duration, 0),
-              maxDurationMs: Math.max(...durations),
-              usedHeapBytes: memory?.usedJSHeapSize,
-              heapLimitBytes: memory?.jsHeapSizeLimit
-            }
-          });
-        }, 10_000);
+          const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+
+          for (const [observedRoute, routeSamples] of pendingByRoute) {
+            const summary = summarizeLongTasks(routeSamples);
+            const lastReport = lastReportedAt.get(observedRoute) || 0;
+            if (!summary || !shouldReportLongTasks(summary) || now - lastReport < longTaskReportCooldownMs) continue;
+            lastReportedAt.set(observedRoute, now);
+            void reportRuntimeLog({
+              source: "performance",
+              severity: "warning",
+              route: observedRoute,
+              message: `检测到 ${summary.count} 个严重主线程长任务`,
+              context: {
+                ...summary,
+                topDurationsMs: summary.topDurationsMs.join(","),
+                usedHeapBytes: memory?.usedJSHeapSize,
+                heapLimitBytes: memory?.jsHeapSizeLimit,
+                visibilityState: document.visibilityState,
+                navigationType: navigation?.type || "unknown"
+              }
+            });
+          }
+          pendingByRoute.clear();
+        }, 15_000);
       });
-      performanceObserver.observe({ type: "longtask", buffered: true });
+      performanceObserver.observe({ type: "longtask" });
     } catch {
       performanceObserver = null;
     }
   }
+
   return () => {
     window.removeEventListener("error", onError);
     window.removeEventListener("unhandledrejection", onRejection);
     performanceObserver?.disconnect();
+    pendingByRoute.clear();
+    lastReportedAt.clear();
     if (performanceTimer !== null) window.clearTimeout(performanceTimer);
   };
 }
