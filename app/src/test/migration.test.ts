@@ -156,6 +156,7 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).not.toContain("update public.content_media set storage_provider = 'tencent_cos'");
     expect(cosStorageFunction).toContain('action === "delete-many"');
     expect(cosStorageFunction).toContain("Promise.allSettled");
+    expect(cosStorageFunction).toContain("retryResults");
     expect(storageClient).toContain('action: "delete-many"');
     expect(cosSharedFunction).toContain("controller.abort()");
     expect(cosSharedFunction).toContain("attempt <= 2");

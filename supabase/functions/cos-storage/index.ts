@@ -40,7 +40,12 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (action === "delete-many") {
     if (!["super_admin", "editor"].includes(profile.role)) return json({ error: "Not allowed to delete files" }, 403);
     const results = await Promise.allSettled(keys.map((value) => deleteCosObject(bucket, value)));
-    const failedIndexes = results.flatMap((result, index) => result.status === "rejected" ? [index] : []);
+    let failedIndexes = results.flatMap((result, index) => result.status === "rejected" ? [index] : []);
+    if (failedIndexes.length) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const retryResults = await Promise.allSettled(failedIndexes.map((index) => deleteCosObject(bucket, keys[index])));
+      failedIndexes = retryResults.flatMap((result, index) => result.status === "rejected" ? [failedIndexes[index]] : []);
+    }
     if (failedIndexes.length) return json({ error: "COS batch cleanup failed", deletedCount: keys.length - failedIndexes.length, failedIndexes }, 502);
     return json({ ok: true, deletedCount: keys.length });
   }
