@@ -37,6 +37,7 @@ describe("bundled theme cleanup", () => {
     expect(adminCss).toContain("--admin-sidebar: #191a1e;");
     expect(adminCss).toContain("--admin-canvas: #f5f5f2;");
     expect(adminCss).toContain("--admin-accent: #b34242;");
+    expect(adminCss).toMatch(/\.admin-shell \{[^}]*display: grid;[^}]*grid-template-columns:/);
     expect(adminCss).toContain(".content-admin-table .content-table-row {");
     expect(adminCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
