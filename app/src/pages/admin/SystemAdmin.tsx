@@ -247,6 +247,10 @@ export function HistoryPage({ profile }: { profile: Profile }) {
   );
 }
 
+export function mediaMigrationReadyToCommit(status: MediaStorageMigrationStatus | null) {
+  return Boolean(status?.items.length && status.items.every((item) => item.status === "verified" || item.status === "committed"));
+}
+
 function MediaMigrationPanel() {
   const [status, setStatus] = useState<MediaStorageMigrationStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -294,9 +298,8 @@ function MediaMigrationPanel() {
         snapshot = await getMediaStorageMigration(started.id);
         setStatus(snapshot);
         if (snapshot.items.every((item) => item.status === "verified" || item.status === "committed")) {
-          const committed = await commitMediaStorageMigration(started.id);
-          setStatus(await getMediaStorageMigration(started.id));
-          setMessage(committed.ok ? "COS 迁移、数据库切换和 Supabase 旧文件清理已完成。" : `切换完成，但有 ${committed.warnings.length} 批旧文件需要重试清理。`);
+          setProgress(100);
+          setMessage("全部对象已复制到 COS 并通过在线核验。数据库尚未切换，Supabase 旧文件仍完整保留。");
         }
       }
     } catch (error) {
@@ -304,12 +307,26 @@ function MediaMigrationPanel() {
     } finally { setBusy(false); setCurrent(""); }
   };
 
+  const commit = async () => {
+    if (!status || !mediaMigrationReadyToCommit(status)) return;
+    if (!window.confirm("确认将数据库切换到腾讯云 COS，并删除已经核验成功的 Supabase 旧文件吗？此操作不可撤销。")) return;
+    setBusy(true); setMessage("");
+    try {
+      const committed = await commitMediaStorageMigration(status.job.id);
+      setStatus(await getMediaStorageMigration(status.job.id));
+      setMessage(committed.ok ? "COS 数据库切换和 Supabase 旧文件清理已完成。" : `数据库已切换，但有 ${committed.warnings.length} 批旧文件需要重试清理。`);
+    } catch (error) {
+      setMessage(messageOf(error, "数据库切换失败；Supabase 旧文件不会在未核验时删除。"));
+    } finally { setBusy(false); }
+  };
+
   const completed = status?.items.filter((item) => item.status === "verified" || item.status === "committed").length || 0;
   const total = status?.items.length || 0;
+  const readyToCommit = mediaMigrationReadyToCommit(status) && status?.job.status !== "completed";
   return <section className="admin-panel"><div className="panel-heading"><div><h2>COS + EdgeOne 媒体迁移</h2><p>先逐个复制和核验；全部通过后才切换数据库并删除 Supabase 旧文件。</p></div><Database /></div>
     <div className="audit-detail"><span>任务：{status?.job.id || "尚未创建"}</span><span>状态：{status?.job.status || "待开始"}</span><span>对象：{completed}/{total || "-"}</span><span>数据：{formatBytes(Number(status?.job.completed_bytes || 0))}/{formatBytes(Number(status?.job.total_bytes || 0))}</span>{current && <span>当前：{current}</span>}{message && <span>{message}</span>}</div>
     {busy && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div>}
-    <div className="carousel-slide-actions"><button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续迁移" : "开始迁移"}</button>{busy && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
+    <div className="carousel-slide-actions">{!readyToCommit && status?.job.status !== "completed" && <button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续复制并核验" : "开始复制并核验"}</button>}{readyToCommit && <button className="button danger" type="button" disabled={busy} onClick={commit}>{busy ? <LoaderCircle className="spin" /> : <Trash2 />}确认切换并删除旧文件</button>}{busy && !readyToCommit && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
   </section>;
 }
 
