@@ -1,21 +1,27 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { copyCosObject, cosConfiguration, deleteCosObject } from "../_shared/tencent-cos.ts";
 
 type StoredRow = {
+  id: string;
   storage_bucket: string | null;
+  storage_provider?: string | null;
   storage_path: string | null;
   external_url: string | null;
   original_storage_path?: string | null;
   display_storage_path?: string | null;
+  image_variants?: Array<Record<string, unknown>> | null;
+  source_import_id?: string | null;
   [key: string]: unknown;
 };
 
-function copyFields(row: StoredRow, contentId: string, createdBy: string, storagePath?: string) {
+function copyFields(row: StoredRow, id: string, contentId: string, createdBy: string, storagePath?: string, storageBucket?: string) {
   const { id: _id, created_at: _createdAt, content_id: _contentId, ...fields } = row;
   return {
     ...fields,
+    id,
     content_id: contentId,
     created_by: createdBy,
-    storage_bucket: storagePath ? "maplestorynk-private" : row.storage_bucket,
+    storage_bucket: storagePath ? storageBucket : row.storage_bucket,
     storage_path: storagePath ?? row.storage_path
   };
 }
@@ -43,11 +49,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
     is_featured: false,
     sort_order: source.sort_order,
     created_by: user.id,
-    updated_by: user.id
+    updated_by: user.id,
+    active_document_import_id: source.active_document_import_id
   }).select("*").single();
   if (duplicateError || !duplicate) return json({ error: duplicateError?.message ?? "Unable to create duplicate" }, 400);
 
-  const uploadedPaths: string[] = [];
+  const uploadedPaths: Array<{ provider: string; bucket: string; path: string }> = [];
+  let duplicatedBodyHtml = String(source.body_html || "");
   try {
     const [mediaResult, attachmentResult, tagResult] = await Promise.all([
       client.from("content_media").select("*").eq("content_id", sourceId).order("sort_order"),
@@ -60,25 +68,57 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     const copyStoredRows = async (table: "content_media" | "attachments", rows: StoredRow[]) => {
       const records: Record<string, unknown>[] = [];
-      const copyPath = async (bucket: string, path: string) => {
-        const { data: file, error } = await client.storage.from(bucket).download(path);
-        if (error || !file) throw new Error(error?.message ?? "Unable to copy stored file");
+      const copyPath = async (row: StoredRow, path: string, publishImmediately: boolean) => {
         const filename = path.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || "file";
-        const destination = `${user.id}/${duplicate.id}/copies/${crypto.randomUUID()}-${filename}`;
-        const { error: uploadError } = await client.storage.from("maplestorynk-private").upload(destination, file, { contentType: file.type || "application/octet-stream", upsert: false });
-        if (uploadError) throw new Error(uploadError.message);
-        uploadedPaths.push(destination);
-        return destination;
+        const provider = row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase";
+        const configuration = provider === "tencent_cos" ? cosConfiguration() : null;
+        const destinationBucket = provider === "tencent_cos"
+          ? publishImmediately ? configuration!.publicBucket : configuration!.privateBucket
+          : publishImmediately ? "maplestorynk-public" : "maplestorynk-private";
+        const destination = provider === "tencent_cos"
+          ? publishImmediately
+            ? `content/${duplicate.id}/embedded/${crypto.randomUUID()}-${filename}`
+            : `drafts/${duplicate.id}/copies/${crypto.randomUUID()}-${filename}`
+          : `${user.id}/${duplicate.id}/${publishImmediately ? "embedded" : "copies"}/${crypto.randomUUID()}-${filename}`;
+        if (provider === "tencent_cos") {
+          await copyCosObject(row.storage_bucket as string, path, destinationBucket, destination);
+        } else {
+          const { data: file, error } = await client.storage.from(row.storage_bucket as string).download(path);
+          if (error || !file) throw new Error(error?.message ?? "Unable to copy stored file");
+          const { error: uploadError } = await client.storage.from(destinationBucket).upload(destination, file, { contentType: file.type || "application/octet-stream", upsert: false });
+          if (uploadError) throw new Error(uploadError.message);
+        }
+        uploadedPaths.push({ provider, bucket: destinationBucket, path: destination });
+        return { path: destination, bucket: destinationBucket };
       };
       for (const row of rows) {
-        let destination: string | undefined;
+        const newId = crypto.randomUUID();
+        const embedded = table === "content_media" && (Boolean(row.source_import_id) || duplicatedBodyHtml.includes(row.id));
+        const copiedPaths = new Map<string, { path: string; bucket: string }>();
+        const copyOnce = async (path?: string | null) => {
+          if (!path) return undefined;
+          const existing = copiedPaths.get(path);
+          if (existing) return existing;
+          const copied = await copyPath(row, path, embedded);
+          copiedPaths.set(path, copied);
+          return copied;
+        };
+        let destination: { path: string; bucket: string } | undefined;
         if (row.storage_bucket && row.storage_path) {
-          destination = await copyPath(row.storage_bucket, row.storage_path);
+          destination = await copyOnce(row.storage_path);
         }
-        const copied = copyFields(row, duplicate.id, user.id, destination);
+        const copied: Record<string, unknown> = copyFields(row, newId, duplicate.id, user.id, destination?.path, destination?.bucket);
         if (table === "content_media" && row.storage_bucket) {
-          copied.original_storage_path = row.original_storage_path ? await copyPath(row.storage_bucket, row.original_storage_path) : null;
-          copied.display_storage_path = row.display_storage_path === row.storage_path ? destination : row.display_storage_path ? await copyPath(row.storage_bucket, row.display_storage_path) : null;
+          copied.original_storage_path = (await copyOnce(row.original_storage_path))?.path || null;
+          copied.display_storage_path = (await copyOnce(row.display_storage_path))?.path || null;
+          copied.image_variants = [];
+          for (const variant of Array.isArray(row.image_variants) ? row.image_variants : []) {
+            const variantPath = String(variant.path || "");
+            const variantCopy = await copyOnce(variantPath);
+            (copied.image_variants as Array<Record<string, unknown>>).push({ ...variant, path: variantCopy?.path || variantPath });
+          }
+          duplicatedBodyHtml = duplicatedBodyHtml.replaceAll(row.id, newId);
+          for (const [sourcePath, copiedPath] of copiedPaths) duplicatedBodyHtml = duplicatedBodyHtml.replaceAll(sourcePath, copiedPath.path);
         }
         records.push(copied);
       }
@@ -90,15 +130,24 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     await copyStoredRows("content_media", mediaResult.data ?? []);
     await copyStoredRows("attachments", attachmentResult.data ?? []);
+    if (duplicatedBodyHtml !== duplicate.body_html) {
+      const { error } = await client.from("contents").update({ body_html: duplicatedBodyHtml, updated_by: user.id }).eq("id", duplicate.id);
+      if (error) throw new Error(error.message);
+    }
     if (tagResult.data?.length) {
       const { error } = await client.from("content_tags").insert(tagResult.data.map((row) => ({ content_id: duplicate.id, tag_id: row.tag_id })));
       if (error) throw new Error(error.message);
     }
   } catch (error) {
-    if (uploadedPaths.length) await client.storage.from("maplestorynk-private").remove(uploadedPaths);
+    const supabaseCopies = uploadedPaths.filter((item) => item.provider === "supabase");
+    for (const bucket of [...new Set(supabaseCopies.map((item) => item.bucket))]) {
+      await client.storage.from(bucket).remove(supabaseCopies.filter((item) => item.bucket === bucket).map((item) => item.path));
+    }
+    await Promise.allSettled(uploadedPaths.filter((item) => item.provider === "tencent_cos").map((item) => deleteCosObject(item.bucket, item.path)));
     await client.from("contents").delete().eq("id", duplicate.id);
     return json({ error: error instanceof Error ? error.message : "Unable to copy content" }, 500);
   }
 
-  return json({ id: duplicate.id, title: duplicate.title, version: duplicate.version });
+  const { data: current } = await client.from("contents").select("version").eq("id", duplicate.id).maybeSingle();
+  return json({ id: duplicate.id, title: duplicate.title, version: current?.version || duplicate.version });
 }));

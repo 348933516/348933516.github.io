@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowDown, ArrowUp, CheckCircle2, ExternalLink, ImagePlus, LoaderCircle, Plus, Save, Trash2, Upload } from "lucide-react";
-import { publicMediaBucket } from "../../lib/config";
+import { cosStorageEnabled } from "../../lib/config";
 import { randomId } from "../../lib/id";
 import { normalizeCarouselTarget } from "../../lib/carousel";
 import { buildShareUrl } from "../../lib/share";
-import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
+import { imageToWebp, uploadManagedFile } from "../../lib/uploads";
 import { supabase } from "../../lib/supabase";
 import { AdminLoading, messageOf, publicAssetUrl } from "./shared";
 import type { Profile } from "../../types";
@@ -15,6 +15,7 @@ type CarouselRow = {
   title: string;
   subtitle: string;
   image_path: string | null;
+  image_provider?: "supabase" | "tencent_cos";
   link_url: string;
   link_label: string;
   sort_order: number;
@@ -107,6 +108,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("查看详情");
   const [imagePath, setImagePath] = useState("");
+  const [imageProvider, setImageProvider] = useState<"supabase" | "tencent_cos">(cosStorageEnabled ? "tencent_cos" : "supabase");
   const [visible, setVisible] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,9 +118,10 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
     try {
       setUploading(true);
       const prepared = await imageToWebp(file);
-      const path = `carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      await uploadWithProgress(prepared, path, (value) => setProgress(value.percent), undefined, publicMediaBucket);
-      setImagePath(path);
+      const path = cosStorageEnabled ? `site/carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}` : `carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      const stored = await uploadManagedFile({ file: prepared, path, purpose: "site-asset", visibility: "public", onProgress: (value) => setProgress(value.percent) });
+      setImagePath(stored.path);
+      setImageProvider(stored.provider);
       onMessage("轮播图片已上传，点击创建即可保存。");
     } catch (error) {
       onMessage(messageOf(error, "轮播图片上传失败"), true);
@@ -145,6 +148,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
       title: title.trim(),
       subtitle: subtitle.trim(),
       image_path: imagePath,
+      image_provider: imageProvider,
       link_url: normalizedLink,
       link_label: linkLabel.trim() || "查看详情",
       sort_order: nextOrder,
@@ -173,7 +177,7 @@ function CarouselCreator({ slides, onSaved, onMessage, actorId }: { slides: Caro
     <CarouselTargetField value={linkUrl} onChange={setLinkUrl} />
     <label>按钮文案<input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} placeholder="查看详情" /></label>
     <label className="checkbox"><input type="checkbox" checked={visible} onChange={(event) => setVisible(event.target.checked)} />显示轮播</label>
-    <div className="carousel-upload-box">{imagePath ? <img src={publicAssetUrl(imagePath)} alt="" /> : <span><ImagePlus /><strong>未上传图片</strong></span>}</div>
+    <div className="carousel-upload-box">{imagePath ? <img src={publicAssetUrl(imagePath, imageProvider)} alt="" /> : <span><ImagePlus /><strong>未上传图片</strong></span>}</div>
     <label className="button quiet upload-button"><Upload />{uploading ? `上传中 ${progress}%` : "上传图片"}<input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label>
     <button className="button primary" disabled={saving || !imagePath}>{saving ? <LoaderCircle className="spin" /> : <Plus />}创建轮播</button>
   </form>;
@@ -199,6 +203,7 @@ function CarouselSlideRow({
   const [linkUrl, setLinkUrl] = useState(slide.link_url);
   const [linkLabel, setLinkLabel] = useState(slide.link_label || "查看详情");
   const [imagePath, setImagePath] = useState(slide.image_path || "");
+  const [imageProvider, setImageProvider] = useState<"supabase" | "tencent_cos">(slide.image_provider || "supabase");
   const [visible, setVisible] = useState(Boolean(slide.is_visible));
   const [sortOrder, setSortOrder] = useState(slide.sort_order);
   const [saving, setSaving] = useState(false);
@@ -209,9 +214,10 @@ function CarouselSlideRow({
     try {
       setUploading(true);
       const prepared = await imageToWebp(file);
-      const path = `carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      await uploadWithProgress(prepared, path, (value) => setProgress(value.percent), undefined, publicMediaBucket);
-      setImagePath(path);
+      const path = cosStorageEnabled ? `site/carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}` : `carousel/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      const stored = await uploadManagedFile({ file: prepared, path, purpose: "site-asset", visibility: "public", onProgress: (value) => setProgress(value.percent) });
+      setImagePath(stored.path);
+      setImageProvider(stored.provider);
       onMessage("轮播图片已替换，保存后生效。");
     } catch (error) {
       onMessage(messageOf(error, "轮播图片上传失败"), true);
@@ -232,6 +238,7 @@ function CarouselSlideRow({
       title: title.trim(),
       subtitle: subtitle.trim(),
       image_path: imagePath || null,
+      image_provider: imageProvider,
       link_url: normalizedLink,
       link_label: linkLabel.trim() || "查看详情",
       sort_order: sortOrder,
@@ -262,7 +269,7 @@ function CarouselSlideRow({
     else { onMessage("轮播图已删除。"); onSaved(); }
   };
 
-  const preview = imagePath ? publicAssetUrl(imagePath) : "";
+  const preview = imagePath ? publicAssetUrl(imagePath, imageProvider) : "";
 
   return <article className="carousel-slide-row">
     <div className="carousel-slide-preview">{preview ? <img src={preview} alt="" /> : <span><ImagePlus /></span>}</div>

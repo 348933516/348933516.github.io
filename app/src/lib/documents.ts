@@ -5,6 +5,7 @@ import { getDocumentImportStatus, registerDocumentImportAsset, type DocumentImpo
 import { sanitizeHtml } from "./sanitize";
 import { supabase } from "./supabase";
 import { uploadSupabaseTus } from "./tusUpload";
+import { uploadManagedFile } from "./uploads";
 
 export interface WorksheetPreview {
   name: string;
@@ -65,6 +66,8 @@ export interface WordUploadSession {
   uploadPrefix: string;
   existingMediaCount: number;
   expectedImages: number;
+  storageProvider?: "supabase" | "tencent_cos";
+  mediaBaseUrl?: string;
 }
 
 export type WordImportProgress = {
@@ -281,30 +284,44 @@ export async function materializeWordDocument(file: File, upload: WordUploadSess
       imageVariants: imageVariants.map(({ data: _data, ...variant }) => variant),
       sortOrder: (upload.existingMediaCount + image.index) * 10, title: `图片 ${image.index}`, altText: `图片 ${image.index}`
     };
-    await uploadSupabaseTus({
-      file: blob,
-      endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
-      accessToken: upload.accessToken,
-      publishableKey: upload.publishableKey,
-      bucket: upload.bucket,
-      objectPath: originalPath,
-      fingerprint: `maplestorynk-word:${upload.importId}:${image.index}:${image.hash}`,
-      onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries }),
-      onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: event.detail })
-    });
-    for (const variant of imageVariants) {
-      const variantFile = new File([variant.data], `word-image-${image.index}-${variant.key}.webp`, { type: variant.mimeType });
+    if (upload.storageProvider === "tencent_cos") {
+      await uploadManagedFile({
+        file: blob, path: originalPath, purpose: "document-import", importId: upload.importId, visibility: "private",
+        onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total })
+      });
+    } else {
       await uploadSupabaseTus({
-        file: variantFile,
+        file: blob,
         endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
         accessToken: upload.accessToken,
         publishableKey: upload.publishableKey,
         bucket: upload.bucket,
-        objectPath: variant.path,
-        fingerprint: `maplestorynk-word-preview:${upload.importId}:${image.index}:${variant.key}:${image.hash}`,
-        onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries, detail: `正在上传 ${variant.key}px 预览` }),
-        onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: `${variant.key}px 预览：${event.detail || event.phase}` })
+        objectPath: originalPath,
+        fingerprint: `maplestorynk-word:${upload.importId}:${image.index}:${image.hash}`,
+        onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries }),
+        onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: event.detail })
       });
+    }
+    for (const variant of imageVariants) {
+      const variantFile = new File([variant.data], `word-image-${image.index}-${variant.key}.webp`, { type: variant.mimeType });
+      if (upload.storageProvider === "tencent_cos") {
+        await uploadManagedFile({
+          file: variantFile, path: variant.path, purpose: "document-import", importId: upload.importId, visibility: "private",
+          onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, detail: `正在上传 ${variant.key}px 预览` })
+        });
+      } else {
+        await uploadSupabaseTus({
+          file: variantFile,
+          endpoint: `${upload.supabaseUrl}/storage/v1/upload/resumable`,
+          accessToken: upload.accessToken,
+          publishableKey: upload.publishableKey,
+          bucket: upload.bucket,
+          objectPath: variant.path,
+          fingerprint: `maplestorynk-word-preview:${upload.importId}:${image.index}:${variant.key}:${image.hash}`,
+          onProgress: (value) => onProgress?.({ phase: "uploading", imageIndex: image.index, imageCount: upload.expectedImages, loaded: value.loaded, total: value.total, retries: value.retries, detail: `正在上传 ${variant.key}px 预览` }),
+          onEvent: (event) => onProgress?.({ phase: event.phase === "complete" ? "uploaded" : event.phase === "resume" ? "resumed" : event.phase, imageIndex: image.index, imageCount: upload.expectedImages, retries: event.retries, detail: `${variant.key}px 预览：${event.detail || event.phase}` })
+        });
+      }
     }
     let registrationRetries = 0;
     await registerDocumentImportAsset(upload.importId, asset, (retry) => {
@@ -354,7 +371,9 @@ function registeredWordImage(upload: WordUploadSession, asset: { image_index: nu
   if (!asset.display_path || !asset.media_id || !Number.isInteger(asset.image_index)) {
     throw new Error(`Word 图片清单无效：图片 ${asset.image_index || "未知"} 缺少公开路径或媒体编号。图片已保留，请刷新后继续导入。`);
   }
-  const publicUrl = (path: string) => `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const publicUrl = (path: string) => upload.storageProvider === "tencent_cos"
+    ? `${upload.mediaBaseUrl || "https://media.maplestorynk.online"}/${path.split("/").map(encodeURIComponent).join("/")}`
+    : `${upload.supabaseUrl}/storage/v1/object/public/${upload.bucket}/${path.split("/").map(encodeURIComponent).join("/")}`;
   const variants = Array.isArray(asset.image_variants) ? asset.image_variants : [];
   const largest = [...variants].sort((left, right) => right.width - left.width)[0];
   return {

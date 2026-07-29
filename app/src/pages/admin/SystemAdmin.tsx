@@ -1,15 +1,15 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity, ArrowRight, CalendarDays, CheckCircle2, Eye, FileClock, ImagePlus, LoaderCircle, Mail, Plus, RotateCcw,
+  Activity, ArrowRight, CalendarDays, CheckCircle2, Database, Eye, FileClock, ImagePlus, LoaderCircle, Mail, Plus, RotateCcw,
   Save, Search, Settings, ShieldCheck, Trash2, Upload, UserPlus, Users, X
 } from "lucide-react";
-import { publicMediaBucket } from "../../lib/config";
+import { cosStorageEnabled } from "../../lib/config";
 import { randomId } from "../../lib/id";
-import { getDocumentImportStatus, listDocumentImports } from "../../lib/repository";
+import { commitMediaStorageMigration, getDocumentImportStatus, getMediaStorageMigration, listDocumentImports, registerMediaStorageMigrationItem, startMediaStorageMigration, type MediaStorageMigrationStatus } from "../../lib/repository";
 import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
-import { imageToWebp, uploadWithProgress } from "../../lib/uploads";
+import { imageToWebp, uploadManagedFile } from "../../lib/uploads";
 import type { AppRole, Profile } from "../../types";
 import { AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, formatBytes, formatDate, messageOf, publicAssetUrl, roleText } from "./shared";
 import { CarouselSettings } from "./CarouselSettings";
@@ -141,7 +141,7 @@ function UserDrawer({
 
 export function HistoryPage({ profile }: { profile: Profile }) {
   const client = useQueryClient();
-  const [tab, setTab] = useState<"revisions" | "audit" | "updates" | "runtime" | "imports">("audit");
+  const [tab, setTab] = useState<"revisions" | "audit" | "updates" | "runtime" | "imports" | "migration">("audit");
   const [query, setQuery] = useState("");
   const [action, setAction] = useState("all");
   const [date, setDate] = useState("");
@@ -234,16 +234,83 @@ export function HistoryPage({ profile }: { profile: Profile }) {
     <div className="admin-page-stack">
       <AdminToast message={message} error={errorState} onClose={() => setMessage("")} />
       <AdminPageHeader title="日志中心" description="查看内容版本、后台变更、版本更新和运行错误。" />
-      <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button><button className={tab === "imports" ? "active" : ""} onClick={() => setTab("imports")}><Upload />文档导入</button></div>
+      <div className="history-tabs"><button className={tab === "revisions" ? "active" : ""} onClick={() => setTab("revisions")}><FileClock />内容版本</button><button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><Activity />操作日志</button><button className={tab === "updates" ? "active" : ""} onClick={() => setTab("updates")}><RotateCcw />更新日志</button><button className={tab === "runtime" ? "active" : ""} onClick={() => setTab("runtime")}><ShieldCheck />运行日志</button><button className={tab === "imports" ? "active" : ""} onClick={() => setTab("imports")}><Upload />文档导入</button>{profile.role === "super_admin" && <button className={tab === "migration" ? "active" : ""} onClick={() => setTab("migration")}><Database />存储迁移</button>}</div>
       {(tab === "audit" || tab === "runtime") && <div className="history-filters"><label className="search-control"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === "audit" ? "搜索操作、记录 ID 或文件信息" : "搜索错误来源、消息或页面"} /></label>{tab === "audit" && <select value={action} onChange={(event) => setAction(event.target.value)}><option value="all">全部操作</option><option value="INSERT">新增</option><option value="UPDATE">更新</option><option value="DELETE">删除</option></select>}<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
       {tab === "revisions" && <section className="admin-panel"><div className="panel-heading"><div><h2>内容版本</h2><p>最近 100 个历史版本</p></div><FileClock /></div><div className="revision-list">{revisions.data?.map((row) => { const content = row.contents as unknown as { title: string; version: number } | null; return <button key={row.id} onClick={() => setRevision(row)}><RotateCcw /><div><strong>{content?.title || row.content_id}</strong><span>历史 v{row.version} · 当前 v{content?.version || "-"}</span></div><time>{formatDate(row.created_at)}</time><Eye /></button>; })}{!revisions.data?.length && <AdminEmpty title="暂无历史版本" />}</div></section>}
       {tab === "audit" && <section className="admin-panel"><div className="panel-heading"><div><h2>操作日志</h2><p>记录资料、媒体、账号和设置的变更。</p></div><Activity /></div><div className="audit-list detailed-audit-list">{visibleLogs.map((log) => <details key={log.id}><summary><span className="activity-dot" /><div><strong>{auditText(String(log.action))} · {String(log.entity_type)}</strong><span>{String((log.metadata as Record<string, unknown>)?.title || log.entity_id)}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>记录 ID：{String(log.entity_id)}</span><span>字段：{String(((log.metadata as Record<string, unknown>)?.changed_fields as string[] || []).join("、") || "新增或删除")}</span><span>媒体：{String((log.metadata as Record<string, unknown>)?.kind || "-")} · {String((log.metadata as Record<string, unknown>)?.mime_type || "-")} · {formatBytes(Number((log.metadata as Record<string, unknown>)?.size_bytes || 0))}</span></div></details>)}{!visibleLogs.length && <AdminEmpty title="没有符合条件的日志" />}</div></section>}
       {tab === "updates" && <ReleaseNotesPanel profile={profile} rows={updates.data || []} onSaved={() => client.invalidateQueries({ queryKey: ["release-notes"] })} />}
       {tab === "imports" && <section className="admin-panel"><div className="panel-heading"><div><h2>文档导入</h2><p>逐图解析、TUS 上传、服务端登记和提交记录。</p></div><Upload /></div><div className="runtime-log-list">{documentImports.data?.jobs.map((job) => <details key={job.id} open={selectedImportId === job.id}><summary onClick={() => setSelectedImportId(job.id)}><span className={`runtime-severity ${job.status === "failed" ? "error" : job.status === "uploading" ? "warning" : "info"}`} /><div><strong>{job.source_file_name || "Word 导入"} · {job.status}</strong><span>{job.expected_images} 张图片 · {formatBytes(Number(job.total_original_bytes || 0))}</span></div><time>{formatDate(job.created_at)}</time></summary>{selectedImportId === job.id && <div className="audit-detail"><span>任务 ID：{job.id}</span><span>已登记：{documentImportStatus.data?.assets.length ?? "-"}/{job.expected_images}</span>{job.error_message && <span>错误：{job.error_message}</span>}<div className="runtime-log-list">{documentImportStatus.data?.events.map((event) => <details key={event.id}><summary><span className={`runtime-severity ${event.severity}`} /><div><strong>图片 {event.image_index || "-"} · {event.phase}</strong><span>{event.message}</span></div><time>{formatDate(event.created_at)}</time></summary><div className="audit-detail"><span>上传：{formatBytes(Number(event.bytes_uploaded || 0))}/{formatBytes(Number(event.bytes_total || 0))}</span><span>重试：{event.retry_count || 0}{event.http_status ? ` · HTTP ${event.http_status}` : ""}{event.error_code ? ` · ${event.error_code}` : ""}</span>{event.details && Object.keys(event.details).length > 0 && <pre>{JSON.stringify(event.details, null, 2)}</pre>}</div></details>)}{documentImportStatus.isLoading && <AdminLoading label="正在读取逐图导入日志" />}</div></div>}</details>)}{!documentImports.data?.jobs.length && <AdminEmpty title="暂无文档导入任务" />}</div></section>}
       {tab === "runtime" && <section className="admin-panel"><div className="panel-heading"><div><h2>运行日志</h2><p>导入、上传、播放器和前端异常。</p></div><ShieldCheck /></div><div className="runtime-log-list">{visibleRuntime.map((log) => <details className={log.resolved_at ? "resolved" : ""} key={log.id}><summary><span className={`runtime-severity ${log.severity}`} /><div><strong>{String(log.source)} · {String(log.message)}</strong><span>{String(log.route || "-")}</span></div><time>{formatDate(log.created_at)}</time></summary><div className="audit-detail"><span>版本：{String(log.app_version || "-")}</span><span>状态：{log.resolved_at ? `已处理 · ${formatDate(log.resolved_at)}` : "未处理"}</span>{log.context && Object.keys(log.context as Record<string, unknown>).length > 0 && <pre>{JSON.stringify(log.context, null, 2)}</pre>}{log.stack && <pre>{String(log.stack)}</pre>}{profile.role === "super_admin" && !log.resolved_at && <button className="button quiet" onClick={() => resolveRuntime(Number(log.id))}><CheckCircle2 />标记已处理</button>}</div></details>)}{!visibleRuntime.length && <AdminEmpty title="暂无运行错误" />}</div></section>}
+      {tab === "migration" && profile.role === "super_admin" && <MediaMigrationPanel />}
       {revision && <RevisionDrawer row={revision} canRestore={profile.role === "super_admin" || profile.role === "editor"} onRestore={() => restore(revision)} onClose={() => setRevision(null)} />}
     </div>
   );
+}
+
+function MediaMigrationPanel() {
+  const [status, setStatus] = useState<MediaStorageMigrationStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [current, setCurrent] = useState("");
+  const [progress, setProgress] = useState(0);
+  const stopRef = useRef(false);
+
+  const run = async () => {
+    if (!cosStorageEnabled) { setMessage("COS 前端开关尚未启用。请先完成私有桶、CAM 和 Supabase Secrets 配置。"); return; }
+    setBusy(true); stopRef.current = false; setMessage("");
+    try {
+      const started = await startMediaStorageMigration();
+      let snapshot = await getMediaStorageMigration(started.id);
+      setStatus(snapshot);
+      const pending = snapshot.items.filter((item) => item.status === "pending" || item.status === "failed" || item.status === "uploading");
+      for (const [index, item] of pending.entries()) {
+        if (stopRef.current) { setMessage("迁移已暂停，已核验对象不会重复上传。"); break; }
+        setCurrent(item.source_path);
+        await supabase.from("media_storage_migration_items").update({ status: "uploading", error_message: null, updated_at: new Date().toISOString() }).eq("id", item.id);
+        try {
+          try {
+            await registerMediaStorageMigrationItem(started.id, item.id);
+          } catch {
+            const response = await fetch(publicAssetUrl(item.source_path, "supabase"));
+            if (!response.ok) throw new Error(`旧文件读取失败（HTTP ${response.status}）`);
+            const blob = await response.blob();
+            const file = new File([blob], item.destination_path.split("/").pop() || "media", { type: blob.type || "application/octet-stream" });
+            await uploadManagedFile({
+              file, path: item.destination_path, purpose: "migration", visibility: "public",
+              onProgress: (value) => setProgress(Math.round(((index + value.percent / 100) / Math.max(1, pending.length)) * 100))
+            });
+            await registerMediaStorageMigrationItem(started.id, item.id);
+          }
+        } catch (error) {
+          await supabase.from("media_storage_migration_items").update({ status: "failed", retry_count: Number(item.retry_count || 0) + 1, error_message: messageOf(error).slice(0, 1000), updated_at: new Date().toISOString() }).eq("id", item.id);
+          throw error;
+        }
+        if ((index + 1) % 5 === 0 || index === pending.length - 1) {
+          snapshot = await getMediaStorageMigration(started.id);
+          setStatus(snapshot);
+        }
+      }
+      if (!stopRef.current) {
+        snapshot = await getMediaStorageMigration(started.id);
+        setStatus(snapshot);
+        if (snapshot.items.every((item) => item.status === "verified" || item.status === "committed")) {
+          const committed = await commitMediaStorageMigration(started.id);
+          setStatus(await getMediaStorageMigration(started.id));
+          setMessage(committed.ok ? "COS 迁移、数据库切换和 Supabase 旧文件清理已完成。" : `切换完成，但有 ${committed.warnings.length} 批旧文件需要重试清理。`);
+        }
+      }
+    } catch (error) {
+      setMessage(messageOf(error, "媒体迁移失败；已核验对象已保留，可直接继续。"));
+    } finally { setBusy(false); setCurrent(""); }
+  };
+
+  const completed = status?.items.filter((item) => item.status === "verified" || item.status === "committed").length || 0;
+  const total = status?.items.length || 0;
+  return <section className="admin-panel"><div className="panel-heading"><div><h2>COS + EdgeOne 媒体迁移</h2><p>先逐个复制和核验；全部通过后才切换数据库并删除 Supabase 旧文件。</p></div><Database /></div>
+    <div className="audit-detail"><span>任务：{status?.job.id || "尚未创建"}</span><span>状态：{status?.job.status || "待开始"}</span><span>对象：{completed}/{total || "-"}</span><span>数据：{formatBytes(Number(status?.job.completed_bytes || 0))}/{formatBytes(Number(status?.job.total_bytes || 0))}</span>{current && <span>当前：{current}</span>}{message && <span>{message}</span>}</div>
+    {busy && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div>}
+    <div className="carousel-slide-actions"><button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续迁移" : "开始迁移"}</button>{busy && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
+  </section>;
 }
 
 function auditText(action: string) {
@@ -392,7 +459,7 @@ export function SettingsPage({ profile }: { profile: Profile }) {
         <section className="admin-panel settings-section">
           <div className="panel-heading"><div><h2>界面图片</h2><p>支持上传、替换和清除，不再提供内置素材。</p></div></div>
           <div className="setting-assets">
-            {assets.map(([field, label, detail]) => <SettingAsset key={field} field={field} label={label} detail={detail} current={String(settings.data[field] || "")} userId={profile.id} onSaved={() => { notify(`${label}已更新。`); refresh(); }} onMessage={notify} />)}
+            {assets.map(([field, label, detail]) => <SettingAsset key={field} field={field} label={label} detail={detail} current={String(settings.data[field] || "")} provider={String(settings.data[field.replace(/_path$/, "_provider")] || "supabase")} userId={profile.id} onSaved={() => { notify(`${label}已更新。`); refresh(); }} onMessage={notify} />)}
           </div>
         </section>
       )}
@@ -407,6 +474,7 @@ function SettingAsset({
   label,
   detail,
   current,
+  provider,
   userId,
   onSaved,
   onMessage
@@ -415,20 +483,22 @@ function SettingAsset({
   label: string;
   detail: string;
   current: string;
+  provider: string;
   userId: string;
   onSaved(): void;
   onMessage(value: string, error?: boolean): void;
 }) {
   const [progress, setProgress] = useState(0);
-  const preview = current ? publicAssetUrl(current) : "";
+  const preview = current ? publicAssetUrl(current, provider) : "";
 
   const upload = async (file: File) => {
     try {
       if (!file.type.startsWith("image/")) throw new Error("请选择图片文件");
       const prepared = await imageToWebp(file);
-      const path = `settings/${field}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      await uploadWithProgress(prepared, path, (value) => setProgress(value.percent), undefined, publicMediaBucket);
-      const { error } = await supabase.from("site_settings").update({ [field]: path, updated_by: userId }).eq("id", "main");
+      const path = cosStorageEnabled ? `site/settings/${field}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}` : `settings/${field}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      const stored = await uploadManagedFile({ file: prepared, path, purpose: "site-asset", visibility: "public", onProgress: (value) => setProgress(value.percent) });
+      const providerField = field.replace(/_path$/, "_provider");
+      const { error } = await supabase.from("site_settings").update({ [field]: stored.path, [providerField]: stored.provider, updated_by: userId }).eq("id", "main");
       if (error) throw error;
       await onSaved();
     } catch (error) {
@@ -459,25 +529,26 @@ type PreviewCarouselRow = {
   title: string;
   subtitle: string;
   image_path: string | null;
+  image_provider?: string | null;
   link_label: string;
   sort_order: number;
   is_visible: boolean;
 };
 
 export function SiteMiniPreview({ settings, onOpenCarousel }: { settings: Record<string, unknown>; onOpenCarousel?: () => void }) {
-  const background = publicAssetUrl(String(settings.page_background_path || ""));
-  const logo = publicAssetUrl(String(settings.top_logo_path || ""));
+  const background = publicAssetUrl(String(settings.page_background_path || ""), String(settings.page_background_provider || "supabase"));
+  const logo = publicAssetUrl(String(settings.top_logo_path || ""), String(settings.top_logo_provider || "supabase"));
   const slides = useQuery({
     queryKey: ["preview-carousel-slides"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("carousel_slides").select("id,title,subtitle,image_path,link_label,sort_order,is_visible").order("sort_order");
+      const { data, error } = await supabase.from("carousel_slides").select("id,title,subtitle,image_path,image_provider,link_label,sort_order,is_visible").order("sort_order");
       if (error) throw error;
       return (data || []) as PreviewCarouselRow[];
     }
   });
   const visibleSlides = (slides.data || []).filter((slide) => slide.is_visible);
   const slide = visibleSlides[0];
-  const slideImage = slide?.image_path ? publicAssetUrl(slide.image_path) : "";
+  const slideImage = slide?.image_path ? publicAssetUrl(slide.image_path, String(slide.image_provider || "supabase")) : "";
   return (
     <section className="site-mini-preview" style={background ? { backgroundImage: `linear-gradient(rgba(8,13,16,.72), rgba(8,13,16,.86)), url(${background})` } : undefined}>
       <header>{logo ? <img src={logo} alt="" /> : <span>NK</span>}<div><strong>{String(settings.brand_title)}</strong><small>{String(settings.brand_subtitle)}</small></div></header>

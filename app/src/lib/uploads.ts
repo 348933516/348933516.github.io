@@ -1,10 +1,76 @@
-import { privateMediaBucket, supabasePublishableKey, supabaseUrl } from "./config";
+import { cosStorageEnabled, privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "./config";
 import { supabase } from "./supabase";
 
 export interface UploadProgress {
   loaded: number;
   total: number;
   percent: number;
+}
+
+export type ManagedUploadPurpose = "content-media" | "document-import" | "site-asset" | "migration";
+
+export interface ManagedUploadResult {
+  provider: "supabase" | "tencent_cos";
+  bucket: string;
+  path: string;
+  region?: string;
+  etag?: string;
+  sizeBytes: number;
+}
+
+export function managedUploadPrefix(input: {
+  path: string;
+  purpose: ManagedUploadPurpose;
+  contentId?: string;
+  importId?: string;
+}) {
+  if (input.purpose === "document-import" && input.importId) return `imports/${input.importId}/`;
+  if (input.purpose === "content-media" && input.contentId) {
+    return input.path.startsWith(`content/${input.contentId}/`)
+      ? `content/${input.contentId}/`
+      : `drafts/${input.contentId}/`;
+  }
+  if (input.purpose === "migration") {
+    const root = input.path.split("/")[0];
+    return root ? `${root}/` : "";
+  }
+  return input.path.slice(0, input.path.lastIndexOf("/") + 1);
+}
+
+export async function uploadManagedFile(input: {
+  file: File | Blob;
+  path: string;
+  purpose: ManagedUploadPurpose;
+  contentId?: string;
+  importId?: string;
+  visibility: "private" | "public";
+  onProgress?(progress: UploadProgress): void;
+  signal?: AbortSignal;
+  upsert?: boolean;
+}) : Promise<ManagedUploadResult> {
+  if (cosStorageEnabled) {
+    const { uploadToCos } = await import("./cosUpload");
+    return uploadToCos({
+      file: input.file,
+      path: input.path,
+      scope: {
+        purpose: input.purpose,
+        contentId: input.contentId,
+        importId: input.importId,
+        prefix: managedUploadPrefix(input),
+        visibility: input.visibility
+      },
+      signal: input.signal,
+      onProgress: input.onProgress
+    });
+  }
+
+  const file = input.file instanceof File
+    ? input.file
+    : new File([input.file], input.path.split("/").pop() || "upload", { type: input.file.type });
+  const bucket = input.visibility === "public" ? publicMediaBucket : privateMediaBucket;
+  const stored = await uploadWithProgress(file, input.path, input.onProgress || (() => undefined), input.signal, bucket, input.upsert);
+  return { provider: "supabase", bucket: stored.bucket, path: stored.path, sizeBytes: file.size };
 }
 
 export async function imageToWebp(file: File, maxSide = 2000, quality = 0.86) {
@@ -77,4 +143,9 @@ export function validateUpload(file: File) {
   const maximum = video ? 2 * 1024 * 1024 * 1024 : 100 * 1024 * 1024;
   if (file.size > maximum) throw new Error(video ? "视频不能超过 2GB" : "单个文件不能超过 100MB");
   return { image, video, document };
+}
+
+export function browserCanPlayVideo(file: File) {
+  const mimeType = file.type || (file.name.toLowerCase().endsWith(".webm") ? "video/webm" : "video/mp4");
+  return typeof document !== "undefined" && document.createElement("video").canPlayType(mimeType) !== "";
 }

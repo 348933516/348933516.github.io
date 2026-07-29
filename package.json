@@ -38,6 +38,7 @@
     "@tiptap/extension-underline": "2.27.2",
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
+    "cos-js-sdk-v5": "1.8.7",
     "dompurify": "^3.2.4",
     "exceljs": "4.4.0",
     "lucide-react": "^0.468.0",

@@ -77,6 +77,9 @@ export interface ContentMedia {
   playbackUrl?: string;
   posterUrl?: string;
   sourceImportId?: string;
+  storageProvider?: "supabase" | "tencent_cos";
+  storageBucket?: string;
+  storagePath?: string;
 }
 
 export interface Attachment {
@@ -86,6 +89,9 @@ export interface Attachment {
   mimeType?: string;
   sizeBytes?: number;
   sortOrder: number;
+  storageProvider?: "supabase" | "tencent_cos";
+  storageBucket?: string;
+  storagePath?: string;
 }
 
 export interface ContentItem {

@@ -10,7 +10,7 @@ import { RichContent } from "../../components/RichContent";
 import { AppErrorBoundary } from "../../components/AppErrorBoundary";
 import type { RichEditorHandle, RichEditorSnapshot } from "../../components/RichEditor";
 import { VideoPlayer } from "../../components/VideoPlayer";
-import { privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
+import { cosPrivateBucket, cosPublicBucket, cosStorageEnabled, mediaBaseUrl, privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
 import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSession } from "../../lib/documents";
 import { randomId } from "../../lib/id";
 import {
@@ -23,8 +23,8 @@ import { clearEditorRecovery, readEditorRecovery, saveEditorRecovery } from "../
 import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
-import { uploadSupabaseTus } from "../../lib/tusUpload";
-import { imageDimensions, imageToWebp, imageToWebpVariant, uploadWithProgress, validateUpload } from "../../lib/uploads";
+import { removeStoredObjects } from "../../lib/storage";
+import { browserCanPlayVideo, imageDimensions, imageToWebp, imageToWebpVariant, uploadManagedFile, validateUpload } from "../../lib/uploads";
 import type { Category, ContentDraft, ContentItem, ContentStatus, Profile } from "../../types";
 import {
   AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
@@ -228,10 +228,12 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const importPage = async () => { if (!importUrl.trim()) return; setImporting(true); try { const { readWebPage } = await import("../../lib/documents"); stageImport(await readWebPage(importUrl.trim())); } catch (error) { void reportRuntimeLog({ source: "web-import", message: messageOf(error, "网页读取失败"), error, context: { host: (() => { try { return new URL(importUrl).host; } catch { return "invalid"; } })() } }); notify(`${messageOf(error, "网页读取失败")}。腾讯文档请下载 Word 后导入。`, true); } finally { setImporting(false); } };
   const preserveOriginal = async (file: File) => {
     if (file.size > 100 * 1024 * 1024) return false;
-    const path = `${profile.id}/${id}/source-${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-    const stored = await uploadWithProgress(file, path, (value) => setImportProgress(value.percent));
-    const { error } = await supabase.from("attachments").insert({ content_id: id, storage_bucket: stored.bucket, storage_path: stored.path, name: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size, sort_order: (content.data?.attachmentCount || 0) * 10 + 10, created_by: profile.id });
-    if (error) { await supabase.storage.from(stored.bucket).remove([stored.path]); throw error; }
+    const path = cosStorageEnabled
+      ? `drafts/${id}/attachments/${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
+      : `${profile.id}/${id}/source-${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+    const stored = await uploadManagedFile({ file, path, purpose: "content-media", contentId: id, visibility: "private", onProgress: (value) => setImportProgress(value.percent) });
+    const { error } = await supabase.from("attachments").insert({ content_id: id, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, name: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size, sort_order: (content.data?.attachmentCount || 0) * 10 + 10, created_by: profile.id });
+    if (error) { await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId: id }); throw error; }
     return true;
   };
   const confirmImport = async () => {
@@ -242,7 +244,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     const imported = importSnapshot.preview.worksheets ? composeImportPreview(importSnapshot.preview.worksheets, selectedSheets) : importSnapshot.preview;
     if (!imported.bodyHtml.trim()) return notify("请至少选择一个有内容的工作表。", true);
     setImporting(true); changeImportStage("start"); setImportJobId(""); setImportFailure("");
-    let wordJob: { id: string; uploadPrefix: string } | null = null;
+    let wordJob: { id: string; uploadPrefix: string; storageProvider?: "supabase" | "tencent_cos" } | null = null;
     const documentResumeKey = `maplestorynk-document-import-${id}`;
     try {
       let importedBody = imported;
@@ -268,7 +270,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           const retryingCommit = resumeStatus.job.status === "failed" && resumeStatus.assets.length === wordImages.count;
           if (retryingCommit) await retryDocumentImport(savedResume.id);
           if (resumeStatus.job.status === "uploading" || retryingCommit) {
-            wordJob = { id: savedResume.id, uploadPrefix: savedResume.uploadPrefix || `imports/${savedResume.id}` };
+            wordJob = { id: savedResume.id, uploadPrefix: savedResume.uploadPrefix || `imports/${savedResume.id}`, storageProvider: resumeStatus.job.storageProvider };
             registeredImagesRef.current = resumeStatus.assets.length; setRegisteredImages(resumeStatus.assets.length);
             notify(`${retryingCommit ? "正在重试数据库提交" : "继续导入任务"}：已安全登记 ${resumeStatus.assets.length}/${wordImages.count} 张图片，无需重新上传。`);
           } else {
@@ -276,7 +278,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           }
         }
         if (!wordJob) {
-          wordJob = await startDocumentImport({ contentId: id, expectedVersion: draft.version, expectedImages: wordImages.count, totalOriginalBytes: wordImages.totalOriginalBytes, sourceFileName: sourceFile.name, sourceFileSize: sourceFile.size });
+          wordJob = await startDocumentImport({ contentId: id, expectedVersion: draft.version, expectedImages: wordImages.count, totalOriginalBytes: wordImages.totalOriginalBytes, sourceFileName: sourceFile.name, sourceFileSize: sourceFile.size, storageProvider: cosStorageEnabled ? "tencent_cos" : "supabase" });
           sessionStorage.setItem(documentResumeKey, JSON.stringify({ ...wordJob, fileName: sourceFile.name, fileSize: sourceFile.size, expectedImages: wordImages.count, version: draft.version }));
           registeredImagesRef.current = 0; currentImageRef.current = 0; importRetriesRef.current = 0; setRegisteredImages(0); setCurrentImage(0); setImportRetries(0);
         }
@@ -293,7 +295,9 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
           importId: wordJob.id,
           uploadPrefix: wordJob.uploadPrefix,
           existingMediaCount: content.data?.mediaCount || 0,
-          expectedImages: wordImages.count
+          expectedImages: wordImages.count,
+          storageProvider: wordJob.storageProvider || (cosStorageEnabled ? "tencent_cos" : "supabase"),
+          mediaBaseUrl
         };
         const { materializeWordDocument } = await import("../../lib/documents");
         const materializedWord = await materializeWordDocument(sourceFile, uploadSession, (progress: WordImportProgress) => {
@@ -378,20 +382,18 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const uploadInlineImages = async (files: File[]) => {
     const uploaded: Array<{ src: string; alt: string; caption?: string }> = [];
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error("登录已过期，请重新登录后再上传图片。");
       for (const [index, file] of files.entries()) {
         if (!file.type.startsWith("image/")) throw new Error("正文中只能直接插入图片文件。");
         validateUpload(file);
-        const path = `inline/${id}/${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-        await uploadSupabaseTus({
-          file, endpoint: `${supabaseUrl}/storage/v1/upload/resumable`, accessToken, publishableKey: supabasePublishableKey,
-          bucket: publicMediaBucket, objectPath: path, fingerprint: `maplestorynk-inline:${id}:${file.name}:${file.size}:${file.lastModified}`,
+        const path = cosStorageEnabled
+          ? `content/${id}/inline/${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
+          : `inline/${id}/${randomId()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+        const stored = await uploadManagedFile({
+          file, path, purpose: "content-media", contentId: id, visibility: "public",
           onProgress: (value) => setImportProgress(Math.round(((index + value.loaded / value.total) / files.length) * 100))
         });
         const name = file.name.replace(/\.[^.]+$/, "");
-        uploaded.push({ src: publicAssetUrl(path), alt: name });
+        uploaded.push({ src: stored.provider === "tencent_cos" ? `${mediaBaseUrl}/${stored.path.split("/").map(encodeURIComponent).join("/")}` : publicAssetUrl(stored.path), alt: name });
       }
       notify(`已上传并插入 ${uploaded.length} 张图片。`);
       return uploaded;
@@ -460,6 +462,11 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
     let previewUrl = row.external_url || "";
     if (row.storage_bucket === publicMediaBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path);
     if (row.storage_bucket === privateMediaBucket && row.storage_path) previewUrl = (await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600)).data?.signedUrl || "";
+    if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPublicBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path, "tencent_cos");
+    if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket && row.storage_path) {
+      const signed = await supabase.functions.invoke("cos-storage", { body: { action: "signed-url", bucket: cosPrivateBucket, path: row.storage_path, contentId } });
+      previewUrl = signed.error ? "" : String(signed.data?.url || "");
+    }
     return { ...row, previewUrl } as MediaRow;
   }));
   return { items: withUrls, total: media.count || 0 };
@@ -484,7 +491,7 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       for (const [index, file] of files.entries()) {
         const type = validateUpload(file);
         let prepared = type.image ? await imageToWebp(file) : file;
-        if (type.video) {
+        if (type.video && !browserCanPlayVideo(file)) {
           setUploadStage(`正在上传视频到云点播 ${index + 1}/${files.length}`);
           const { saveVodMedia, uploadVideoToVod } = await import("../../lib/vod");
           const upload = await uploadVideoToVod(file, (value) => setProgress(Math.round(((index + value / 100) / files.length) * 100)));
@@ -493,15 +500,20 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
           continue;
         }
         setUploadStage(`正在上传 ${index + 1}/${files.length}`);
-        const path = `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-        const stored = await uploadWithProgress(prepared, path, (value) => setProgress(Math.round(((index + value.percent / 100) / files.length) * 100)), controller.current.signal, privateMediaBucket);
+        const path = cosStorageEnabled
+          ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
+          : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+        const stored = await uploadManagedFile({
+          file: prepared, path, purpose: "content-media", contentId, visibility: "private", signal: controller.current.signal,
+          onProgress: (value) => setProgress(Math.round(((index + value.percent / 100) / files.length) * 100))
+        });
         const sortOrder = type.document ? nextAttachmentOrder : nextMediaOrder;
-        const base = { content_id: contentId, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: prepared.type || "application/octet-stream", size_bytes: prepared.size };
+        const base = { content_id: contentId, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: prepared.type || "application/octet-stream", size_bytes: prepared.size };
         const dimensions = type.image ? await imageDimensions(prepared) : {};
         const result = type.document
           ? await supabase.from("attachments").insert({ ...base, name: file.name })
-          : await supabase.from("content_media").insert({ ...base, kind: "image", title: file.name.replace(/\.[^.]+$/, ""), alt_text: file.name, processing_status: "ready", ...dimensions });
-        if (result.error) { await supabase.storage.from(stored.bucket).remove([stored.path]); throw result.error; }
+          : await supabase.from("content_media").insert({ ...base, kind: type.video ? "video" : "image", title: file.name.replace(/\.[^.]+$/, ""), alt_text: file.name, processing_status: "ready", ...dimensions });
+        if (result.error) { await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId }); throw result.error; }
         if (type.document) nextAttachmentOrder += 10;
         else nextMediaOrder += 10;
       }
@@ -515,7 +527,17 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
   const generateVariants = async (row: MediaRow) => {
     if (row.kind !== "image" || !row.id || variantBusyId) return;
     const originalPath = String(row.original_storage_path || row.storage_path || "");
-    const originalUrl = originalPath ? publicAssetUrl(originalPath) : String(row.previewUrl || "");
+    let originalUrl = String(row.previewUrl || "");
+    if (originalPath && originalPath !== row.storage_path) {
+      if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket) {
+        const signed = await supabase.functions.invoke("cos-storage", { body: { action: "signed-url", bucket: cosPrivateBucket, path: originalPath, contentId } });
+        originalUrl = signed.data?.url || "";
+      } else if (row.storage_bucket === privateMediaBucket) {
+        originalUrl = (await supabase.storage.from(privateMediaBucket).createSignedUrl(originalPath, 3600)).data?.signedUrl || "";
+      } else {
+        originalUrl = publicAssetUrl(originalPath, String(row.storage_provider || "supabase"));
+      }
+    }
     if (!originalUrl) return notify("找不到原始图片，无法生成预览。", true);
     setVariantBusyId(row.id);
     const createdPaths: string[] = [];
@@ -526,18 +548,32 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       const variants = [];
       for (const maxSide of [960, 1600]) {
         const result = await imageToWebpVariant(source, maxSide, 0.92);
-        const path = `${profile.id}/${contentId}/previews/${row.id}-${maxSide}.webp`;
+        const path = cosStorageEnabled
+          ? `drafts/${contentId}/previews/${row.id}-${maxSide}-${randomId()}.webp`
+          : `${profile.id}/${contentId}/previews/${row.id}-${maxSide}.webp`;
         createdPaths.push(path);
-        await uploadWithProgress(result.file, path, (value) => setProgress(value.percent), undefined, publicMediaBucket, true);
+        await uploadManagedFile({ file: result.file, path, purpose: "content-media", contentId, visibility: "private", upsert: !cosStorageEnabled, onProgress: (value) => setProgress(value.percent) });
         variants.push({ key: String(maxSide), path, width: result.width, height: result.height, mimeType: result.file.type, sizeBytes: result.file.size });
       }
       const display = variants[1] || variants[0];
-      const { error } = await supabase.from("content_media").update({ image_variants: variants, storage_path: display.path, display_storage_path: display.path, size_bytes: display.sizeBytes, width: display.width, height: display.height, mime_type: "image/webp", image_variant_status: "ready" }).eq("id", row.id);
+      const { error } = await supabase.from("content_media").update({
+        storage_provider: cosStorageEnabled ? "tencent_cos" : "supabase",
+        storage_bucket: cosStorageEnabled ? cosPrivateBucket : privateMediaBucket,
+        original_storage_path: originalPath,
+        image_variants: variants,
+        storage_path: display.path,
+        display_storage_path: display.path,
+        size_bytes: display.sizeBytes,
+        width: display.width,
+        height: display.height,
+        mime_type: "image/webp",
+        image_variant_status: "ready"
+      }).eq("id", row.id);
       if (error) throw error;
       notify(`已为“${String(row.title || "图片")}”生成 960/1600px 预览，原图保持不变。`);
       await refresh();
     } catch (error) {
-      if (createdPaths.length) void supabase.storage.from(publicMediaBucket).remove(createdPaths);
+      if (createdPaths.length) void removeStoredObjects({ provider: cosStorageEnabled ? "tencent_cos" : "supabase", bucket: cosStorageEnabled ? cosPrivateBucket : privateMediaBucket, paths: createdPaths, contentId });
       void reportRuntimeLog({ source: "media-variants", message: messageOf(error, "图片预览生成失败"), error, context: { contentId, mediaId: row.id } });
       await supabase.from("content_media").update({ image_variant_status: "failed" }).eq("id", row.id);
       notify(messageOf(error, "图片预览生成失败"), true);
@@ -551,15 +587,16 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
     if (error) { client.setQueryData(mediaKey, previous); return notify(error.message, true); }
     notify("文件已删除，存储文件正在后台清理。");
     void onChanged();
-    const storedPaths = [row.storage_path, row.original_storage_path, row.display_storage_path].filter(Boolean).map(String);
-    if (row.storage_bucket && storedPaths.length) void supabase.storage.from(row.storage_bucket).remove([...new Set(storedPaths)]).then(({ error: storageError }) => {
-      if (storageError) void reportRuntimeLog({ source: "storage-cleanup", message: storageError.message, context: { table, recordId: row.id } });
+    const variantPaths = Array.isArray(row.image_variants) ? row.image_variants.flatMap((variant) => variant && typeof variant === "object" && "path" in variant ? [String(variant.path)] : []) : [];
+    const storedPaths = [row.storage_path, row.original_storage_path, row.display_storage_path, ...variantPaths].filter(Boolean).map(String);
+    if (row.storage_bucket && storedPaths.length) void removeStoredObjects({ provider: String(row.storage_provider || "supabase"), bucket: row.storage_bucket, paths: storedPaths, contentId }).catch((storageError) => {
+      void reportRuntimeLog({ source: "storage-cleanup", message: messageOf(storageError, "存储文件清理失败"), error: storageError, context: { table, recordId: row.id, provider: row.storage_provider } });
     });
   };
   const reorder = async (targetId: string) => { if (filter !== "gallery" || !dragging || dragging === targetId || !records.data) return; const rows = [...records.data.items]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); client.setQueryData(mediaKey, { ...records.data, items: rows }); try { const items = rows.map((row, index) => ({ id: row.id, sortOrder: ((page - 1) * mediaPageSize + index + 1) * 10 })); const { error } = await supabase.rpc("reorder_content_media", { p_content_id: contentId, p_items: items }); if (error) throw error; notify("媒体顺序已保存。"); } catch (error) { notify(messageOf(error, "排序失败"), true); await refresh(); } };
   if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
   const total = records.data?.total || 0; const pages = Math.max(1, Math.ceil(total / mediaPageSize));
-  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>图片自动转 WebP；视频直接上传腾讯云点播并使用内嵌播放器</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
+  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>图片生成浏览预览；兼容视频直接播放，不兼容编码使用腾讯云点播</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
     <div className="media-filter-tabs">{(["gallery", "document", "video", "attachments"] as MediaFilter[]).map((key) => <button type="button" className={filter === key ? "active" : ""} key={key} onClick={() => { setFilter(key); setPage(1); }}>{({ gallery: "图库", document: "正文图片", video: "视频", attachments: "附件" } as Record<MediaFilter, string>)[key]}</button>)}</div>
     {filter !== "attachments" ? <div className="media-library-grid">{records.data?.items.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} draggable={filter === "gallery" && canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onGenerateVariants={() => generateVariants(row)} variantBusy={variantBusyId === row.id} onMessage={notify} />)}{!records.data?.items.length && <AdminEmpty icon={<ImagePlus />} title="当前分类暂无媒体" detail="可从上方选择本地文件上传。" />}</div>
       : <section className="attachment-section">{records.data?.items.map((row) => <div className="attachment-row" key={row.id}><FileText /><div><strong>{String(row.name || "附件")}</strong><span>{String(row.mime_type || "文件")} · {formatBytes(Number(row.size_bytes || 0))}</span></div>{canEdit(profile.role) && <button className="icon-only danger" onClick={() => remove("attachments", row)}><Trash2 /></button>}</div>)}{!records.data?.items.length && <AdminEmpty title="暂无附件" />}</section>}
@@ -616,7 +653,7 @@ export function CategoriesPage({ profile }: { profile: Profile }) {
 function CategoryManagerRow({ category, count, profile, dragging, onDrag, onDrop, onSaved, onMessage }: { category: Category; count: number; profile: Profile; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onMessage(value: string, error?: boolean): void }) {
   const [name, setName] = useState(category.name); const [description, setDescription] = useState(category.description); const [uploading, setUploading] = useState(false); const editable = canPublish(profile.role);
   const save = async (patch: Record<string, unknown>) => { const { error } = await supabase.from("categories").update({ ...patch, updated_by: profile.id }).eq("id", category.id); if (error) onMessage(error.message, true); else { onMessage("分类已保存。"); onSaved(); } };
-  const upload = async (file: File) => { setUploading(true); try { const prepared = await imageToWebp(file); const path = `categories/${category.id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; await uploadWithProgress(prepared, path, () => undefined, undefined, publicMediaBucket); await save({ image_path: path }); } catch (error) { onMessage(messageOf(error, "封面上传失败"), true); } finally { setUploading(false); } };
+  const upload = async (file: File) => { setUploading(true); try { const prepared = await imageToWebp(file); const path = cosStorageEnabled ? `site/categories/${category.id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}` : `categories/${category.id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`; const stored = await uploadManagedFile({ file: prepared, path, purpose: "site-asset", visibility: "public" }); await save({ image_path: stored.path, image_provider: stored.provider }); } catch (error) { onMessage(messageOf(error, "封面上传失败"), true); } finally { setUploading(false); } };
   const remove = async () => { if (count > 0) return onMessage("请先移动或删除分类中的资料。", true); if (!window.confirm(`确定删除空分类“${category.name}”吗？`)) return; const { error } = await supabase.from("categories").delete().eq("id", category.id); if (error) onMessage(error.message, true); else { onMessage("分类已删除。"); onSaved(); } };
   return <article className={`category-manager-row${dragging ? " dragging" : ""}`} draggable={editable} onDragStart={onDrag} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}><div className="category-manager-cover">{category.imageUrl ? <img src={category.imageUrl} alt="" /> : <FolderOpen />}</div><div className="category-manager-fields"><input disabled={!editable} value={name} onChange={(event) => setName(event.target.value)} /><textarea disabled={!editable} value={description} onChange={(event) => setDescription(event.target.value)} /></div><div className="category-manager-meta"><strong>{count}</strong><span>篇资料</span><small>拖动排序</small></div>{editable && <div className="category-manager-actions"><label className="button quiet"><ImagePlus />{uploading ? "上传中" : "替换封面"}<input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label><button className={`status ${category.visible ? "published" : "hidden"}`} onClick={() => save({ is_visible: !category.visible })}>{category.visible ? "显示" : "隐藏"}</button><button className="icon-only" onClick={() => save({ name: name.trim(), slug: slugify(name), description })}><Save /></button>{profile.role === "super_admin" && <button className="icon-only danger" onClick={remove}><Trash2 /></button>}</div>}</article>;
 }

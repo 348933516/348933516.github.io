@@ -2,6 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { publicMediaBucket } from "./config";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
+import { publicStorageUrl, storedAssetUrl } from "./storage";
 import type {
   Attachment,
   Category,
@@ -43,10 +44,8 @@ function isMissingSchema(error: { code?: string; message?: string } | null) {
   return Boolean(error && (error.code === "42P01" || error.code === "PGRST205" || error.message?.includes("schema cache")));
 }
 
-function storageUrl(bucket?: string | null, path?: string | null, external?: string | null) {
-  if (external) return safeUrl(external);
-  if (!bucket || !path || bucket !== publicMediaBucket) return "";
-  return safeUrl(supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl);
+function storageUrl(bucket?: string | null, path?: string | null, external?: string | null, provider?: string | null) {
+  return publicStorageUrl({ provider, bucket, path, externalUrl: external });
 }
 
 function mapSettings(row: Record<string, unknown> | null): SiteSettings {
@@ -58,10 +57,10 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
     heroSubtitle: String(row.hero_subtitle || fallbackSettings.heroSubtitle),
     categoryTitle: String(row.category_title || fallbackSettings.categoryTitle),
     categorySubtitle: String(row.category_subtitle || fallbackSettings.categorySubtitle),
-    topLogoUrl: storageUrl(publicMediaBucket, row.top_logo_path as string),
-    heroLogoUrl: storageUrl(publicMediaBucket, row.hero_logo_path as string),
-    pageBackgroundUrl: storageUrl(publicMediaBucket, row.page_background_path as string),
-    tileBackgroundUrl: storageUrl(publicMediaBucket, row.tile_background_path as string),
+    topLogoUrl: storedAssetUrl(row.top_logo_path as string, row.top_logo_provider as string),
+    heroLogoUrl: storedAssetUrl(row.hero_logo_path as string, row.hero_logo_provider as string),
+    pageBackgroundUrl: storedAssetUrl(row.page_background_path as string, row.page_background_provider as string),
+    tileBackgroundUrl: storedAssetUrl(row.tile_background_path as string, row.tile_background_provider as string),
     carouselEnabled: Boolean(row.carousel_enabled ?? fallbackSettings.carouselEnabled),
     carouselAutoplay: Boolean(row.carousel_autoplay ?? fallbackSettings.carouselAutoplay),
     carouselIntervalMs: Number(row.carousel_interval_ms || fallbackSettings.carouselIntervalMs),
@@ -78,7 +77,7 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     if (!path) return [];
     return [{
       key: String(variant.key || variant.width || "preview"),
-      src: storageUrl(publicMediaBucket, path),
+      src: storageUrl(row.storage_bucket as string, path, null, row.storage_provider as string),
       width: Number(variant.width || 0),
       height: Number(variant.height || 0),
       mimeType: String(variant.mimeType || variant.mime_type || "image/webp"),
@@ -88,7 +87,7 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
   return {
     id: String(row.id),
     kind: row.kind === "video" ? "video" : "image",
-    src: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string),
+    src: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string, row.storage_provider as string),
     title: String(row.title || ""),
     note: String(row.note || ""),
     path: Array.isArray(row.hierarchy_path) ? row.hierarchy_path.map(String) : [],
@@ -102,14 +101,17 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     videoCodec: row.video_codec ? String(row.video_codec) : undefined,
     originalSizeBytes: row.original_size_bytes ? Number(row.original_size_bytes) : undefined,
     processingStatus: row.processing_status ? String(row.processing_status) as ContentMedia["processingStatus"] : undefined,
-    originalSrc: originalPath ? storageUrl(publicMediaBucket, originalPath) : undefined,
+    originalSrc: originalPath ? storageUrl(row.storage_bucket as string, originalPath, null, row.storage_provider as string) : undefined,
     imageVariants: variants.length ? variants : undefined,
     videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" : undefined,
     providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined,
     providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined,
     playbackUrl: row.playback_url ? safeUrl(String(row.playback_url)) : undefined,
     posterUrl: row.poster_url ? safeUrl(String(row.poster_url)) : undefined,
-    sourceImportId: row.source_import_id ? String(row.source_import_id) : undefined
+    sourceImportId: row.source_import_id ? String(row.source_import_id) : undefined,
+    storageProvider: row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase",
+    storageBucket: row.storage_bucket ? String(row.storage_bucket) : undefined,
+    storagePath: row.storage_path ? String(row.storage_path) : undefined
   };
 }
 
@@ -117,10 +119,13 @@ function mapAttachment(row: Record<string, unknown>): Attachment {
   return {
     id: String(row.id),
     name: String(row.name || "Attachment"),
-    url: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string),
+    url: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string, row.storage_provider as string),
     mimeType: row.mime_type ? String(row.mime_type) : undefined,
     sizeBytes: row.size_bytes ? Number(row.size_bytes) : undefined,
-    sortOrder: Number(row.sort_order || 100)
+    sortOrder: Number(row.sort_order || 100),
+    storageProvider: row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase",
+    storageBucket: row.storage_bucket ? String(row.storage_bucket) : undefined,
+    storagePath: row.storage_path ? String(row.storage_path) : undefined
   };
 }
 
@@ -129,7 +134,7 @@ function mapCarouselSlide(row: Record<string, unknown>): CarouselSlide {
     id: String(row.id),
     title: String(row.title || ""),
     subtitle: String(row.subtitle || ""),
-    imageUrl: storageUrl(publicMediaBucket, row.image_path as string),
+    imageUrl: storedAssetUrl(row.image_path as string, row.image_provider as string),
     linkUrl: String(row.link_url || ""),
     linkLabel: String(row.link_label || "View details"),
     sortOrder: Number(row.sort_order || 100),
@@ -139,10 +144,16 @@ function mapCarouselSlide(row: Record<string, unknown>): CarouselSlide {
   };
 }
 
-async function adminStorageUrl(bucket?: string | null, path?: string | null, external?: string | null) {
+async function adminStorageUrl(bucket?: string | null, path?: string | null, external?: string | null, provider?: string | null, contentId?: string | null) {
   if (external) return safeUrl(external);
   if (!bucket || !path) return "";
-  if (bucket === publicMediaBucket) return storageUrl(bucket, path);
+  if (provider === "tencent_cos") {
+    const publicUrl = storageUrl(bucket, path, null, provider);
+    if (publicUrl) return publicUrl;
+    const { data, error } = await supabase.functions.invoke("cos-storage", { body: { action: "signed-url", bucket, path, contentId } });
+    return error || !data?.url ? "" : safeUrl(data.url);
+  }
+  if (bucket === publicMediaBucket) return storageUrl(bucket, path, null, provider);
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
   return error ? "" : safeUrl(data.signedUrl);
 }
@@ -198,7 +209,7 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
     slug: row.slug,
     name: row.name,
     description: row.description || "",
-    imageUrl: storageUrl(publicMediaBucket, row.image_path),
+    imageUrl: storedAssetUrl(row.image_path, row.image_provider),
     sortOrder: row.sort_order,
     visible: row.is_visible
   }));
@@ -333,7 +344,7 @@ function mapPublicSummary(row: Record<string, unknown>): ContentItem {
   const media = coverPath ? [{
     id: `cover-${String(row.id)}`,
     kind: "image" as const,
-    src: storageUrl(publicMediaBucket, coverPath),
+    src: storedAssetUrl(coverPath, String(row.cover_provider || "supabase")),
     title: String(row.title || ""),
     note: "",
     path: [],
@@ -359,8 +370,8 @@ export async function loadPublicHome(): Promise<PublicData> {
     const row = entry as Record<string, unknown>;
     return {
       id: String(row.id), slug: String(row.slug), name: String(row.name), description: String(row.description || ""),
-      imageUrl: storageUrl(publicMediaBucket, row.image_path as string), sortOrder: Number(row.sort_order || 100), visible: Boolean(row.is_visible),
-      contentCount: Number(row.content_count || 0), firstMediaUrl: storageUrl(publicMediaBucket, row.first_media_path as string)
+      imageUrl: storedAssetUrl(row.image_path as string, row.image_provider as string), sortOrder: Number(row.sort_order || 100), visible: Boolean(row.is_visible),
+      contentCount: Number(row.content_count || 0), firstMediaUrl: storedAssetUrl(row.first_media_path as string, row.first_media_provider as string)
     } satisfies Category;
   });
   const result: PublicData = {
@@ -385,7 +396,7 @@ export async function loadPublicCategory(slug: string, offset = 0, limit = 20): 
   const payload = (data || {}) as Record<string, unknown>;
   if (!payload.category) return null;
   const row = payload.category as Record<string, unknown>;
-  const category: Category = { id: String(row.id), slug: String(row.slug), name: String(row.name), description: String(row.description || ""), imageUrl: storageUrl(publicMediaBucket, row.image_path as string), sortOrder: Number(row.sort_order || 100), visible: true };
+  const category: Category = { id: String(row.id), slug: String(row.slug), name: String(row.name), description: String(row.description || ""), imageUrl: storedAssetUrl(row.image_path as string, row.image_provider as string), sortOrder: Number(row.sort_order || 100), visible: true };
   return { category, items: (Array.isArray(payload.items) ? payload.items : []).map((entry) => mapPublicSummary(entry as Record<string, unknown>)), total: Number(payload.total || 0) };
 }
 
@@ -456,7 +467,8 @@ async function mapAdminContentListRows(rows: Array<Record<string, unknown>>) {
       ? await adminStorageUrl(
           row.cover_bucket ? String(row.cover_bucket) : null,
           row.cover_path ? String(row.cover_path) : null,
-          row.cover_external_url ? String(row.cover_external_url) : null
+          row.cover_external_url ? String(row.cover_external_url) : null,
+          row.cover_provider ? String(row.cover_provider) : null
         )
       : "";
     const media = cover ? [{
@@ -597,8 +609,55 @@ export async function loadAdminStandaloneMedia(contentId: string): Promise<Conte
   if (error) throw error;
   return Promise.all((data || []).map(async (row) => ({
     ...mapMedia(row),
-    src: await adminStorageUrl(row.storage_bucket, row.storage_path, row.external_url)
+    src: await adminStorageUrl(row.storage_bucket, row.storage_path, row.external_url, row.storage_provider, row.content_id)
   })));
+}
+
+export interface MediaStorageMigrationItem {
+  id: number;
+  source_bucket: string;
+  source_path: string;
+  destination_bucket: string;
+  destination_path: string;
+  size_bytes: number;
+  status: "pending" | "uploading" | "verified" | "committed" | "failed";
+  retry_count: number;
+  error_message?: string | null;
+}
+
+export interface MediaStorageMigrationStatus {
+  job: {
+    id: string;
+    status: "pending" | "copying" | "verifying" | "committing" | "completed" | "failed" | "cancelled";
+    total_objects: number;
+    completed_objects: number;
+    total_bytes: number;
+    completed_bytes: number;
+    error_message?: string | null;
+  };
+  items: MediaStorageMigrationItem[];
+}
+
+async function invokeMediaMigration<T>(body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke("media-migration", { body });
+  if (error || data?.error) throw new Error(data?.error || error?.message || "媒体迁移请求失败");
+  return data as T;
+}
+
+export function startMediaStorageMigration() {
+  return invokeMediaMigration<{ id: string; status: string; resumed?: boolean; totalObjects?: number; totalBytes?: number }>({ action: "start" });
+}
+
+export function getMediaStorageMigration(migrationId: string) {
+  return invokeMediaMigration<MediaStorageMigrationStatus>({ action: "status", migrationId });
+}
+
+export function registerMediaStorageMigrationItem(migrationId: string, itemId: number) {
+  return invokeMediaMigration<{ ok: boolean; etag: string; sizeBytes: number }>({ action: "register", migrationId, itemId });
+}
+
+export function commitMediaStorageMigration(migrationId: string) {
+  return invokeMediaMigration<{ ok: boolean; warnings: string[] }>({ action: "commit", migrationId });
 }
 
 export async function loadAdminCategoryCounts() {
@@ -640,6 +699,9 @@ export interface DocumentImportAsset {
 export interface DocumentImportJob {
   id: string;
   uploadPrefix: string;
+  storageProvider?: "supabase" | "tencent_cos";
+  storageBucket?: string;
+  publicStorageBucket?: string;
 }
 
 export interface DocumentImportListItem {
@@ -657,7 +719,7 @@ export interface DocumentImportListItem {
 }
 
 export interface DocumentImportStatus {
-  job: { id: string; status: "uploading" | "completed" | "failed" | "cancelled"; expectedImages: number; sourceFileName?: string | null; sourceFileSize?: number | null; errorMessage?: string | null };
+  job: { id: string; status: "uploading" | "completed" | "failed" | "cancelled"; expectedImages: number; sourceFileName?: string | null; sourceFileSize?: number | null; errorMessage?: string | null; storageProvider?: "supabase" | "tencent_cos"; storageBucket?: string; publicStorageBucket?: string };
   assets: DocumentImportStatusAsset[];
   events: Array<{ id: number; image_index?: number | null; severity: "info" | "warning" | "error"; phase: string; message: string; bytes_total?: number | null; bytes_uploaded?: number | null; retry_count?: number; http_status?: number | null; error_code?: string | null; elapsed_ms?: number | null; details?: Record<string, unknown>; created_at: string }>;
 }
@@ -784,7 +846,7 @@ async function invokeDocumentImport<T>(body: Record<string, unknown>, onRetry?: 
   throw new DocumentImportError({ stage, message: "Document import failed", details: { attempts: maxAttempts, retry_count: maxAttempts - 1 } });
 }
 
-export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number; sourceFileName?: string; sourceFileSize?: number }) {
+export function startDocumentImport(input: { contentId: string; expectedVersion: number; expectedImages: number; totalOriginalBytes: number; sourceFileName?: string; sourceFileSize?: number; storageProvider?: "supabase" | "tencent_cos" }) {
   return invokeDocumentImport<DocumentImportJob>({ action: "start", ...input });
 }
 

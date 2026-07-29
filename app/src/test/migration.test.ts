@@ -16,6 +16,13 @@ const documentImportQualifiedVersion = fs.readFileSync(path.resolve(process.cwd(
 const documentImportFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/document-import/index.ts"), "utf8");
 const activeDocumentImport = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260722090000_active_document_import_media_cleanup.sql"), "utf8");
 const saveContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/save-content/index.ts"), "utf8");
+const cosStorageMigration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260729010000_tencent_cos_storage.sql"), "utf8");
+const cosCredentialsFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/cos-credentials/index.ts"), "utf8");
+const cosSharedFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-cos.ts"), "utf8");
+const tencentApiFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-api.ts"), "utf8");
+const mediaMigrationFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/media-migration/index.ts"), "utf8");
+const publishContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
+const duplicateContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/duplicate-content/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -125,5 +132,46 @@ describe("Supabase security migration", () => {
     expect(saveContentFunction).toContain('"data-original-src"');
     expect(saveContentFunction).toContain("cleanImageAttributes");
     expect(saveContentFunction).toContain("(max-width: 720px) 100vw, 1600px");
+  });
+
+  it("cuts over to COS only after every object is verified", () => {
+    expect(cosStorageMigration).toContain("storage_provider text not null default 'supabase'");
+    expect(cosStorageMigration).toContain("MIGRATION_NOT_VERIFIED");
+    expect(cosStorageMigration).toContain("promotion_status <> 'ready'");
+    expect(cosStorageMigration).toContain("first_media_provider");
+    expect(cosStorageMigration).toContain("cover_provider");
+    expect(cosCredentialsFunction).toContain("getCosFederationToken");
+    expect(cosSharedFunction).toContain("GetFederationToken");
+    expect(cosSharedFunction).toContain("region: configuration.region");
+    expect(tencentApiFunction).toContain('"X-TC-Region": input.region');
+    expect(cosCredentialsFunction).toContain("drafts/${contentId}/");
+    expect(cosCredentialsFunction).toContain("imports/${importId}/");
+    expect(mediaMigrationFunction).toContain('action === "register"');
+    expect(mediaMigrationFunction).toContain("headCosObject");
+    expect(mediaMigrationFunction.indexOf('action === "commit"')).toBeGreaterThan(mediaMigrationFunction.indexOf('action === "register"'));
+    expect(cosStorageMigration).toContain("item.migration_id = p_migration_id");
+    expect(cosStorageMigration).toContain("item.status in ('verified', 'committed')");
+    expect(cosStorageMigration).not.toContain("update public.content_media set storage_provider = 'tencent_cos'");
+  });
+
+  it("commits publication metadata and promoted object paths in one database transaction", () => {
+    expect(cosStorageMigration).toContain("create or replace function public.commit_content_publication");
+    expect(cosStorageMigration).toContain("for promotion in select value from jsonb_array_elements");
+    expect(cosStorageMigration).toContain("PROMOTION_TARGET_NOT_FOUND");
+    expect(publishContentFunction).toContain('client.rpc("commit_content_publication"');
+    expect(publishContentFunction).not.toContain('.from("contents")\n    .update({ status: "published"');
+  });
+
+  it("cleans the single in-flight Word image that may not have reached registration", () => {
+    expect(documentImportFunction).toContain("removeUnregisteredInFlightImage");
+    expect(documentImportFunction).toContain("firstUnregisteredIndex");
+    expect(documentImportFunction).toContain('`${prefix}-1600.webp`');
+  });
+
+  it("gives duplicated embedded media independent objects and remaps body references", () => {
+    expect(duplicateContentFunction).toContain("active_document_import_id: source.active_document_import_id");
+    expect(duplicateContentFunction).toContain("duplicatedBodyHtml.replaceAll(row.id, newId)");
+    expect(duplicateContentFunction).toContain("copied.image_variants");
+    expect(duplicateContentFunction).toContain("publishImmediately");
   });
 });

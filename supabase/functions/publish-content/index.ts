@@ -1,16 +1,35 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { copyCosObject, cosConfiguration, deleteCosObject } from "../_shared/tencent-cos.ts";
 
 type StoredItem = {
   id: string;
+  storage_provider: string | null;
   storage_bucket: string | null;
   storage_path: string | null;
+  original_storage_path?: string | null;
+  display_storage_path?: string | null;
+  image_variants?: Array<Record<string, unknown>> | null;
+};
+
+type ObjectCopy = {
+  provider: "supabase" | "tencent_cos";
+  sourceBucket: string;
+  destinationBucket: string;
+  source: string;
+  destination: string;
 };
 
 type Promotion = {
   table: "content_media" | "attachments";
   id: string;
-  source: string;
-  destination: string;
+  provider: "supabase" | "tencent_cos";
+  sourceBucket: string;
+  destinationBucket: string;
+  storagePath: string;
+  originalStoragePath: string | null;
+  displayStoragePath: string | null;
+  imageVariants: Array<Record<string, unknown>>;
+  objects: ObjectCopy[];
 };
 
 Deno.serve((request) => edgeHandler(request, async () => {
@@ -31,8 +50,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const [mediaResult, attachmentsResult] = await Promise.all([
-    client.from("content_media").select("id, storage_bucket, storage_path").eq("content_id", contentId),
-    client.from("attachments").select("id, storage_bucket, storage_path").eq("content_id", contentId)
+    client.from("content_media").select("id, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, image_variants").eq("content_id", contentId),
+    client.from("attachments").select("id, storage_provider, storage_bucket, storage_path").eq("content_id", contentId)
   ]);
   if (mediaResult.error || attachmentsResult.error) {
     return json({ error: mediaResult.error?.message ?? attachmentsResult.error?.message }, 400);
@@ -41,69 +60,81 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const pending: Array<{ table: Promotion["table"]; item: StoredItem }> = [
     ...(mediaResult.data ?? []).map((item) => ({ table: "content_media" as const, item })),
     ...(attachmentsResult.data ?? []).map((item) => ({ table: "attachments" as const, item }))
-  ].filter(({ item }) => item.storage_bucket === "maplestorynk-private" && Boolean(item.storage_path));
+  ].filter(({ item }) => Boolean(item.storage_path) && (item.storage_bucket === "maplestorynk-private" || item.storage_provider === "tencent_cos" && item.storage_bucket === cosConfiguration().privateBucket));
 
   const promoted: Promotion[] = [];
+  const copiedObjects: ObjectCopy[] = [];
   const cleanupPublicCopies = async () => {
-    if (promoted.length) {
-      await client.storage.from("maplestorynk-public").remove(promoted.map((item) => item.destination));
-    }
+    const supabasePaths = copiedObjects.filter((item) => item.provider === "supabase").map((item) => item.destination);
+    if (supabasePaths.length) await client.storage.from("maplestorynk-public").remove(supabasePaths);
+    await Promise.allSettled(copiedObjects.filter((item) => item.provider === "tencent_cos").map((item) => deleteCosObject(item.destinationBucket, item.destination)));
   };
 
   for (const { table, item } of pending) {
-    const source = item.storage_path as string;
-    const filename = source.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || crypto.randomUUID();
-    const destination = `content/${contentId}/${table}/${crypto.randomUUID()}-${filename}`;
-    const { data: file, error: downloadError } = await client.storage.from("maplestorynk-private").download(source);
-    if (downloadError || !file) {
-      await cleanupPublicCopies();
-      return json({ error: downloadError?.message ?? "Stored file download failed" }, 400);
-    }
-    const { error: uploadError } = await client.storage.from("maplestorynk-public").upload(destination, file, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false
-    });
-    if (uploadError) {
-      await cleanupPublicCopies();
-      return json({ error: uploadError.message }, 400);
-    }
-    promoted.push({ table, id: item.id, source, destination });
-  }
-
-  const { data: updated, error: updateError } = await client
-    .from("contents")
-    .update({ status: "published", updated_by: user.id })
-    .eq("id", contentId)
-    .eq("version", expectedVersion)
-    .select("id, version, status, published_at")
-    .maybeSingle();
-  if (updateError || !updated) {
-    await cleanupPublicCopies();
-    return json({ error: updateError?.message ?? "Content version changed", code: "VERSION_CONFLICT" }, 409);
-  }
-
-  const updatedFiles: Promotion[] = [];
-  for (const item of promoted) {
-    const { error } = await client.from(item.table).update({
-      storage_bucket: "maplestorynk-public",
-      storage_path: item.destination
-    }).eq("id", item.id);
-    if (error) {
-      for (const changed of updatedFiles) {
-        await client.from(changed.table).update({
-          storage_bucket: "maplestorynk-private",
-          storage_path: changed.source
-        }).eq("id", changed.id);
+    const provider = item.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase";
+    const configuration = provider === "tencent_cos" ? cosConfiguration() : null;
+    const sourceBucket = configuration?.privateBucket || "maplestorynk-private";
+    const destinationBucket = configuration?.publicBucket || "maplestorynk-public";
+    const paths = [...new Set([
+      item.storage_path,
+      item.original_storage_path,
+      item.display_storage_path,
+      ...(Array.isArray(item.image_variants) ? item.image_variants.map((variant) => String(variant.path || "")) : [])
+    ].filter(Boolean).map(String))];
+    const copiedBySource = new Map<string, string>();
+    try {
+      for (const source of paths) {
+        const filename = source.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || crypto.randomUUID();
+        const destination = `content/${contentId}/${table}/${item.id}/${crypto.randomUUID()}-${filename}`;
+        if (provider === "tencent_cos") {
+          await copyCosObject(sourceBucket, source, destinationBucket, destination);
+        } else {
+          const { data: file, error: downloadError } = await client.storage.from(sourceBucket).download(source);
+          if (downloadError || !file) throw new Error(downloadError?.message ?? "Stored file download failed");
+          const { error: uploadError } = await client.storage.from(destinationBucket).upload(destination, file, { contentType: file.type || "application/octet-stream", upsert: false });
+          if (uploadError) throw new Error(uploadError.message);
+        }
+        copiedBySource.set(source, destination);
+        copiedObjects.push({ provider, sourceBucket, destinationBucket, source, destination });
       }
-      await client.from("contents").update({ status: "draft", updated_by: user.id }).eq("id", contentId);
+    } catch (error) {
       await cleanupPublicCopies();
-      return json({ error: `Unable to publish stored files: ${error.message}` }, 500);
+      return json({ error: error instanceof Error ? error.message : "Stored file promotion failed" }, 400);
     }
-    updatedFiles.push(item);
+    promoted.push({
+      table,
+      id: item.id,
+      provider,
+      sourceBucket,
+      destinationBucket,
+      storagePath: copiedBySource.get(item.storage_path as string) as string,
+      originalStoragePath: item.original_storage_path ? copiedBySource.get(item.original_storage_path) || null : null,
+      displayStoragePath: item.display_storage_path ? copiedBySource.get(item.display_storage_path) || null : null,
+      imageVariants: (Array.isArray(item.image_variants) ? item.image_variants : []).map((variant) => ({
+        ...variant,
+        path: copiedBySource.get(String(variant.path || "")) || String(variant.path || "")
+      })),
+      objects: copiedObjects.filter((copy) => copiedBySource.get(copy.source) === copy.destination)
+    });
+  }
+
+  const { data: committed, error: commitError } = await client.rpc("commit_content_publication", {
+    p_content_id: contentId,
+    p_expected_version: expectedVersion,
+    p_actor_id: user.id,
+    p_promotions: promoted
+  });
+  const updated = Array.isArray(committed) ? committed[0] : committed;
+  if (commitError || !updated) {
+    await cleanupPublicCopies();
+    const conflict = commitError?.message?.includes("VERSION_CONFLICT");
+    return json({ error: conflict ? "Content was changed by another administrator" : commitError?.message ?? "Unable to commit publication", code: conflict ? "VERSION_CONFLICT" : "PUBLICATION_COMMIT_FAILED" }, conflict ? 409 : 500);
   }
 
   if (promoted.length) {
-    await client.storage.from("maplestorynk-private").remove(promoted.map((item) => item.source));
+    const supabasePaths = copiedObjects.filter((item) => item.provider === "supabase").map((item) => item.source);
+    if (supabasePaths.length) await client.storage.from("maplestorynk-private").remove(supabasePaths);
+    await Promise.allSettled(copiedObjects.filter((item) => item.provider === "tencent_cos").map((item) => deleteCosObject(item.sourceBucket, item.source)));
   }
   return json(updated);
 }));

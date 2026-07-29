@@ -8,4 +8,5 @@ coverage/
 local-backups/
 .supabase/
 _ci-check*/
+.tmp-*/
 run-logs.zip

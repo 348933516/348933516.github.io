@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, FolderOpen, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { publicMediaBucket } from "../../lib/config";
 import { supabase } from "../../lib/supabase";
+import { storedAssetUrl } from "../../lib/storage";
 import type { AppRole, Category, ContentItem, ContentStatus, Profile } from "../../types";
 
 export const roleText: Record<AppRole, string> = {
@@ -20,8 +21,8 @@ export function canEditItem(profile: Profile, item: ContentItem) {
 
 export function messageOf(error: unknown, fallback = "操作失败") { return error instanceof Error ? error.message : fallback; }
 
-export function publicAssetUrl(path?: string | null) {
-  return path ? supabase.storage.from(publicMediaBucket).getPublicUrl(path).data.publicUrl : "";
+export function publicAssetUrl(path?: string | null, provider?: string | null) {
+  return storedAssetUrl(path, provider);
 }
 
 export function useAdminCategories() {
@@ -30,7 +31,7 @@ export function useAdminCategories() {
     if (error) throw error;
     return (data || []).map((row) => ({
       id: row.id, slug: row.slug, name: row.name, description: row.description || "",
-      imageUrl: publicAssetUrl(row.image_path), sortOrder: row.sort_order, visible: row.is_visible
+      imageUrl: publicAssetUrl(row.image_path, row.image_provider), sortOrder: row.sort_order, visible: row.is_visible
     })) as Category[];
   } });
 }

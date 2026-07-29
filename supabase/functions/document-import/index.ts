@@ -1,6 +1,7 @@
 import sanitizeHtml from "npm:sanitize-html@2.17.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { copyCosObject, cosConfiguration, deleteCosObject, headCosObject } from "../_shared/tencent-cos.ts";
 import { compareImportStoragePaths, expectedImportStoragePaths, importStoragePrefix } from "./storage.ts";
 
 type ImportAsset = {
@@ -21,6 +22,33 @@ type ImportAsset = {
 };
 
 const publicBucket = "maplestorynk-public";
+
+async function deterministicImportMediaId(importId: string, imageIndex: number) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${importId}:${imageIndex}`)));
+  digest[6] = (digest[6] & 0x0f) | 0x50;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  const value = [...digest.slice(0, 16)].map((item) => item.toString(16).padStart(2, "0")).join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+async function removeUnregisteredInFlightImage(client: SupabaseClient, importId: string, imageIndex: number, provider = "supabase") {
+  const mediaId = await deterministicImportMediaId(importId, imageIndex);
+  const prefix = `imports/${importId}/${String(imageIndex).padStart(3, "0")}-${mediaId}`;
+  const paths = [
+    ...["png", "jpg", "gif", "bin"].map((extension) => `${prefix}-original.${extension}`),
+    `${prefix}-960.webp`,
+    `${prefix}-1600.webp`
+  ];
+  if (provider === "tencent_cos") {
+    const configuration = cosConfiguration();
+    await Promise.allSettled(paths.flatMap((path) => [
+      deleteCosObject(configuration.privateBucket, path),
+      deleteCosObject(configuration.publicBucket, path)
+    ]));
+    return;
+  }
+  await client.storage.from(publicBucket).remove(paths);
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function importError(stage: string, code: string, error: string, status: number, details: Record<string, unknown> = {}) {
@@ -93,7 +121,7 @@ async function writeEvent(client: SupabaseClient, importId: string, input: {
   });
 }
 
-async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
+async function removeManifestFiles(client: SupabaseClient, manifest: unknown, provider = "supabase") {
   if (!Array.isArray(manifest)) return;
   const paths = [...new Set(manifest.flatMap((asset) => {
     if (!asset || typeof asset !== "object") return [];
@@ -101,7 +129,16 @@ async function removeManifestFiles(client: SupabaseClient, manifest: unknown) {
     const variants = Array.isArray(value.imageVariants) ? value.imageVariants.flatMap((entry) => entry && typeof entry === "object" ? [String((entry as Record<string, unknown>).path || "")] : []) : [];
     return [String(value.originalPath || ""), String(value.displayPath || ""), ...variants];
   }).filter(Boolean))];
-  if (paths.length) await client.storage.from(publicBucket).remove(paths);
+  if (!paths.length) return;
+  if (provider === "tencent_cos") {
+    const configuration = cosConfiguration();
+    await Promise.allSettled(paths.flatMap((path) => [
+      deleteCosObject(configuration.privateBucket, path),
+      deleteCosObject(configuration.publicBucket, path)
+    ]));
+    return;
+  }
+  await client.storage.from(publicBucket).remove(paths);
 }
 
 async function registeredAssets(client: SupabaseClient, importId: string): Promise<ImportAsset[]> {
@@ -118,8 +155,14 @@ async function registeredAssets(client: SupabaseClient, importId: string): Promi
   }));
 }
 
-async function verifyImportStorage(client: SupabaseClient, importId: string, assets: ImportAsset[]) {
+async function verifyImportStorage(client: SupabaseClient, importId: string, assets: ImportAsset[], provider = "supabase") {
   const expectedPaths = expectedImportStoragePaths(assets);
+  if (provider === "tencent_cos") {
+    const configuration = cosConfiguration();
+    const checks = await Promise.allSettled(expectedPaths.map((path) => headCosObject(configuration.publicBucket, path)));
+    const foundPaths = checks.flatMap((result, index) => result.status === "fulfilled" ? [expectedPaths[index]] : []);
+    return { ...compareImportStoragePaths(expectedPaths, foundPaths), error: null };
+  }
   const prefix = importStoragePrefix(importId);
   const { data, error } = await client.schema("storage").from("objects")
     .select("name")
@@ -139,7 +182,7 @@ async function processStorageCleanup(client: SupabaseClient, contentId: string) 
     .lt("updated_at", staleBefore);
 
   const { data: queued, error } = await client.from("storage_cleanup_queue")
-    .select("id, storage_bucket, storage_path, retry_count")
+    .select("id, storage_provider, storage_bucket, storage_path, retry_count")
     .eq("content_id", contentId)
     .in("status", ["pending", "failed"])
     .order("created_at")
@@ -149,17 +192,30 @@ async function processStorageCleanup(client: SupabaseClient, contentId: string) 
   let removed = 0;
   let failed = 0;
   const byBucket = new Map<string, typeof queued>();
-  for (const row of queued) byBucket.set(row.storage_bucket, [...(byBucket.get(row.storage_bucket) || []), row]);
-  for (const [bucket, rows] of byBucket) {
+  for (const row of queued) {
+    const key = `${row.storage_provider || "supabase"}:${row.storage_bucket}`;
+    byBucket.set(key, [...(byBucket.get(key) || []), row]);
+  }
+  for (const rows of byBucket.values()) {
+    const bucket = rows[0].storage_bucket;
+    const provider = rows[0].storage_provider || "supabase";
     for (let offset = 0; offset < rows.length; offset += 100) {
       const batch = rows.slice(offset, offset + 100);
       const ids = batch.map((row) => row.id);
       await client.from("storage_cleanup_queue").update({ status: "processing", updated_at: new Date().toISOString() }).in("id", ids);
-      const result = await client.storage.from(bucket).remove(batch.map((row) => row.storage_path));
-      if (result.error) {
+      let cleanupError: Error | null = null;
+      if (provider === "tencent_cos") {
+        const results = await Promise.allSettled(batch.map((row) => deleteCosObject(bucket, row.storage_path)));
+        const rejected = results.find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
+        if (rejected) cleanupError = rejected.reason instanceof Error ? rejected.reason : new Error("COS cleanup failed");
+      } else {
+        const result = await client.storage.from(bucket).remove(batch.map((row) => row.storage_path));
+        cleanupError = result.error;
+      }
+      if (cleanupError) {
         failed += batch.length;
         await client.from("storage_cleanup_queue").update({
-          status: "failed", last_error: result.error.message.slice(0, 1000), updated_at: new Date().toISOString()
+          status: "failed", last_error: cleanupError.message.slice(0, 1000), updated_at: new Date().toISOString()
         }).in("id", ids);
         for (const row of batch) await client.from("storage_cleanup_queue").update({ retry_count: Number(row.retry_count || 0) + 1 }).eq("id", row.id);
       } else {
@@ -187,10 +243,18 @@ Deno.serve((request) => edgeHandler(request, async () => {
     if (content.version !== expectedVersion) return importError("start", "VERSION_CONFLICT", "资料已被修改，请重新载入后再导入。", 409);
     if (profile.role === "uploader" && (content.created_by !== user.id || content.status !== "draft")) return importError("start", "IMPORT_FORBIDDEN", "上传管理员只能导入自己的草稿。", 403);
     const id = crypto.randomUUID();
-    const { error: insertError } = await client.from("document_imports").insert({ id, content_id: contentId, created_by: user.id, expected_images: expectedImages, total_original_bytes: totalOriginalBytes, source_file_name: String(body.sourceFileName || "").slice(0, 500) || null, source_file_size: Number(body.sourceFileSize || 0) || null });
+    const storageProvider = body.storageProvider === "tencent_cos" ? "tencent_cos" : "supabase";
+    const cos = storageProvider === "tencent_cos" ? cosConfiguration() : null;
+    const { error: insertError } = await client.from("document_imports").insert({
+      id, content_id: contentId, created_by: user.id, expected_images: expectedImages, total_original_bytes: totalOriginalBytes,
+      source_file_name: String(body.sourceFileName || "").slice(0, 500) || null, source_file_size: Number(body.sourceFileSize || 0) || null,
+      storage_provider: storageProvider,
+      storage_bucket: cos?.privateBucket || publicBucket,
+      public_storage_bucket: cos?.publicBucket || publicBucket
+    });
     if (insertError) return importError("start", "IMPORT_JOB_CREATE_FAILED", "无法创建导入任务。", 400, { database_error: insertError.message.slice(0, 300) });
     await writeEvent(client, id, { phase: "created", message: "已创建 Word 导入任务", bytesTotal: totalOriginalBytes, details: { expected_images: expectedImages, source_file_name: String(body.sourceFileName || "").slice(0, 500) } });
-    return json({ id, uploadPrefix: `imports/${id}` });
+    return json({ id, uploadPrefix: `imports/${id}`, storageProvider, storageBucket: cos?.privateBucket || publicBucket, publicStorageBucket: cos?.publicBucket || publicBucket });
   }
 
   if (action === "list") {
@@ -222,8 +286,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (action === "cancel" || action === "fail") {
     const manifest = Array.isArray(body.manifest) ? body.manifest : job.manifest;
     const registered = await registeredAssets(client, importId);
-    await removeManifestFiles(client, manifest);
-    await removeManifestFiles(client, registered);
+    await removeManifestFiles(client, manifest, job.storage_provider);
+    await removeManifestFiles(client, registered, job.storage_provider);
+    const registeredIndexes = new Set(registered.map((asset) => asset.imageIndex));
+    const firstUnregisteredIndex = Array.from({ length: Number(job.expected_images) }, (_, index) => index + 1).find((index) => !registeredIndexes.has(index));
+    if (firstUnregisteredIndex) await removeUnregisteredInFlightImage(client, importId, firstUnregisteredIndex, job.storage_provider);
     const { error } = await client.from("document_imports").update({ status: action === "cancel" ? "cancelled" : "failed", manifest, error_message: String(body.error || "").slice(0, 2000) }).eq("id", importId);
     if (error) return importError(action, "IMPORT_CLEANUP_FAILED", "导入清理未完成，可在运行日志中查看详情。", 400, { import_id: importId, database_error: error.message.slice(0, 300) });
     await writeEvent(client, importId, { phase: action === "cancel" ? "cancelled" : "failed", severity: action === "cancel" ? "warning" : "error", message: String(body.error || (action === "cancel" ? "管理员取消导入" : "导入失败")).slice(0, 1000), details: { removed_assets: registered.length } });
@@ -233,14 +300,14 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (action === "status") {
     const assets = await registeredAssets(client, importId);
     const { data: events } = await client.from("document_import_events").select("*").eq("import_id", importId).order("created_at", { ascending: false }).limit(300);
-    return json({ job: { id: job.id, status: job.status, expectedImages: job.expected_images, sourceFileName: job.source_file_name, sourceFileSize: job.source_file_size, errorMessage: job.error_message }, assets, events: events || [] });
+    return json({ job: { id: job.id, status: job.status, expectedImages: job.expected_images, sourceFileName: job.source_file_name, sourceFileSize: job.source_file_size, errorMessage: job.error_message, storageProvider: job.storage_provider, storageBucket: job.storage_bucket, publicStorageBucket: job.public_storage_bucket }, assets, events: events || [] });
   }
 
   if (action === "retry") {
     const assets = await registeredAssets(client, importId);
     if (job.status === "completed" || job.status === "cancelled") return importError("retry", "IMPORT_NOT_RETRYABLE", "该导入任务已经结束，不能重新提交。", 400, { import_id: importId, import_status: job.status });
     if (assets.length !== Number(job.expected_images)) return importError("retry", "IMPORT_MANIFEST_INCOMPLETE", "已登记图片数量不完整，不能直接重试提交。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length });
-    const storage = await verifyImportStorage(client, importId, assets);
+    const storage = await verifyImportStorage(client, importId, assets, job.storage_provider);
     if (storage.error) return importError("retry", "STORAGE_VERIFICATION_FAILED", "存储核验服务暂时不可用，图片和任务均已保留，请稍后重试。", 503, { import_id: importId, database_error: storage.error.message.slice(0, 500), expected_objects: storage.expectedCount });
     if (storage.missingPaths.length) return importError("retry", "STORAGE_OBJECTS_MISSING", "部分已登记图片不在存储中，不能直接重试提交。", 400, { import_id: importId, expected_objects: storage.expectedCount, found_objects: storage.foundCount, missing_count: storage.missingPaths.length, missing_paths: storage.missingPaths.slice(0, 5) });
     const { error: retryError } = await client.from("document_imports").update({ status: "uploading", error_message: null }).eq("id", importId);
@@ -273,14 +340,31 @@ Deno.serve((request) => edgeHandler(request, async () => {
     const item = asset as ImportAsset;
     if (item.imageIndex > Number(job.expected_images)) return importError("register", "IMAGE_INDEX_OUT_OF_RANGE", "图片序号超出本次导入任务的范围。", 400, { import_id: importId, image_index: item.imageIndex, expected_images: job.expected_images });
     const expectedPaths = [...new Set([item.originalPath, item.displayPath, ...(item.imageVariants || []).map((variant) => variant.path)])];
-    const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", expectedPaths);
-    if (storedError || stored?.length !== expectedPaths.length) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
+    if (job.storage_provider === "tencent_cos") {
+      const configuration = cosConfiguration();
+      const promoted: string[] = [];
+      try {
+        for (const path of expectedPaths) {
+          const source = await headCosObject(configuration.privateBucket, path);
+          const copied = await copyCosObject(configuration.privateBucket, path, configuration.publicBucket, path);
+          if (source.sizeBytes !== copied.sizeBytes) throw new Error(`COS object size mismatch: ${path}`);
+          promoted.push(path);
+        }
+      } catch (error) {
+        await Promise.allSettled(promoted.map((path) => deleteCosObject(configuration.publicBucket, path)));
+        return importError("register", "COS_PROMOTION_FAILED", "当前图片已上传到私有存储，但发布副本核验失败，可直接重试。", 503, { import_id: importId, image_order: item.imageIndex, promoted_objects: promoted.length, diagnostic: error instanceof Error ? error.message.slice(0, 500) : "COS promotion failed" });
+      }
+    } else {
+      const { data: stored, error: storedError } = await client.schema("storage").from("objects").select("name").eq("bucket_id", publicBucket).in("name", expectedPaths);
+      if (storedError || stored?.length !== expectedPaths.length) return importError("register", "STORAGE_OBJECTS_MISSING", "当前图片没有完整写入存储，请重新导入。", 400, { import_id: importId, image_order: item.sortOrder, found_objects: stored?.length || 0 });
+    }
     const { error: insertError } = await client.from("document_import_assets").upsert({
       import_id: importId, media_id: item.mediaId, original_path: item.originalPath, display_path: item.displayPath,
       image_index: item.imageIndex,
       content_hash: item.hash || null, original_mime_type: item.mimeType || null, width: item.width || null, height: item.height || null,
       original_size_bytes: item.originalSize, display_size_bytes: item.displaySize, image_variants: item.imageVariants || [], sort_order: item.imageIndex * 10,
-      title: item.title, alt_text: item.altText
+      title: item.title, alt_text: item.altText, storage_provider: job.storage_provider,
+      storage_bucket: job.public_storage_bucket || publicBucket, promotion_status: "ready", promoted_at: new Date().toISOString()
     }, { onConflict: "import_id,image_index" });
     if (insertError) return importError("register", "ASSET_REGISTRATION_FAILED", "当前图片无法登记到导入任务。", 400, { import_id: importId, image_order: item.sortOrder, database_error: insertError.message.slice(0, 300) });
     await writeEvent(client, importId, { phase: "registered", message: `图片 ${item.imageIndex} 已上传并登记`, imageIndex: item.imageIndex, bytesTotal: item.originalSize, bytesUploaded: item.originalSize, details: { mime_type: item.mimeType, storage_path: item.displayPath, sort_order: item.imageIndex * 10 } });
@@ -302,7 +386,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const expectedIndexes = Array.from({ length: Number(job.expected_images) }, (_, index) => index + 1);
   const missingIndexes = expectedIndexes.filter((index) => !assets.some((asset) => asset.imageIndex === index));
   if (assets.length !== Number(job.expected_images) || assets.length > 250 || invalidAssets.length || uniqueMediaIds.size !== assets.length || missingIndexes.length) return importError("finalize", "IMPORT_MANIFEST_INCOMPLETE", "图片清单不完整，导入任务已保留，可重新选择同一份 Word 继续。", 400, { import_id: importId, expected_images: job.expected_images, uploaded_images: assets.length, missing_indexes: missingIndexes.slice(0, 20), invalid_asset_indexes: invalidAssets.map((item) => item.index).slice(0, 10), invalid_assets: invalidAssets.slice(0, 10), duplicate_media_ids: uniqueMediaIds.size !== assets.length });
-  const storage = await verifyImportStorage(client, importId, assets);
+  const storage = await verifyImportStorage(client, importId, assets, job.storage_provider);
   if (storage.error) return importError("finalize", "STORAGE_VERIFICATION_FAILED", "存储核验服务暂时不可用，图片和任务均已保留，请稍后重试。", 503, { import_id: importId, database_error: storage.error.message.slice(0, 500), expected_objects: storage.expectedCount });
   if (storage.missingPaths.length) return importError("finalize", "STORAGE_OBJECTS_MISSING", "部分图片确实未写入存储，任务已保留，可继续导入缺失图片。", 400, { import_id: importId, expected_objects: storage.expectedCount, found_objects: storage.foundCount, missing_count: storage.missingPaths.length, missing_paths: storage.missingPaths.slice(0, 5) });
 
@@ -326,11 +410,18 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const assetIds = assets.map((asset) => asset.mediaId);
   const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);
   if (countError || storedImages !== assets.length) return importError("finalize", "IMPORT_VERIFICATION_FAILED", "导入提交后的图片核对失败，请勿发布并查看运行日志。", 500, { import_id: importId, expected_images: assets.length, stored_images: storedImages || 0, body_figures: figureIds.length });
+  let stagingCleanupFailed = 0;
+  if (job.storage_provider === "tencent_cos") {
+    const configuration = cosConfiguration();
+    const paths = expectedImportStoragePaths(assets);
+    const cleanupResults = await Promise.allSettled(paths.map((path) => deleteCosObject(configuration.privateBucket, path)));
+    stagingCleanupFailed = cleanupResults.filter((result) => result.status === "rejected").length;
+  }
   const cleanup = await processStorageCleanup(client, job.content_id);
   await writeEvent(client, importId, {
     phase: "finalized",
     message: `已提交正文和 ${storedImages} 张图片`,
-    details: { body_figures: figureIds.length, stored_images: storedImages, replaced_images: data?.replaced_images || 0, cleanup_files: data?.cleanup_files || 0, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed }
+    details: { body_figures: figureIds.length, stored_images: storedImages, replaced_images: data?.replaced_images || 0, cleanup_files: data?.cleanup_files || 0, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed, staging_cleanup_failed: stagingCleanupFailed }
   });
-  return json({ ...data, body_figures: figureIds.length, stored_images: storedImages, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed });
+  return json({ ...data, body_figures: figureIds.length, stored_images: storedImages, cleanup_removed: cleanup.removed, cleanup_failed: cleanup.failed, staging_cleanup_failed: stagingCleanupFailed });
 }));

@@ -1,7 +1,8 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { deleteCosObject } from "../_shared/tencent-cos.ts";
 
 type DeleteItem = { id: string; version: number };
-type StoredRow = { storage_bucket: string | null; storage_path: string | null; original_storage_path?: string | null; display_storage_path?: string | null };
+type StoredRow = { storage_provider?: string | null; storage_bucket: string | null; storage_path: string | null; original_storage_path?: string | null; display_storage_path?: string | null; image_variants?: Array<{ path?: string }> | null };
 
 function normalizeItems(value: unknown): DeleteItem[] {
   if (!Array.isArray(value)) return [];
@@ -18,7 +19,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (!items.length) return json({ error: "No content was selected" }, 400);
 
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
-  const storageByBucket = new Map<string, string[]>();
+  const storageByBucket = new Map<string, { provider: string; bucket: string; paths: string[] }>();
   const storageWarnings: string[] = [];
 
   for (const item of items) {
@@ -41,8 +42,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
     }
 
     const [mediaResult, attachmentResult] = await Promise.all([
-      client.from("content_media").select("storage_bucket, storage_path, original_storage_path, display_storage_path").eq("content_id", item.id),
-      client.from("attachments").select("storage_bucket, storage_path").eq("content_id", item.id)
+      client.from("content_media").select("storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, image_variants").eq("content_id", item.id),
+      client.from("attachments").select("storage_provider, storage_bucket, storage_path").eq("content_id", item.id)
     ]);
     if (mediaResult.error || attachmentResult.error) {
       results.push({ id: item.id, ok: false, error: mediaResult.error?.message ?? attachmentResult.error?.message });
@@ -51,8 +52,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     for (const row of [...(mediaResult.data ?? []), ...(attachmentResult.data ?? [])] as StoredRow[]) {
       if (!row.storage_bucket) continue;
-      const paths = [row.storage_path, row.original_storage_path, row.display_storage_path].filter(Boolean) as string[];
-      storageByBucket.set(row.storage_bucket, [...(storageByBucket.get(row.storage_bucket) ?? []), ...paths]);
+      const variants = Array.isArray(row.image_variants) ? row.image_variants.flatMap((variant) => variant?.path ? [variant.path] : []) : [];
+      const paths = [row.storage_path, row.original_storage_path, row.display_storage_path, ...variants].filter(Boolean) as string[];
+      const provider = row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase";
+      const key = `${provider}:${row.storage_bucket}`;
+      const current = storageByBucket.get(key) || { provider, bucket: row.storage_bucket, paths: [] };
+      current.paths.push(...paths);
+      storageByBucket.set(key, current);
     }
 
     const { error: deleteError } = await client.from("contents").delete().eq("id", item.id).eq("version", item.version);
@@ -60,10 +66,16 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const cleanup = async () => {
-    for (const [bucket, paths] of storageByBucket.entries()) {
+    for (const { provider, bucket, paths } of storageByBucket.values()) {
       if (!paths.length) continue;
-      const { error } = await client.storage.from(bucket).remove([...new Set(paths)]);
-      if (error) storageWarnings.push(`${bucket}: ${error.message}`);
+      if (provider === "tencent_cos") {
+        const results = await Promise.allSettled([...new Set(paths)].map((path) => deleteCosObject(bucket, path)));
+        const failures = results.filter((result) => result.status === "rejected");
+        if (failures.length) storageWarnings.push(`${bucket}: ${failures.length} COS objects failed to delete`);
+      } else {
+        const { error } = await client.storage.from(bucket).remove([...new Set(paths)]);
+        if (error) storageWarnings.push(`${bucket}: ${error.message}`);
+      }
     }
   };
   const runtime = (globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
