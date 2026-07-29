@@ -20,6 +20,8 @@ const cosStorageMigration = fs.readFileSync(path.resolve(process.cwd(), "supabas
 const cosCredentialsFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/cos-credentials/index.ts"), "utf8");
 const cosSharedFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-cos.ts"), "utf8");
 const tencentApiFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-api.ts"), "utf8");
+const cosStorageFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/cos-storage/index.ts"), "utf8");
+const storageClient = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/storage.ts"), "utf8");
 const mediaMigrationFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/media-migration/index.ts"), "utf8");
 const publishContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
 const duplicateContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/duplicate-content/index.ts"), "utf8");
@@ -152,6 +154,11 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).toContain("item.migration_id = p_migration_id");
     expect(cosStorageMigration).toContain("item.status in ('verified', 'committed')");
     expect(cosStorageMigration).not.toContain("update public.content_media set storage_provider = 'tencent_cos'");
+    expect(cosStorageFunction).toContain('action === "delete-many"');
+    expect(cosStorageFunction).toContain("Promise.allSettled");
+    expect(storageClient).toContain('action: "delete-many"');
+    expect(cosSharedFunction).toContain("controller.abort()");
+    expect(cosSharedFunction).toContain("attempt <= 2");
   });
 
   it("commits publication metadata and promoted object paths in one database transaction", () => {

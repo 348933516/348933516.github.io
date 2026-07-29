@@ -83,18 +83,38 @@ async function cosAuthorization(method: string, bucket: string, key: string, ext
   };
 }
 
-export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string> }) {
+async function cosRequestOnce(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string> }, signal: AbortSignal) {
   const configuration = cosConfiguration();
   const signed = await cosAuthorization(input.method, input.bucket, input.key, input.headers);
   const response = await fetch(`https://${signed.host}${signed.path}`, {
     method: input.method,
-    headers: { Authorization: signed.authorization, ...(input.headers || {}) }
+    headers: { Authorization: signed.authorization, ...(input.headers || {}) },
+    signal
   });
   if (!response.ok && !(input.method === "DELETE" && response.status === 404)) {
     const detail = (await response.text()).slice(0, 600);
     throw new Error(`COS ${input.method} 失败（${response.status}）：${detail}`);
   }
   return response;
+}
+
+export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string> }) {
+  const timeoutMs = input.method === "PUT" ? 25_000 : 8_000;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await cosRequestOnce(input, controller.signal);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`COS ${input.method} failed`);
 }
 
 export async function headCosObject(bucket: string, key: string) {

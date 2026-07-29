@@ -43,9 +43,10 @@ export async function removeStoredObjects(input: {
   const paths = [...new Set(input.paths.filter(Boolean))];
   if (!paths.length) return;
   if (input.provider === "tencent_cos") {
-    for (const path of paths) {
+    for (let index = 0; index < paths.length; index += 20) {
+      const batch = paths.slice(index, index + 20);
       const { data, error } = await supabase.functions.invoke("cos-storage", {
-        body: { action: "delete", bucket: input.bucket, path, contentId: input.contentId }
+        body: { action: "delete-many", bucket: input.bucket, paths: batch, contentId: input.contentId }
       });
       if (error || data?.error) throw new Error(data?.error || error?.message || "COS object cleanup failed");
     }

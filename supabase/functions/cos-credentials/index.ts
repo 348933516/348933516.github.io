@@ -51,5 +51,6 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const bucket = visibility === "public" ? configuration.publicBucket : configuration.privateBucket;
-  return json(await getCosFederationToken({ name: `maplestorynk-${user.id.slice(0, 8)}`, bucket, prefix, actions: uploadActions }));
+  const actions = visibility === "private" ? [...uploadActions, "name/cos:DeleteObject"] : uploadActions;
+  return json(await getCosFederationToken({ name: `maplestorynk-${user.id.slice(0, 8)}`, bucket, prefix, actions }));
 }));
