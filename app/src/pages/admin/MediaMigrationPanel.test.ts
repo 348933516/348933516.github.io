@@ -1,41 +1,15 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { MediaStorageMigrationStatus } from "../../lib/repository";
-import { mediaMigrationReadyToCommit } from "./SystemAdmin";
 
-function migrationWith(statuses: MediaStorageMigrationStatus["items"][number]["status"][]): MediaStorageMigrationStatus {
-  return {
-    job: {
-      id: "migration-1",
-      status: "verifying",
-      total_objects: statuses.length,
-      completed_objects: statuses.filter((status) => status === "verified" || status === "committed").length,
-      total_bytes: 100,
-      completed_bytes: 100
-    },
-    items: statuses.map((status, index) => ({
-      id: index + 1,
-      source_bucket: "maplestorynk-public",
-      source_path: `media/${index + 1}.png`,
-      destination_bucket: "maplestorynk-media-1331200863",
-      destination_path: `media/${index + 1}.png`,
-      size_bytes: 50,
-      status,
-      retry_count: 0
-    }))
-  };
-}
+const systemAdmin = fs.readFileSync(path.resolve(process.cwd(), "app/src/pages/admin/SystemAdmin.tsx"), "utf8");
 
-describe("COS media migration confirmation", () => {
-  it("allows final cutover only after every object is verified", () => {
-    expect(mediaMigrationReadyToCommit(null)).toBe(false);
-    expect(mediaMigrationReadyToCommit(migrationWith([]))).toBe(false);
-    expect(mediaMigrationReadyToCommit(migrationWith(["verified", "pending"]))).toBe(false);
-    expect(mediaMigrationReadyToCommit(migrationWith(["verified", "committed"]))).toBe(true);
-  });
-
-  it("never allows a cancelled migration to cut over", () => {
-    const cancelled = migrationWith(["verified", "committed"]);
-    cancelled.job.status = "cancelled";
-    expect(mediaMigrationReadyToCommit(cancelled)).toBe(false);
+describe("COS media storage policy", () => {
+  it("keeps legacy media in Supabase and disables starting another migration", () => {
+    const panel = systemAdmin.slice(systemAdmin.indexOf("function MediaMigrationPanel"), systemAdmin.indexOf("function auditText"));
+    expect(panel).toContain("旧数据：保留，不迁移、不删除");
+    expect(panel).toContain("新上传：腾讯 COS + EdgeOne");
+    expect(panel).not.toContain("开始复制并核验");
+    expect(panel).not.toContain("确认切换并删除旧文件");
   });
 });

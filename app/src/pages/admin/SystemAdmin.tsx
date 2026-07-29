@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity, ArrowRight, CalendarDays, CheckCircle2, Database, Eye, FileClock, ImagePlus, LoaderCircle, Mail, Plus, RotateCcw,
@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { cosStorageEnabled } from "../../lib/config";
 import { randomId } from "../../lib/id";
-import { cancelMediaStorageMigration, commitMediaStorageMigration, getDocumentImportStatus, getMediaStorageMigration, listDocumentImports, registerMediaStorageMigrationItem, startMediaStorageMigration, type MediaStorageMigrationStatus } from "../../lib/repository";
+import { getDocumentImportStatus, listDocumentImports } from "../../lib/repository";
 import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { imageToWebp, uploadManagedFile } from "../../lib/uploads";
@@ -247,103 +247,9 @@ export function HistoryPage({ profile }: { profile: Profile }) {
   );
 }
 
-export function mediaMigrationReadyToCommit(status: MediaStorageMigrationStatus | null) {
-  if (!status || ["cancelled", "committing", "completed"].includes(status.job.status)) return false;
-  return Boolean(status.items.length && status.items.every((item) => item.status === "verified" || item.status === "committed"));
-}
-
 function MediaMigrationPanel() {
-  const [status, setStatus] = useState<MediaStorageMigrationStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [current, setCurrent] = useState("");
-  const [progress, setProgress] = useState(0);
-  const stopRef = useRef(false);
-
-  const run = async () => {
-    if (!cosStorageEnabled) { setMessage("COS 前端开关尚未启用。请先完成私有桶、CAM 和 Supabase Secrets 配置。"); return; }
-    setBusy(true); stopRef.current = false; setMessage("");
-    try {
-      const started = await startMediaStorageMigration();
-      let snapshot = await getMediaStorageMigration(started.id);
-      setStatus(snapshot);
-      const pending = snapshot.items.filter((item) => item.status === "pending" || item.status === "failed" || item.status === "uploading");
-      for (const [index, item] of pending.entries()) {
-        if (stopRef.current) { setMessage("迁移已暂停，已核验对象不会重复上传。"); break; }
-        setCurrent(item.source_path);
-        await supabase.from("media_storage_migration_items").update({ status: "uploading", error_message: null, updated_at: new Date().toISOString() }).eq("id", item.id);
-        try {
-          try {
-            await registerMediaStorageMigrationItem(started.id, item.id);
-          } catch {
-            const response = await fetch(publicAssetUrl(item.source_path, "supabase"));
-            if (!response.ok) throw new Error(`旧文件读取失败（HTTP ${response.status}）`);
-            const blob = await response.blob();
-            const file = new File([blob], item.destination_path.split("/").pop() || "media", { type: blob.type || "application/octet-stream" });
-            await uploadManagedFile({
-              file, path: item.destination_path, purpose: "migration", visibility: "public",
-              onProgress: (value) => setProgress(Math.round(((index + value.percent / 100) / Math.max(1, pending.length)) * 100))
-            });
-            await registerMediaStorageMigrationItem(started.id, item.id);
-          }
-        } catch (error) {
-          await supabase.from("media_storage_migration_items").update({ status: "failed", retry_count: Number(item.retry_count || 0) + 1, error_message: messageOf(error).slice(0, 1000), updated_at: new Date().toISOString() }).eq("id", item.id);
-          throw error;
-        }
-        if ((index + 1) % 5 === 0 || index === pending.length - 1) {
-          snapshot = await getMediaStorageMigration(started.id);
-          setStatus(snapshot);
-        }
-      }
-      if (!stopRef.current) {
-        snapshot = await getMediaStorageMigration(started.id);
-        setStatus(snapshot);
-        if (snapshot.items.every((item) => item.status === "verified" || item.status === "committed")) {
-          setProgress(100);
-          setMessage("全部对象已复制到 COS 并通过在线核验。数据库尚未切换，Supabase 旧文件仍完整保留。");
-        }
-      }
-    } catch (error) {
-      setMessage(messageOf(error, "媒体迁移失败；已核验对象已保留，可直接继续。"));
-    } finally { setBusy(false); setCurrent(""); }
-  };
-
-  const commit = async () => {
-    if (!status || !mediaMigrationReadyToCommit(status)) return;
-    if (!window.confirm("确认将数据库切换到腾讯云 COS，并删除已经核验成功的 Supabase 旧文件吗？此操作不可撤销。")) return;
-    setBusy(true); setMessage("");
-    try {
-      const committed = await commitMediaStorageMigration(status.job.id);
-      setStatus(await getMediaStorageMigration(status.job.id));
-      setMessage(committed.ok ? "COS 数据库切换和 Supabase 旧文件清理已完成。" : `数据库已切换，但有 ${committed.warnings.length} 批旧文件需要重试清理。`);
-    } catch (error) {
-      setMessage(messageOf(error, "数据库切换失败；Supabase 旧文件不会在未核验时删除。"));
-    } finally { setBusy(false); }
-  };
-
-  const cancel = async () => {
-    if (!status || status.job.status === "cancelled" || status.job.status === "completed") return;
-    if (!window.confirm("确认取消这次旧媒体迁移吗？Supabase 中现有图片、文档和数据库记录都会原样保留；今后可直接重新上传到 COS。")) return;
-    stopRef.current = true;
-    setBusy(true); setMessage("");
-    try {
-      await cancelMediaStorageMigration(status.job.id);
-      setStatus(await getMediaStorageMigration(status.job.id));
-      setMessage("迁移已取消。现有 Supabase 图片和文档未修改、未删除；今后的新上传继续使用腾讯 COS。");
-    } catch (error) {
-      setMessage(messageOf(error, "取消迁移失败，请刷新任务状态后重试。"));
-    } finally { setBusy(false); setCurrent(""); }
-  };
-
-  const completed = status?.items.filter((item) => item.status === "verified" || item.status === "committed").length || 0;
-  const total = status?.items.length || 0;
-  const readyToCommit = mediaMigrationReadyToCommit(status);
-  const isCancelled = status?.job.status === "cancelled";
-  const canCancel = Boolean(status && !["cancelled", "completed", "committing"].includes(status.job.status));
-  return <section className="admin-panel"><div className="panel-heading"><div><h2>COS + EdgeOne 媒体迁移</h2><p>先逐个复制和核验；全部通过后才切换数据库并删除 Supabase 旧文件。</p></div><Database /></div>
-    <div className="audit-detail"><span>任务：{status?.job.id || "尚未创建"}</span><span>状态：{status?.job.status || "待开始"}</span><span>对象：{completed}/{total || "-"}</span><span>数据：{formatBytes(Number(status?.job.completed_bytes || 0))}/{formatBytes(Number(status?.job.total_bytes || 0))}</span>{current && <span>当前：{current}</span>}{message && <span>{message}</span>}</div>
-    {busy && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div>}
-    <div className="carousel-slide-actions">{!readyToCommit && !isCancelled && status?.job.status !== "completed" && <button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续复制并核验" : "开始复制并核验"}</button>}{readyToCommit && !isCancelled && <button className="button danger" type="button" disabled={busy} onClick={commit}>{busy ? <LoaderCircle className="spin" /> : <Trash2 />}确认切换并删除旧文件</button>}{canCancel && <button className="button quiet" type="button" disabled={busy} onClick={cancel}><X />取消迁移并保留旧数据</button>}{busy && !readyToCommit && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
+  return <section className="admin-panel"><div className="panel-heading"><div><h2>媒体存储策略</h2><p>旧媒体保留在 Supabase，需要更新时重新上传；新图片、Word 文档、附件和兼容视频直接使用腾讯 COS。</p></div><Database /></div>
+    <div className="audit-detail"><span>旧数据：保留，不迁移、不删除</span><span>新上传：腾讯 COS + EdgeOne</span><span>旧媒体迁移：已停用</span></div>
   </section>;
 }
 
