@@ -660,6 +660,10 @@ export function commitMediaStorageMigration(migrationId: string) {
   return invokeMediaMigration<{ ok: boolean; warnings: string[] }>({ action: "commit", migrationId });
 }
 
+export function cancelMediaStorageMigration(migrationId: string) {
+  return invokeMediaMigration<{ ok: boolean; status: "cancelled"; alreadyCancelled: boolean }>({ action: "cancel", migrationId });
+}
+
 export async function loadAdminCategoryCounts() {
   const { data, error } = await supabase.rpc("get_admin_category_counts");
   if (error) throw error;

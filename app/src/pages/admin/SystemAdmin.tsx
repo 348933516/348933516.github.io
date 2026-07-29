@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { cosStorageEnabled } from "../../lib/config";
 import { randomId } from "../../lib/id";
-import { commitMediaStorageMigration, getDocumentImportStatus, getMediaStorageMigration, listDocumentImports, registerMediaStorageMigrationItem, startMediaStorageMigration, type MediaStorageMigrationStatus } from "../../lib/repository";
+import { cancelMediaStorageMigration, commitMediaStorageMigration, getDocumentImportStatus, getMediaStorageMigration, listDocumentImports, registerMediaStorageMigrationItem, startMediaStorageMigration, type MediaStorageMigrationStatus } from "../../lib/repository";
 import { sanitizeHtml } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { imageToWebp, uploadManagedFile } from "../../lib/uploads";
@@ -248,7 +248,8 @@ export function HistoryPage({ profile }: { profile: Profile }) {
 }
 
 export function mediaMigrationReadyToCommit(status: MediaStorageMigrationStatus | null) {
-  return Boolean(status?.items.length && status.items.every((item) => item.status === "verified" || item.status === "committed"));
+  if (!status || ["cancelled", "committing", "completed"].includes(status.job.status)) return false;
+  return Boolean(status.items.length && status.items.every((item) => item.status === "verified" || item.status === "committed"));
 }
 
 function MediaMigrationPanel() {
@@ -320,13 +321,29 @@ function MediaMigrationPanel() {
     } finally { setBusy(false); }
   };
 
+  const cancel = async () => {
+    if (!status || status.job.status === "cancelled" || status.job.status === "completed") return;
+    if (!window.confirm("确认取消这次旧媒体迁移吗？Supabase 中现有图片、文档和数据库记录都会原样保留；今后可直接重新上传到 COS。")) return;
+    stopRef.current = true;
+    setBusy(true); setMessage("");
+    try {
+      await cancelMediaStorageMigration(status.job.id);
+      setStatus(await getMediaStorageMigration(status.job.id));
+      setMessage("迁移已取消。现有 Supabase 图片和文档未修改、未删除；今后的新上传继续使用腾讯 COS。");
+    } catch (error) {
+      setMessage(messageOf(error, "取消迁移失败，请刷新任务状态后重试。"));
+    } finally { setBusy(false); setCurrent(""); }
+  };
+
   const completed = status?.items.filter((item) => item.status === "verified" || item.status === "committed").length || 0;
   const total = status?.items.length || 0;
-  const readyToCommit = mediaMigrationReadyToCommit(status) && status?.job.status !== "completed";
+  const readyToCommit = mediaMigrationReadyToCommit(status);
+  const isCancelled = status?.job.status === "cancelled";
+  const canCancel = Boolean(status && !["cancelled", "completed", "committing"].includes(status.job.status));
   return <section className="admin-panel"><div className="panel-heading"><div><h2>COS + EdgeOne 媒体迁移</h2><p>先逐个复制和核验；全部通过后才切换数据库并删除 Supabase 旧文件。</p></div><Database /></div>
     <div className="audit-detail"><span>任务：{status?.job.id || "尚未创建"}</span><span>状态：{status?.job.status || "待开始"}</span><span>对象：{completed}/{total || "-"}</span><span>数据：{formatBytes(Number(status?.job.completed_bytes || 0))}/{formatBytes(Number(status?.job.total_bytes || 0))}</span>{current && <span>当前：{current}</span>}{message && <span>{message}</span>}</div>
     {busy && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div>}
-    <div className="carousel-slide-actions">{!readyToCommit && status?.job.status !== "completed" && <button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续复制并核验" : "开始复制并核验"}</button>}{readyToCommit && <button className="button danger" type="button" disabled={busy} onClick={commit}>{busy ? <LoaderCircle className="spin" /> : <Trash2 />}确认切换并删除旧文件</button>}{busy && !readyToCommit && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
+    <div className="carousel-slide-actions">{!readyToCommit && !isCancelled && status?.job.status !== "completed" && <button className="button primary" type="button" disabled={busy} onClick={run}>{busy ? <LoaderCircle className="spin" /> : <Upload />}{status ? "继续复制并核验" : "开始复制并核验"}</button>}{readyToCommit && !isCancelled && <button className="button danger" type="button" disabled={busy} onClick={commit}>{busy ? <LoaderCircle className="spin" /> : <Trash2 />}确认切换并删除旧文件</button>}{canCancel && <button className="button quiet" type="button" disabled={busy} onClick={cancel}><X />取消迁移并保留旧数据</button>}{busy && !readyToCommit && <button className="button quiet" type="button" onClick={() => { stopRef.current = true; }}>暂停</button>}</div>
   </section>;
 }
 

@@ -89,6 +89,26 @@ Deno.serve((request) => edgeHandler(request, async () => {
     if (error) return json({ error: error.message }, 400);
     return json({ job, items: items || [] });
   }
+  if (action === "cancel") {
+    if (job.status === "completed" || job.status === "committing") {
+      return json({ error: "迁移已经进入数据库切换阶段，不能取消" }, 409);
+    }
+    if (job.status === "cancelled") return json({ ok: true, status: "cancelled", alreadyCancelled: true });
+    const { data: cancelled, error } = await client.from("media_storage_migrations")
+      .update({
+        status: "cancelled",
+        error_message: "管理员取消迁移；Supabase 源文件和数据库媒体来源均未修改。",
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", migrationId)
+      .in("status", ["pending", "copying", "verifying", "failed"])
+      .select("id,status")
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 400);
+    if (!cancelled) return json({ error: "迁移状态已变化，请刷新后重试" }, 409);
+    return json({ ok: true, status: cancelled.status, alreadyCancelled: false });
+  }
   if (action === "register") {
     const itemId = Number(body.itemId || 0);
     const { data: item } = await client.from("media_storage_migration_items").select("*").eq("id", itemId).eq("migration_id", migrationId).maybeSingle();

@@ -32,4 +32,10 @@ describe("COS media migration confirmation", () => {
     expect(mediaMigrationReadyToCommit(migrationWith(["verified", "pending"]))).toBe(false);
     expect(mediaMigrationReadyToCommit(migrationWith(["verified", "committed"]))).toBe(true);
   });
+
+  it("never allows a cancelled migration to cut over", () => {
+    const cancelled = migrationWith(["verified", "committed"]);
+    cancelled.job.status = "cancelled";
+    expect(mediaMigrationReadyToCommit(cancelled)).toBe(false);
+  });
 });

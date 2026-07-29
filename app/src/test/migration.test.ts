@@ -162,6 +162,19 @@ describe("Supabase security migration", () => {
     expect(cosSharedFunction).toContain("attempt <= 2");
   });
 
+  it("can cancel a legacy media migration without changing or deleting source media", () => {
+    expect(mediaMigrationFunction).toContain('action === "cancel"');
+    const cancelBlock = mediaMigrationFunction.slice(
+      mediaMigrationFunction.indexOf('action === "cancel"'),
+      mediaMigrationFunction.indexOf('action === "register"')
+    );
+    expect(cancelBlock).toContain('status: "cancelled"');
+    expect(cancelBlock).toContain("Supabase 源文件和数据库媒体来源均未修改");
+    expect(cancelBlock).not.toContain("commit_cos_media_migration");
+    expect(cancelBlock).not.toContain("client.storage");
+    expect(cancelBlock).not.toContain("deleteCosObject");
+  });
+
   it("commits publication metadata and promoted object paths in one database transaction", () => {
     expect(cosStorageMigration).toContain("create or replace function public.commit_content_publication");
     expect(cosStorageMigration).toContain("for promotion in select value from jsonb_array_elements");
