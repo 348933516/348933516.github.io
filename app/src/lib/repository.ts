@@ -359,7 +359,8 @@ function mapPublicSummary(row: Record<string, unknown>): ContentItem {
     title: String(row.title || ""), summary: String(row.summary || ""), bodyHtml: "", bodyJson: {}, bodyText: "", sourceRecord: "",
     status: "published", featured: Boolean(row.is_featured), sortOrder: Number(row.sort_order || 100), version: Number(row.version || 1),
     tags: [], media, attachments: [], createdAt: String(row.created_at || ""), updatedAt: String(row.updated_at || ""),
-    publishedAt: row.published_at ? String(row.published_at) : undefined, mediaCount: Number(row.media_count || media.length)
+    publishedAt: row.published_at ? String(row.published_at) : undefined,
+    mediaCount: row.media_count === null || row.media_count === undefined ? media.length : Number(row.media_count)
   };
 }
 
