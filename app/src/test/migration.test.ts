@@ -143,6 +143,10 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).toContain("first_media_provider");
     expect(cosStorageMigration).toContain("cover_provider");
     expect(cosCredentialsFunction).toContain("getCosFederationToken");
+    expect(cosCredentialsFunction).toContain('"name/cos:ListMultipartUploads"');
+    expect(cosCredentialsFunction).toContain('"name/cos:ListParts"');
+    expect(cosCredentialsFunction).toContain('"name/cos:GetObject"');
+    expect(cosCredentialsFunction).toContain('"name/cos:DeleteObject"');
     expect(cosSharedFunction).toContain("GetFederationToken");
     expect(cosSharedFunction).toContain("region: configuration.region");
     expect(tencentApiFunction).toContain('"X-TC-Region": input.region');

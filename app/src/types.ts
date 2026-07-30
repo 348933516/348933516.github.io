@@ -21,6 +21,7 @@ export interface SiteSettings {
   heroLogoUrl?: string;
   pageBackgroundUrl?: string;
   tileBackgroundUrl?: string;
+  faviconUrl?: string;
   carouselEnabled: boolean;
   carouselAutoplay: boolean;
   carouselIntervalMs: number;

@@ -21,6 +21,7 @@ import {
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { clearEditorRecovery, readEditorRecovery, saveEditorRecovery } from "../../lib/editorRecovery";
 import { EdgeFunctionError, invokeEdgeFunction } from "../../lib/edgeFunctions";
+import { CosUploadError } from "../../lib/cosUpload";
 import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
@@ -484,6 +485,51 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
   return { items: withUrls, total: media.count || 0 };
 }
 
+function CosUploadProbe({ contentId, profile, onMessage }: { contentId: string; profile: Profile; onMessage(value: string, error?: boolean): void }) {
+  const [running, setRunning] = useState(false);
+  const [stage, setStage] = useState("");
+  if (!cosStorageEnabled || !["super_admin", "editor"].includes(profile.role)) return null;
+
+  const run = async () => {
+    if (running) return;
+    setRunning(true);
+    const probeId = randomId();
+    const probes = [
+      { name: "PutObject", file: new Blob(["maplestorynk-cos-probe"], { type: "application/octet-stream" }) },
+      { name: "MultipartUpload", file: new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "application/octet-stream" }) }
+    ];
+    const paths: string[] = [];
+    try {
+      for (const [index, probe] of probes.entries()) {
+        setStage(`${probe.name} ${index + 1}/${probes.length}`);
+        const path = `drafts/${contentId}/probes/${probeId}-${index + 1}.bin`;
+        const stored = await uploadManagedFile({ file: probe.file, path, purpose: "content-media", contentId, visibility: "private" });
+        paths.push(stored.path);
+        const verified = await invokeEdgeFunction<{ sizeBytes: number }>("cos-storage", { action: "head", bucket: stored.bucket, path: stored.path, contentId }, "probe-head");
+        if (Number(verified.sizeBytes) !== probe.file.size) throw new Error(`${probe.name} object size verification failed`);
+      }
+      await removeStoredObjects({ provider: "tencent_cos", bucket: cosPrivateBucket, paths, contentId });
+      paths.length = 0;
+      onMessage("COS 上传检查通过：普通上传、分片上传、对象核验和清理均正常。");
+      void reportRuntimeLog({ source: "cos-upload-probe", severity: "info", message: "COS upload probe passed", context: { bucket: cosPrivateBucket, smallBytes: probes[0].file.size, multipartBytes: probes[1].file.size } });
+    } catch (error) {
+      const context = error instanceof CosUploadError
+        ? { probe: true, fileSize: probes[1].file.size, ...error.details }
+        : error instanceof EdgeFunctionError
+        ? error.toLogContext({ probe: true, bucket: cosPrivateBucket })
+        : { probe: true, bucket: cosPrivateBucket };
+      void reportRuntimeLog({ source: "cos-upload-probe", message: messageOf(error, "COS 上传检查失败"), error, context });
+      onMessage(messageOf(error, "COS 上传检查失败"), true);
+    } finally {
+      if (paths.length) void removeStoredObjects({ provider: "tencent_cos", bucket: cosPrivateBucket, paths, contentId });
+      setRunning(false);
+      setStage("");
+    }
+  };
+
+  return <div className="media-probe-actions"><button className="button quiet" type="button" disabled={running} onClick={run}>{running ? <LoaderCircle className="spin" /> : <Gauge />}{running ? `检查中 ${stage}` : "检查 COS 上传"}</button></div>;
+}
+
 export function ContentMediaManager({ contentId, profile, onChanged }: { contentId: string; profile: Profile; onChanged(): void | Promise<void> }) {
   const client = useQueryClient(); const [filter, setFilter] = useState<MediaFilter>("gallery"); const [page, setPage] = useState(1); const mediaKey = ["admin-media", contentId, filter, page] as const; const records = useQuery({ queryKey: mediaKey, queryFn: () => loadMediaRecords(contentId, page, filter), enabled: Boolean(contentId), placeholderData: (previous) => previous });
   const [progress, setProgress] = useState(0); const [uploadStage, setUploadStage] = useState(""); const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const controller = useRef<AbortController | null>(null); const [dragging, setDragging] = useState<string | null>(null); const [variantBusyId, setVariantBusyId] = useState<string | null>(null);
@@ -524,7 +570,9 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       notify(`已上传 ${files.length} 个文件。`);
       await refresh();
     } catch (error) {
-      const context = error instanceof EdgeFunctionError
+      const context = error instanceof CosUploadError
+        ? { contentId, fileCount: files.length, provider: "tencent_cos", fileSize: files.reduce((total, file) => total + file.size, 0), ...error.details }
+        : error instanceof EdgeFunctionError
         ? error.toLogContext({ contentId, fileCount: files.length, provider: cosStorageEnabled ? "tencent_cos" : "supabase" })
         : { contentId, fileCount: files.length, provider: cosStorageEnabled ? "tencent_cos" : "supabase" };
       void reportRuntimeLog({ source: error instanceof EdgeFunctionError ? error.functionName : "upload", message: messageOf(error, "上传失败"), error, context });
@@ -604,7 +652,7 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
   if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
   const total = records.data?.total || 0; const pages = Math.max(1, Math.ceil(total / mediaPageSize));
   const legacyOnPage = records.data?.items.filter((row) => mediaProvider(row).key === "supabase" && Boolean(row.storage_path)).length || 0;
-  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>新文件保存到腾讯云 COS；视频需为浏览器可播放的 MP4 或 WebM</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
+  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><CosUploadProbe contentId={contentId} profile={profile} onMessage={notify} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>新文件保存到腾讯云 COS；视频需为浏览器可播放的 MP4 或 WebM</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
     {legacyOnPage > 0 && <div className="media-source-banner warning"><Database /><span><strong>当前页有 {legacyOnPage} 个旧 Supabase 文件</strong><small>这些文件不会经过腾讯云加速。Word 正文请重新导入，普通媒体请重新上传。</small></span></div>}
     <div className="media-filter-tabs">{(["gallery", "document", "video", "attachments"] as MediaFilter[]).map((key) => <button type="button" className={filter === key ? "active" : ""} key={key} onClick={() => { setFilter(key); setPage(1); }}>{({ gallery: "图库", document: "正文图片", video: "视频", attachments: "附件" } as Record<MediaFilter, string>)[key]}</button>)}</div>
     {filter !== "attachments" ? <div className="media-library-grid">{records.data?.items.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} draggable={filter === "gallery" && canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onGenerateVariants={() => generateVariants(row)} variantBusy={variantBusyId === row.id} onMessage={notify} />)}{!records.data?.items.length && <AdminEmpty icon={<ImagePlus />} title="当前分类暂无媒体" detail="可从上方选择本地文件上传。" />}</div>

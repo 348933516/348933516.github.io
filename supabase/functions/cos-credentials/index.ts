@@ -8,6 +8,7 @@ const uploadActions = [
   "name/cos:PutObject",
   "name/cos:PostObject",
   "name/cos:InitiateMultipartUpload",
+  "name/cos:ListMultipartUploads",
   "name/cos:UploadPart",
   "name/cos:CompleteMultipartUpload",
   "name/cos:AbortMultipartUpload",
@@ -57,7 +58,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const bucket = visibility === "public" ? configuration.publicBucket : configuration.privateBucket;
-  const actions = visibility === "private" ? [...uploadActions, "name/cos:DeleteObject"] : uploadActions;
+  const actions = visibility === "private"
+    ? [...uploadActions, "name/cos:GetObject", "name/cos:DeleteObject"]
+    : uploadActions;
   try {
     return json(await getCosFederationToken({ name: `maplestorynk-${user.id.slice(0, 8)}`, bucket, prefix, actions }));
   } catch (error) {

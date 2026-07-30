@@ -28,7 +28,7 @@ qcs::cos:ap-guangzhou:uid/1331200863:maplestorynk-media-1331200863/*
 qcs::cos:ap-guangzhou:uid/1331200863:maplestorynk-private-1331200863/*
 ```
 
-The COS resource `uid` is the COS APPID, not the CAM main-account ID. Required COS actions are object read/head, upload, multipart upload, copy and delete. Attach Tencent's managed `QcloudSTSFullAccess` policy so the Edge Function can issue 30-minute path-scoped browser credentials; `name/sts:GetFederationToken` is not a valid action inside a custom COS policy. Do not grant bucket policy, CAM administration or console access.
+The COS resource `uid` is the COS APPID, not the CAM main-account ID. Required COS actions for both buckets are `PutObject`, `PostObject`, `InitiateMultipartUpload`, `ListMultipartUploads`, `ListParts`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `HeadObject`, `GetObject`, and `DeleteObject`. Attach Tencent's managed `QcloudSTSFullAccess` policy so the Edge Function can issue 30-minute path-scoped browser credentials; `name/sts:GetFederationToken` is not a valid action inside a custom COS policy. Do not grant bucket policy, CAM administration or console access.
 
 ## Secrets
 

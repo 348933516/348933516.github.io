@@ -48,7 +48,7 @@ function storageUrl(bucket?: string | null, path?: string | null, external?: str
   return publicStorageUrl({ provider, bucket, path, externalUrl: external });
 }
 
-function mapSettings(row: Record<string, unknown> | null): SiteSettings {
+export function mapSettings(row: Record<string, unknown> | null): SiteSettings {
   if (!row) return fallbackSettings;
   return {
     brandTitle: String(row.brand_title || fallbackSettings.brandTitle),
@@ -61,6 +61,7 @@ function mapSettings(row: Record<string, unknown> | null): SiteSettings {
     heroLogoUrl: storedAssetUrl(row.hero_logo_path as string, row.hero_logo_provider as string),
     pageBackgroundUrl: storedAssetUrl(row.page_background_path as string, row.page_background_provider as string),
     tileBackgroundUrl: storedAssetUrl(row.tile_background_path as string, row.tile_background_provider as string),
+    faviconUrl: storedAssetUrl(row.favicon_path as string, row.favicon_provider as string),
     carouselEnabled: Boolean(row.carousel_enabled ?? fallbackSettings.carouselEnabled),
     carouselAutoplay: Boolean(row.carousel_autoplay ?? fallbackSettings.carouselAutoplay),
     carouselIntervalMs: Number(row.carousel_interval_ms || fallbackSettings.carouselIntervalMs),
@@ -309,6 +310,7 @@ async function loadLegacyPublicData(): Promise<PublicData> {
     heroLogoUrl: safeUrl(String(appearance.heroLogo || "")),
     pageBackgroundUrl: safeUrl(String(appearance.pageBg || "")),
     tileBackgroundUrl: safeUrl(String(appearance.tileBg || "")),
+    faviconUrl: safeUrl(String(appearance.favicon || "")),
     carouselEnabled: fallbackSettings.carouselEnabled,
     carouselAutoplay: fallbackSettings.carouselAutoplay,
     carouselIntervalMs: fallbackSettings.carouselIntervalMs,

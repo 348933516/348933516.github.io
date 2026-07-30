@@ -7,6 +7,9 @@ import { fallbackPublicData, loadPublicHome, readPublicHomeCache } from "./lib/r
 import { SiteLayout } from "./components/SiteLayout";
 import { CategoryPage, DetailPage, HomePage, NotFoundPage } from "./pages/PublicPages";
 import { installGlobalRuntimeLogging } from "./lib/runtimeLogs";
+import { syncSiteFavicon } from "./lib/favicon";
+import { supabase } from "./lib/supabase";
+import { storedAssetUrl } from "./lib/storage";
 
 function lazyWithRefresh(loader: () => Promise<{ default: ComponentType }>, key: string) {
   return lazy(async () => {
@@ -32,6 +35,21 @@ const LoginPage = lazyWithRefresh(() => import("./pages/LoginPage").then((module
 export function App() {
   useEffect(() => installGlobalRuntimeLogging(), []);
   const location = useLocation();
+  const favicon = useQuery({
+    queryKey: ["site-favicon"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("site_settings").select("favicon_path,favicon_provider").eq("id", "main").maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 5 * 60_000,
+    retry: 1
+  });
+  useEffect(() => {
+    const path = favicon.data?.favicon_path ? String(favicon.data.favicon_path) : "";
+    const provider = String(favicon.data?.favicon_provider || "supabase");
+    syncSiteFavicon(path ? storedAssetUrl(path, provider) : undefined);
+  }, [favicon.data]);
   const publicRoute = !location.pathname.startsWith("/admin") && location.pathname !== "/login";
   const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, enabled: publicRoute, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
   const data = site.error

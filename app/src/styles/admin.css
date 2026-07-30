@@ -465,6 +465,7 @@
 .upload-progress { border-color: var(--admin-line); background: #eeeeeb; }
 .upload-progress span,
 .asset-upload-progress span { background: #d9a5a5; }
+.media-probe-actions { display: flex; justify-content: flex-end; margin-top: -8px; }
 .media-filter-tabs button { border-color: var(--admin-line); color: var(--admin-muted); background: #fff; }
 .media-filter-tabs button.active { border-color: #d5a4a4; color: #7f3030; background: var(--admin-accent-soft); }
 .media-library-grid { gap: 18px; }
@@ -512,6 +513,7 @@
 .setting-asset-row { border-color: var(--admin-line); }
 .setting-asset-row > img,
 .setting-asset-row > span { border-color: var(--admin-line); background: #efefec; }
+.setting-asset-row > img.favicon-preview { object-fit: contain; padding: 12px; }
 .setting-asset-row p { color: var(--admin-muted); }
 .site-mini-preview { border-color: #34363c; box-shadow: 0 18px 42px rgba(25, 26, 30, .12); }
 

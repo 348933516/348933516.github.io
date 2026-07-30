@@ -5,6 +5,7 @@ import {
   Save, Search, Settings, ShieldCheck, Trash2, Upload, UserPlus, Users, X
 } from "lucide-react";
 import { cosStorageEnabled } from "../../lib/config";
+import { cropFaviconToPng } from "../../lib/favicon";
 import { randomId } from "../../lib/id";
 import { getDocumentImportStatus, listDocumentImports } from "../../lib/repository";
 import { sanitizeHtml } from "../../lib/sanitize";
@@ -334,12 +335,16 @@ export function SettingsPage({ profile }: { profile: Profile }) {
   if (settings.error) return <div className="admin-error"><Settings /><h1>首页设置读取失败</h1><p>{messageOf(settings.error)}</p></div>;
   if (!settings.data) return <AdminLoading label="正在读取首页设置" />;
 
-  const refresh = async () => {
-    await Promise.all([
+  const refresh = async (includePublic = true) => {
+    const queries = [
       client.invalidateQueries({ queryKey: ["admin-settings"] }),
+      client.invalidateQueries({ queryKey: ["site-favicon"] })
+    ];
+    if (includePublic) queries.push(
       client.invalidateQueries({ queryKey: ["public-home"] }),
       client.invalidateQueries({ queryKey: ["preview-carousel-slides"] })
-    ]);
+    );
+    await Promise.all(queries);
   };
   const notify = (value: string, error = false) => {
     setMessage(value);
@@ -364,12 +369,13 @@ export function SettingsPage({ profile }: { profile: Profile }) {
     }
   };
 
-  const assets: Array<[string, string, string]> = [
+  const assets: Array<[string, string, string, boolean?]> = [
     ["top_logo_path", "顶部 Logo", "显示在网站导航栏"],
     ["hero_logo_path", "首页 Logo", "显示在首页标题上方"],
     ["page_background_path", "全站背景", "连续覆盖主视觉、类目与页脚"],
     ["tile_background_path", "类目默认背景", "类目未单独上传封面时使用"]
   ];
+  assets.push(["favicon_path", "浏览器标签图标", "自动居中裁剪为 32x32 PNG，删除后恢复默认图标", true]);
 
   return (
     <div className="admin-page-stack">
@@ -399,7 +405,7 @@ export function SettingsPage({ profile }: { profile: Profile }) {
         <section className="admin-panel settings-section">
           <div className="panel-heading"><div><h2>界面图片</h2><p>支持上传、替换和清除，不再提供内置素材。</p></div></div>
           <div className="setting-assets">
-            {assets.map(([field, label, detail]) => <SettingAsset key={field} field={field} label={label} detail={detail} current={String(settings.data[field] || "")} provider={String(settings.data[field.replace(/_path$/, "_provider")] || "supabase")} userId={profile.id} onSaved={() => { notify(`${label}已更新。`); refresh(); }} onMessage={notify} />)}
+            {assets.map(([field, label, detail, favicon]) => <SettingAsset key={field} field={field} label={label} detail={detail} favicon={favicon} current={String(settings.data[field] || "")} provider={String(settings.data[field.replace(/_path$/, "_provider")] || "supabase")} userId={profile.id} onSaved={(includePublic = true) => { notify(`${label}已更新。`); refresh(includePublic); }} onMessage={notify} />)}
           </div>
         </section>
       )}
@@ -415,6 +421,7 @@ function SettingAsset({
   detail,
   current,
   provider,
+  favicon = false,
   userId,
   onSaved,
   onMessage
@@ -424,8 +431,9 @@ function SettingAsset({
   detail: string;
   current: string;
   provider: string;
+  favicon?: boolean;
   userId: string;
-  onSaved(): void;
+  onSaved(includePublic?: boolean): void;
   onMessage(value: string, error?: boolean): void;
 }) {
   const [progress, setProgress] = useState(0);
@@ -434,13 +442,13 @@ function SettingAsset({
   const upload = async (file: File) => {
     try {
       if (!file.type.startsWith("image/")) throw new Error("请选择图片文件");
-      const prepared = await imageToWebp(file);
+      const prepared = favicon ? await cropFaviconToPng(file) : await imageToWebp(file);
       const path = cosStorageEnabled ? `site/settings/${field}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}` : `settings/${field}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
       const stored = await uploadManagedFile({ file: prepared, path, purpose: "site-asset", visibility: "public", onProgress: (value) => setProgress(value.percent) });
       const providerField = field.replace(/_path$/, "_provider");
       const { error } = await supabase.from("site_settings").update({ [field]: stored.path, [providerField]: stored.provider, updated_by: userId }).eq("id", "main");
       if (error) throw error;
-      await onSaved();
+      await onSaved(!favicon);
     } catch (error) {
       onMessage(messageOf(error, "图片上传失败"), true);
     } finally {
@@ -452,12 +460,12 @@ function SettingAsset({
     if (!window.confirm(`确定清除${label}吗？`)) return;
     const { error } = await supabase.from("site_settings").update({ [field]: null, updated_by: userId }).eq("id", "main");
     if (error) onMessage(error.message, true);
-    else onSaved();
+    else onSaved(!favicon);
   };
 
   return (
     <article className="setting-asset-row">
-      {preview ? <img src={preview} alt="" /> : <span><ImagePlus /></span>}
+      {preview ? <img className={favicon ? "favicon-preview" : undefined} src={preview} alt="" /> : <span><ImagePlus /></span>}
       <div><strong>{label}</strong><p>{detail}</p><small>{current || "尚未设置"}</small></div>
       {progress > 0 ? <div className="asset-upload-progress"><span style={{ width: `${progress}%` }} /><strong>{progress}%</strong></div> : <div className="setting-asset-actions"><label className="button quiet upload-button"><Upload />替换<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file); event.target.value = ""; }} /></label>{current && <button className="icon-only danger" onClick={clear}><Trash2 /></button>}</div>}
     </article>
