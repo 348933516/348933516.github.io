@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   credentials: vi.fn(),
-  uploadFile: vi.fn()
+  uploadFile: vi.fn(),
+  authorizationOptions: null as null | ((options: { Action?: string }, callback: (credentials: unknown) => void) => void)
 }));
 
 vi.mock("./edgeFunctions", async () => {
@@ -14,6 +15,9 @@ vi.mock("cos-js-sdk-v5", () => ({
   default: class {
     uploadFile = mocks.uploadFile;
     cancelTask = vi.fn();
+    constructor(options: { getAuthorization: typeof mocks.authorizationOptions }) {
+      mocks.authorizationOptions = options.getAuthorization;
+    }
   }
 }));
 
@@ -31,6 +35,7 @@ beforeEach(async () => {
     region: "ap-guangzhou",
     prefix: "drafts/22222222-2222-4222-8222-222222222222/"
   });
+  mocks.authorizationOptions = null;
 });
 
 describe("COS upload diagnostics", () => {
@@ -73,5 +78,34 @@ describe("COS upload diagnostics", () => {
     expect(mocks.uploadFile).toHaveBeenCalledTimes(2);
     expect(mocks.credentials).toHaveBeenCalledTimes(2);
     expect(stored).toMatchObject({ provider: "tencent_cos", etag: "etag-2" });
+  });
+
+  it("uses the SDK authorization action when the SDK error omits errorNode", async () => {
+    const { uploadToCos } = await import("./cosUpload");
+    mocks.uploadFile.mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        mocks.authorizationOptions?.({ Action: "name/cos:ListMultipartUploads" }, () => resolve());
+      });
+      throw { statusCode: 403, error: { Code: "AccessDenied", RequestId: "bucket-list-denied" } };
+    });
+
+    const error = await uploadToCos({
+      file: new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "video/mp4" }),
+      path: "drafts/22222222-2222-4222-8222-222222222222/video.mp4",
+      scope: {
+        purpose: "content-media",
+        contentId: "22222222-2222-4222-8222-222222222222",
+        prefix: "drafts/22222222-2222-4222-8222-222222222222/",
+        visibility: "private"
+      }
+    }).catch((value) => value);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.details).toMatchObject({
+      operation: "ListMultipartUploads",
+      cosRequestId: "bucket-list-denied",
+      retryCount: 1
+    });
+    expect(mocks.uploadFile).toHaveBeenCalledTimes(2);
   });
 });

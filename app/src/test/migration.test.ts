@@ -19,6 +19,7 @@ const saveContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabas
 const cosStorageMigration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260729010000_tencent_cos_storage.sql"), "utf8");
 const cosCredentialsFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/cos-credentials/index.ts"), "utf8");
 const cosSharedFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-cos.ts"), "utf8");
+const cosPolicyFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/cos-policy.ts"), "utf8");
 const tencentApiFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-api.ts"), "utf8");
 const cosStorageFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/cos-storage/index.ts"), "utf8");
 const storageClient = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/storage.ts"), "utf8");
@@ -148,6 +149,11 @@ describe("Supabase security migration", () => {
     expect(cosCredentialsFunction).toContain('"name/cos:GetObject"');
     expect(cosCredentialsFunction).toContain('"name/cos:DeleteObject"');
     expect(cosSharedFunction).toContain("GetFederationToken");
+    expect(cosCredentialsFunction).toContain("bucketActions");
+    expect(cosCredentialsFunction).toContain("objectActions: actions");
+    expect(cosSharedFunction).toContain("buildCosFederationPolicy");
+    expect(cosPolicyFunction).toContain(":${input.bucket}/${input.prefix}*");
+    expect(cosPolicyFunction).toContain(":${input.bucket}/*");
     expect(cosSharedFunction).toContain("region: configuration.region");
     expect(tencentApiFunction).toContain('"X-TC-Region": input.region');
     expect(cosCredentialsFunction).toContain("drafts/${contentId}/");

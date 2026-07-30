@@ -8,13 +8,13 @@ const uploadActions = [
   "name/cos:PutObject",
   "name/cos:PostObject",
   "name/cos:InitiateMultipartUpload",
-  "name/cos:ListMultipartUploads",
   "name/cos:UploadPart",
   "name/cos:CompleteMultipartUpload",
   "name/cos:AbortMultipartUpload",
   "name/cos:ListParts",
   "name/cos:HeadObject"
 ];
+const bucketActions = ["name/cos:ListMultipartUploads"];
 
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
@@ -62,7 +62,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
     ? [...uploadActions, "name/cos:GetObject", "name/cos:DeleteObject"]
     : uploadActions;
   try {
-    return json(await getCosFederationToken({ name: `maplestorynk-${user.id.slice(0, 8)}`, bucket, prefix, actions }));
+    return json(await getCosFederationToken({
+      name: `maplestorynk-${user.id.slice(0, 8)}`,
+      bucket,
+      prefix,
+      objectActions: actions,
+      bucketActions
+    }));
   } catch (error) {
     const detail = error instanceof Error ? error.message : "";
     const forbidden = /forbidden|unauthorized|authfailure|permission/i.test(detail);

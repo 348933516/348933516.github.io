@@ -101,7 +101,12 @@ export function isCosAuthorizationFailure(error: unknown) {
   return status === 401 || status === 403 || /accessdenied|unauthorized|authfailure|invalidaccesskey|signature/i.test(`${code} ${message}`);
 }
 
-export function toCosUploadError(error: unknown, input: { bucket: string; stage: CosUploadErrorDetails["stage"]; retryCount: number }) {
+export function toCosUploadError(error: unknown, input: {
+  bucket: string;
+  stage: CosUploadErrorDetails["stage"];
+  retryCount: number;
+  operation?: string;
+}) {
   if (error instanceof CosUploadError) return error;
   const statusValue = Number(readErrorField(error, ["statusCode", "status", "httpStatus"]));
   const httpStatus = Number.isFinite(statusValue) && statusValue > 0 ? statusValue : null;
@@ -115,7 +120,10 @@ export function toCosUploadError(error: unknown, input: { bucket: string; stage:
     multipartUpload: "UploadPart",
     multipartComplete: "CompleteMultipartUpload"
   };
-  const operation = readErrorField(error, ["operation", "Operation", "action"]) || operationByNode[errorNode] || (input.stage === "multipart" ? "multipart-upload" : input.stage === "complete" ? "CompleteMultipartUpload" : "PutObject");
+  const operation = readErrorField(error, ["operation", "Operation", "action"])
+    || operationByNode[errorNode]
+    || input.operation
+    || (input.stage === "multipart" ? "multipart-upload" : input.stage === "complete" ? "CompleteMultipartUpload" : "PutObject");
   const rawMessage = error instanceof Error ? error.message : String(error || "COS upload failed");
   const nextStep = isCosAuthorizationFailure(error)
     ? "请检查私有桶 CAM 权限及 STS 分片上传动作后重试。"
@@ -159,6 +167,7 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
   const { default: CosClient } = await import("cos-js-sdk-v5");
   let lastCredentials = initialCredentials;
   let authorizationError: unknown = null;
+  let lastOperation = "";
   const client = new CosClient({
     ChunkRetryTimes: 4,
     ChunkSize: 5 * 1024 * 1024,
@@ -166,7 +175,10 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
     FileParallelLimit: 1,
     ChunkParallelLimit: 2,
     ProgressInterval: 250,
-    getAuthorization: async (_options, callback) => {
+    getAuthorization: async (options, callback) => {
+      const runtimeOptions = options as typeof options & { Action?: unknown };
+      const action = typeof runtimeOptions.Action === "string" ? runtimeOptions.Action : "";
+      if (/^name\/cos:[A-Za-z]+$/.test(action)) lastOperation = action.slice("name/cos:".length);
       try {
         const value = await credentialsFor(scope);
         lastCredentials = value;
@@ -177,7 +189,11 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
       }
     }
   });
-  return { client, getAuthorizationError: () => authorizationError };
+  return {
+    client,
+    getAuthorizationError: () => authorizationError,
+    getLastOperation: () => lastOperation
+  };
 }
 
 export async function uploadToCos(input: {
@@ -197,7 +213,7 @@ export async function uploadToCos(input: {
     if (credentials.bucket !== expectedBucket || credentials.region !== cosRegion) {
       throw new CosUploadError("COS credentials target does not match the requested bucket", { operation: "credentials", httpStatus: null, cosRequestId: null, bucket: credentials.bucket, stage: "credentials", retryCount, code: "COS_TARGET_MISMATCH" });
     }
-    const { client, getAuthorizationError } = await createClient(input.scope, credentials);
+    const { client, getAuthorizationError, getLastOperation } = await createClient(input.scope, credentials);
     let taskId = "";
     const abort = () => { if (taskId) client.cancelTask(taskId); };
     input.signal?.addEventListener("abort", abort, { once: true });
@@ -235,7 +251,12 @@ export async function uploadToCos(input: {
         continue;
       }
       const stage = input.file.size > 5 * 1024 * 1024 ? "multipart" : "upload";
-      throw toCosUploadError(actualError, { bucket: credentials.bucket, stage, retryCount });
+      throw toCosUploadError(actualError, {
+        bucket: credentials.bucket,
+        stage,
+        retryCount,
+        operation: getLastOperation()
+      });
     } finally {
       input.signal?.removeEventListener("abort", abort);
     }

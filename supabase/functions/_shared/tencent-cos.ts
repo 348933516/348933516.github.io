@@ -1,4 +1,5 @@
 import { callTencentApi } from "./tencent-api.ts";
+import { buildCosFederationPolicy, type CosFederationPolicyInput } from "./cos-policy.ts";
 
 const encoder = new TextEncoder();
 
@@ -32,9 +33,8 @@ export function cosConfiguration() {
   return { secretId, secretKey, appId, ownerUin, region, publicBucket, privateBucket, mediaBaseUrl };
 }
 
-export async function getCosFederationToken(input: { name: string; bucket: string; prefix: string; actions: string[] }) {
+export async function getCosFederationToken(input: CosFederationPolicyInput & { name: string }) {
   const configuration = cosConfiguration();
-  const resource = `qcs::cos:${configuration.region}:uid/${configuration.ownerUin}:${input.bucket}/${input.prefix}*`;
   const response = await callTencentApi({
     service: "sts",
     host: "sts.tencentcloudapi.com",
@@ -46,7 +46,7 @@ export async function getCosFederationToken(input: { name: string; bucket: strin
     payload: {
       Name: input.name.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 32),
       DurationSeconds: 1800,
-      Policy: JSON.stringify({ version: "2.0", statement: [{ effect: "allow", action: input.actions, resource: [resource] }] })
+      Policy: JSON.stringify(buildCosFederationPolicy(input, configuration))
     }
   });
   const credentials = response.Credentials as Record<string, unknown> | undefined;
