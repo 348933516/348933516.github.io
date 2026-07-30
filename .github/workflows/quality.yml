@@ -11,6 +11,8 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_OUTPUT_DIR: ${{ runner.temp }}/maplestorynk-release
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -22,11 +24,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - run: pnpm build
-      - name: Verify preview artifacts
-        run: |
-          test -s preview/index.html
-          test -s preview/manifest.webmanifest
-          grep -q '/preview/assets/' preview/index.html
-          find preview/assets -maxdepth 1 -type f -name '*.js' -size +0c | grep -q .
-          find preview/assets -maxdepth 1 -type f -name '*.css' -size +0c | grep -q .
+      - run: pnpm build:release
+      - name: Verify formal and preview artifacts
+        run: pnpm verify:release
+      - name: Test guarded release publishing
+        run: pnpm test:release
+      - name: Ensure builds do not modify tracked files
+        run: git diff --exit-code

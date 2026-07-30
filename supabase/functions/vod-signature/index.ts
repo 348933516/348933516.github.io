@@ -1,4 +1,5 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { functionError } from "../_shared/function-errors.ts";
 
 function bytesToBase64(bytes: Uint8Array) {
   let value = "";
@@ -8,12 +9,17 @@ function bytesToBase64(bytes: Uint8Array) {
 
 Deno.serve((request) => edgeHandler(request, async () => {
   await requireRole(request, ["super_admin", "editor", "uploader"]);
+  if (Deno.env.get("TENCENT_VOD_ENABLED") !== "true") {
+    return json(functionError("VOD_DISABLED", "VOD is disabled; upload compatible videos to COS", "signature"), 409);
+  }
   const secretId = Deno.env.get("TENCENT_VOD_SECRET_ID") || "";
   const secretKey = Deno.env.get("TENCENT_VOD_SECRET_KEY") || "";
   const appId = Number(Deno.env.get("TENCENT_VOD_APP_ID") || 0);
   const subAppId = Number(Deno.env.get("TENCENT_VOD_SUB_APP_ID") || 0);
   const procedure = Deno.env.get("TENCENT_VOD_PROCEDURE") || "";
-  if (!secretId || !secretKey || !appId || !procedure) return json({ error: "腾讯云点播尚未配置，请先设置 VOD Secrets 和 HLS 任务流" }, 503);
+  if (!secretId || !secretKey || !appId || !procedure) {
+    return json(functionError("VOD_CONFIG_MISSING", "VOD configuration is incomplete", "signature"), 503);
+  }
   const currentTime = Math.floor(Date.now() / 1000);
   const values = [
     `secretId=${encodeURIComponent(secretId)}`,

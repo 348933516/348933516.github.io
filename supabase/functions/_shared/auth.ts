@@ -45,8 +45,20 @@ export async function edgeHandler(request: Request, action: () => Promise<Respon
   try {
     return await action();
   } catch (error) {
-    if (error instanceof Response) return new Response(error.body, { status: error.status, headers: corsHeaders });
-    console.error(error);
-    return json({ error: error instanceof Error ? error.message : "Unexpected error" }, 500);
+    if (error instanceof Response) {
+      const status = error.status || 500;
+      const code = status === 401 ? "AUTH_REQUIRED" : status === 403 ? "ROLE_FORBIDDEN" : status === 404 ? "NOT_FOUND" : "EDGE_REQUEST_FAILED";
+      let message = status === 401 ? "登录已失效，请重新登录。" : status === 403 ? "当前账号没有执行此操作的权限。" : "请求处理失败。";
+      try {
+        const detail = (await error.clone().text()).trim();
+        if (detail && !["Unauthorized", "Forbidden"].includes(detail)) message = detail.slice(0, 500);
+      } catch {
+        // Keep the safe status-specific message.
+      }
+      return json({ error: message, code, stage: "authorization", request_id: crypto.randomUUID() }, status);
+    }
+    const requestId = crypto.randomUUID();
+    console.error(`[${requestId}]`, error);
+    return json({ error: "The server could not complete the request.", code: "EDGE_FUNCTION_UNEXPECTED", request_id: requestId }, 500);
   }
 }

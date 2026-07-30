@@ -1,5 +1,6 @@
 import { cosStorageEnabled, privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "./config";
 import { supabase } from "./supabase";
+import { EdgeFunctionError } from "./edgeFunctions";
 
 export interface UploadProgress {
   loaded: number;
@@ -8,6 +9,14 @@ export interface UploadProgress {
 }
 
 export type ManagedUploadPurpose = "content-media" | "document-import" | "site-asset" | "migration";
+
+export type SupportedVideoMimeType = "video/mp4" | "video/webm";
+
+export interface VideoPlaybackProbe {
+  mimeType: SupportedVideoMimeType | null;
+  playable: boolean;
+  reason?: "unsupported-type" | "browser-unavailable" | "decode-failed" | "timeout";
+}
 
 export interface ManagedUploadResult {
   provider: "supabase" | "tencent_cos";
@@ -48,10 +57,28 @@ export async function uploadManagedFile(input: {
   signal?: AbortSignal;
   upsert?: boolean;
 }) : Promise<ManagedUploadResult> {
+  const videoMimeType = normalizedVideoMimeType({ name: input.path, type: input.file.type });
+  if (input.purpose === "content-media" && videoMimeType) {
+    const probe = await probeBrowserVideoPlayback(input.file, input.path);
+    if (!probe.playable) {
+      throw new EdgeFunctionError({
+        functionName: "browser",
+        stage: "video-playback-probe",
+        status: 415,
+        code: "VIDEO_NOT_PLAYABLE",
+        message: "当前浏览器无法解码此视频，请转换为 H.264/AAC MP4 或兼容 WebM 后再上传",
+        details: { mimeType: videoMimeType, reason: probe.reason || "decode-failed" }
+      });
+    }
+  }
+
+  const normalizedFile = videoMimeType && input.file.type !== videoMimeType
+    ? new File([input.file], input.path.split("/").pop() || "video", { type: videoMimeType })
+    : input.file;
   if (cosStorageEnabled) {
     const { uploadToCos } = await import("./cosUpload");
     return uploadToCos({
-      file: input.file,
+      file: normalizedFile,
       path: input.path,
       scope: {
         purpose: input.purpose,
@@ -60,14 +87,15 @@ export async function uploadManagedFile(input: {
         prefix: managedUploadPrefix(input),
         visibility: input.visibility
       },
+      contentType: videoMimeType || normalizedFile.type || undefined,
       signal: input.signal,
       onProgress: input.onProgress
     });
   }
 
-  const file = input.file instanceof File
-    ? input.file
-    : new File([input.file], input.path.split("/").pop() || "upload", { type: input.file.type });
+  const file = normalizedFile instanceof File
+    ? normalizedFile
+    : new File([normalizedFile], input.path.split("/").pop() || "upload", { type: normalizedFile.type });
   const bucket = input.visibility === "public" ? publicMediaBucket : privateMediaBucket;
   const stored = await uploadWithProgress(file, input.path, input.onProgress || (() => undefined), input.signal, bucket, input.upsert);
   return { provider: "supabase", bucket: stored.bucket, path: stored.path, sizeBytes: file.size };
@@ -137,7 +165,7 @@ export async function imageDimensions(file: File) {
 export function validateUpload(file: File) {
   const lowerName = file.name.toLowerCase();
   const image = file.type.startsWith("image/");
-  const video = ["video/mp4", "video/webm"].includes(file.type) || lowerName.endsWith(".mp4") || lowerName.endsWith(".webm");
+  const video = Boolean(normalizedVideoMimeType(file));
   const document = ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/markdown", "text/html"].includes(file.type) || lowerName.endsWith(".pdf") || lowerName.endsWith(".zip") || lowerName.endsWith(".docx") || lowerName.endsWith(".xlsx") || lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(".html") || lowerName.endsWith(".htm");
   if (!image && !video && !document) throw new Error(`不支持的文件类型：${file.type || file.name}`);
   const maximum = video ? 2 * 1024 * 1024 * 1024 : 100 * 1024 * 1024;
@@ -146,6 +174,56 @@ export function validateUpload(file: File) {
 }
 
 export function browserCanPlayVideo(file: File) {
-  const mimeType = file.type || (file.name.toLowerCase().endsWith(".webm") ? "video/webm" : "video/mp4");
-  return typeof document !== "undefined" && document.createElement("video").canPlayType(mimeType) !== "";
+  // This synchronous guard only decides the upload provider. Codec probing happens
+  // in uploadManagedFile so an unsupported file never falls back to VOD silently.
+  return Boolean(normalizedVideoMimeType(file));
+}
+
+export function normalizedVideoMimeType(input: Pick<File, "name" | "type">): SupportedVideoMimeType | null {
+  const name = input.name.toLowerCase();
+  const type = input.type.toLowerCase().split(";", 1)[0].trim();
+  if (name.endsWith(".mp4") || type === "video/mp4" || type === "video/x-m4v") return "video/mp4";
+  if (name.endsWith(".webm") || type === "video/webm" || type === "video/x-webm") return "video/webm";
+  return null;
+}
+
+export async function probeBrowserVideoPlayback(file: Blob, name = "video") : Promise<VideoPlaybackProbe> {
+  const mimeType = normalizedVideoMimeType({ name, type: file.type });
+  if (!mimeType) return { mimeType: null, playable: false, reason: "unsupported-type" };
+  if (typeof document === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+    return { mimeType, playable: false, reason: "browser-unavailable" };
+  }
+
+  const video = document.createElement("video");
+  const objectUrl = URL.createObjectURL(file);
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = objectUrl;
+  try {
+    const result = await new Promise<VideoPlaybackProbe>((resolve) => {
+      let settled = false;
+      const finish = (value: VideoPlaybackProbe) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const timeout = window.setTimeout(() => finish({ mimeType, playable: false, reason: "timeout" }), 8_000);
+      video.addEventListener("loadedmetadata", () => {
+        window.clearTimeout(timeout);
+        finish({ mimeType, playable: true });
+      }, { once: true });
+      video.addEventListener("error", () => {
+        window.clearTimeout(timeout);
+        finish({ mimeType, playable: false, reason: "decode-failed" });
+      }, { once: true });
+      video.load();
+    });
+    return result;
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+  }
 }

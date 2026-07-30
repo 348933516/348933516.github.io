@@ -1,7 +1,7 @@
 import type COS from "cos-js-sdk-v5";
 import { cosPrivateBucket, cosPublicBucket, cosRegion, cosStorageEnabled } from "./config";
-import { supabase } from "./supabase";
 import type { UploadProgress } from "./uploads";
+import { EdgeFunctionError, invokeEdgeFunction } from "./edgeFunctions";
 
 export type CosUploadPurpose = "content-media" | "document-import" | "site-asset" | "migration";
 
@@ -53,17 +53,36 @@ async function credentialsFor(scope: CosUploadScope) {
   const cached = credentialCache.get(key);
   const now = Math.floor(Date.now() / 1000);
   if (cached && cached.expiredTime - now > 120) return cached;
-  const { data, error } = await supabase.functions.invoke("cos-credentials", { body: scope });
-  if (error || data?.error) throw new Error(data?.error || error?.message || "无法获取 COS 临时上传凭证");
-  const value = data as TemporaryCredentials;
-  if (!value.tmpSecretId || !value.tmpSecretKey || !value.sessionToken || !value.expiredTime) throw new Error("COS 临时凭证响应不完整");
+  const value = await invokeEdgeFunction<TemporaryCredentials>("cos-credentials", { ...scope }, "credentials");
+  if (!value.tmpSecretId || !value.tmpSecretKey || !value.sessionToken || !value.expiredTime) {
+    throw new EdgeFunctionError({
+      functionName: "cos-credentials",
+      stage: "credentials",
+      status: 502,
+      code: "COS_CREDENTIALS_INVALID",
+      message: "COS temporary credentials response is incomplete"
+    });
+  }
   credentialCache.set(key, value);
   return value;
 }
 
-async function createClient(scope: CosUploadScope) {
+function sdkCredentials(value: TemporaryCredentials): COS.Credentials {
+  return {
+    TmpSecretId: value.tmpSecretId,
+    TmpSecretKey: value.tmpSecretKey,
+    XCosSecurityToken: value.sessionToken,
+    StartTime: value.startTime,
+    ExpiredTime: value.expiredTime,
+    ScopeLimit: true
+  };
+}
+
+async function createClient(scope: CosUploadScope, initialCredentials: TemporaryCredentials) {
   const { default: CosClient } = await import("cos-js-sdk-v5");
-  return new CosClient({
+  let lastCredentials = initialCredentials;
+  let authorizationError: unknown = null;
+  const client = new CosClient({
     ChunkRetryTimes: 4,
     ChunkSize: 5 * 1024 * 1024,
     SliceSize: 5 * 1024 * 1024,
@@ -73,19 +92,17 @@ async function createClient(scope: CosUploadScope) {
     getAuthorization: async (_options, callback) => {
       try {
         const value = await credentialsFor(scope);
-        callback({
-          TmpSecretId: value.tmpSecretId,
-          TmpSecretKey: value.tmpSecretKey,
-          XCosSecurityToken: value.sessionToken,
-          StartTime: value.startTime,
-          ExpiredTime: value.expiredTime,
-          ScopeLimit: true
-        });
-      } catch {
-        callback({ Authorization: "" } as COS.Credentials);
+        lastCredentials = value;
+        callback(sdkCredentials(value));
+      } catch (error) {
+        // The SDK has no error callback. Reuse the last credential so the
+        // actual STS/Edge Function error can be rethrown by uploadToCos.
+        authorizationError = error;
+        callback(sdkCredentials(lastCredentials));
       }
     }
   });
+  return { client, getAuthorizationError: () => authorizationError };
 }
 
 export async function uploadToCos(input: {
@@ -101,7 +118,7 @@ export async function uploadToCos(input: {
   const path = validateObjectPath(input.path, credentials.prefix);
   const expectedBucket = input.scope.visibility === "public" ? cosPublicBucket : cosPrivateBucket;
   if (credentials.bucket !== expectedBucket || credentials.region !== cosRegion) throw new Error("COS 临时凭证与目标存储桶不匹配");
-  const client = await createClient(input.scope);
+  const { client, getAuthorizationError } = await createClient(input.scope, credentials);
   let taskId = "";
   const abort = () => { if (taskId) client.cancelTask(taskId); };
   input.signal?.addEventListener("abort", abort, { once: true });
@@ -121,6 +138,8 @@ export async function uploadToCos(input: {
         percent: Math.round(progress.percent * 100)
       })
     });
+    const authorizationError = getAuthorizationError();
+    if (authorizationError) throw authorizationError;
     return {
       provider: "tencent_cos",
       bucket: credentials.bucket,
@@ -129,6 +148,8 @@ export async function uploadToCos(input: {
       etag: String(result.ETag || "").replaceAll('"', ""),
       sizeBytes: input.file.size
     } satisfies CosStoredObject;
+  } catch (error) {
+    throw getAuthorizationError() || error;
   } finally {
     input.signal?.removeEventListener("abort", abort);
   }

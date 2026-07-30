@@ -1,4 +1,6 @@
-import { supabase } from "./supabase";
+import { EdgeFunctionError, invokeEdgeFunction } from "./edgeFunctions";
+
+export const vodUploadEnabled = import.meta.env.VITE_TENCENT_VOD_ENABLED === "true";
 
 export interface VodUploadResult {
   appId: number;
@@ -8,16 +10,30 @@ export interface VodUploadResult {
 }
 
 export async function uploadVideoToVod(file: File, onProgress: (percent: number) => void): Promise<VodUploadResult> {
-  const [{ default: TcVod }, signatureResult] = await Promise.all([
-    import("vod-js-sdk-v6"),
-    supabase.functions.invoke("vod-signature", { body: {} })
-  ]);
-  if (signatureResult.error || signatureResult.data?.error) {
-    throw new Error(signatureResult.data?.error || signatureResult.error?.message || "腾讯云点播尚未配置");
+  if (!vodUploadEnabled) {
+    throw new EdgeFunctionError({
+      functionName: "vod",
+      stage: "route",
+      status: 409,
+      code: "VOD_DISABLED",
+      message: "VOD is disabled; compatible MP4/WebM videos must use COS"
+    });
   }
-  const signature = String(signatureResult.data.signature || "");
-  const appId = Number(signatureResult.data.appId || 0);
-  if (!signature || !appId) throw new Error("腾讯云点播签名配置不完整");
+
+  const signatureResult = await invokeEdgeFunction<{ signature?: string; appId?: number }>("vod-signature", {}, "signature");
+  const signature = String(signatureResult.signature || "");
+  const appId = Number(signatureResult.appId || 0);
+  if (!signature || !appId) {
+    throw new EdgeFunctionError({
+      functionName: "vod-signature",
+      stage: "signature",
+      status: 502,
+      code: "VOD_CONFIG_INVALID",
+      message: "VOD signature response is incomplete"
+    });
+  }
+
+  const { default: TcVod } = await import("vod-js-sdk-v6");
   const vod = new TcVod({ getSignature: async () => signature, appId, enableResume: true });
   const uploader = vod.upload({ mediaFile: file, mediaName: file.name.replace(/\.[^.]+$/, ""), enableResume: true });
   uploader.on("media_progress", (event: { percent?: number }) => onProgress(Math.round(Math.max(0, Math.min(1, Number(event.percent || 0))) * 100)));
@@ -25,37 +41,37 @@ export async function uploadVideoToVod(file: File, onProgress: (percent: number)
   const result = await uploader.done() as Record<string, unknown> & { video?: { url?: string }; cover?: { url?: string }; fileId?: string };
   const playbackUrl = String(result.video?.url || "").replace(/^http:/i, "https:");
   const fileId = String(result.fileId || "");
-  if (!fileId) throw new Error("腾讯云点播没有返回 FileId");
+  if (!fileId) {
+    throw new EdgeFunctionError({
+      functionName: "vod",
+      stage: "upload",
+      status: 502,
+      code: "VIDEO_RESULT_INVALID",
+      message: "VOD did not return a file id"
+    });
+  }
   return { appId, fileId, playbackUrl, posterUrl: String(result.cover?.url || "").replace(/^http:/i, "https:") };
 }
 
-export async function saveVodMedia(input: { contentId: string; mediaId?: string; file: File; upload: VodUploadResult; sortOrder?: number }) {
-  const { data, error } = await supabase.functions.invoke("vod-complete", {
-    body: {
-      contentId: input.contentId,
-      mediaId: input.mediaId,
-      fileId: input.upload.fileId,
-      appId: input.upload.appId,
-      playbackUrl: input.upload.playbackUrl,
-      posterUrl: input.upload.posterUrl,
-      title: input.file.name.replace(/\.[^.]+$/, ""),
-      mimeType: input.file.type || "video/mp4",
-      sizeBytes: input.file.size,
-      sortOrder: input.sortOrder || 100
-    }
-  });
-  if (error || data?.error) throw new Error(data?.error || error?.message || "视频记录保存失败");
-  return data;
+export function saveVodMedia(input: { contentId: string; mediaId?: string; file: File; upload: VodUploadResult; sortOrder?: number }) {
+  return invokeEdgeFunction("vod-complete", {
+    contentId: input.contentId,
+    mediaId: input.mediaId,
+    fileId: input.upload.fileId,
+    appId: input.upload.appId,
+    playbackUrl: input.upload.playbackUrl,
+    posterUrl: input.upload.posterUrl,
+    title: input.file.name.replace(/\.[^.]+$/, ""),
+    mimeType: input.file.type || "video/mp4",
+    sizeBytes: input.file.size,
+    sortOrder: input.sortOrder || 100
+  }, "complete");
 }
 
-export async function importExistingVideo(mediaId: string, sourceUrl: string) {
-  const { data, error } = await supabase.functions.invoke("vod-import", { body: { mediaId, sourceUrl } });
-  if (error || data?.error) throw new Error(data?.error || error?.message || "旧视频导入失败");
-  return data as { status: "processing"; taskId: string };
+export function importExistingVideo(mediaId: string, sourceUrl: string) {
+  return invokeEdgeFunction<{ status: "processing"; taskId: string }>("vod-import", { mediaId, sourceUrl }, "import");
 }
 
-export async function refreshVodStatus(mediaId: string) {
-  const { data, error } = await supabase.functions.invoke("vod-status", { body: { mediaId } });
-  if (error || data?.error) throw new Error(data?.error || error?.message || "视频状态查询失败");
-  return data as { status: "processing" | "ready" | "failed"; error?: string };
+export function refreshVodStatus(mediaId: string) {
+  return invokeEdgeFunction<{ status: "processing" | "ready" | "failed"; error?: string }>("vod-status", { mediaId }, "status");
 }

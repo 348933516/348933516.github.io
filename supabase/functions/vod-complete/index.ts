@@ -1,4 +1,5 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
+import { functionError } from "../_shared/function-errors.ts";
 
 function safeHttps(value: unknown) {
   const normalized = String(value || "").replace(/^http:/i, "https:");
@@ -7,14 +8,17 @@ function safeHttps(value: unknown) {
 
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
+  if (Deno.env.get("TENCENT_VOD_ENABLED") !== "true") {
+    return json(functionError("VOD_DISABLED", "VOD is disabled; upload compatible videos to COS", "complete"), 409);
+  }
   const body = await request.json();
   const contentId = String(body.contentId || "");
   const fileId = String(body.fileId || "");
   const appId = Number(body.appId || 0);
-  if (!contentId || !fileId || !appId) return json({ error: "视频上传结果不完整" }, 400);
+  if (!contentId || !fileId || !appId) return json(functionError("VIDEO_RESULT_INVALID", "Video upload result is incomplete", "complete"), 400);
   const { data: content } = await client.from("contents").select("id, status, created_by").eq("id", contentId).maybeSingle();
-  if (!content) return json({ error: "资料不存在" }, 404);
-  if (profile.role === "uploader" && (content.status !== "draft" || content.created_by !== user.id)) return json({ error: "无权修改这篇资料" }, 403);
+  if (!content) return json(functionError("CONTENT_NOT_FOUND", "Content does not exist", "complete"), 404);
+  if (profile.role === "uploader" && (content.status !== "draft" || content.created_by !== user.id)) return json(functionError("ROLE_FORBIDDEN", "Content update is not allowed", "complete"), 403);
   const values = {
     content_id: contentId,
     kind: "video",
@@ -39,6 +43,6 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const result = mediaId
     ? await client.from("content_media").update(values).eq("id", mediaId).eq("content_id", contentId).select("id").single()
     : await client.from("content_media").insert(values).select("id").single();
-  if (result.error) return json({ error: result.error.message }, 400);
+  if (result.error) return json(functionError("VIDEO_RECORD_SAVE_FAILED", "Video record could not be saved", "complete"), 400);
   return json({ id: result.data.id, fileId, appId });
 }));

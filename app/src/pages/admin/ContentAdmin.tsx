@@ -20,11 +20,12 @@ import {
 } from "../../lib/repository";
 import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { clearEditorRecovery, readEditorRecovery, saveEditorRecovery } from "../../lib/editorRecovery";
+import { EdgeFunctionError, invokeEdgeFunction } from "../../lib/edgeFunctions";
 import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { removeStoredObjects } from "../../lib/storage";
-import { browserCanPlayVideo, imageDimensions, imageToWebp, imageToWebpVariant, uploadManagedFile, validateUpload } from "../../lib/uploads";
+import { imageDimensions, imageToWebp, imageToWebpVariant, normalizedVideoMimeType, uploadManagedFile, validateUpload } from "../../lib/uploads";
 import type { Category, ContentDraft, ContentItem, ContentStatus, Profile } from "../../types";
 import {
   AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
@@ -445,6 +446,13 @@ type MediaRow = Record<string, unknown> & { id: string; storage_bucket: string |
 type MediaFilter = "gallery" | "document" | "video" | "attachments";
 const mediaPageSize = 30;
 
+function mediaProvider(row: MediaRow) {
+  if (row.storage_provider === "tencent_cos") return { key: "cos", label: "腾讯 COS" };
+  if (row.video_provider === "tencent_vod") return { key: "external", label: "腾讯 VOD" };
+  if (row.external_url && !row.storage_path) return { key: "external", label: "外部链接" };
+  return { key: "supabase", label: "旧 Supabase" };
+}
+
 async function loadMediaRecords(contentId: string, page: number, filter: MediaFilter) {
   const from = (page - 1) * mediaPageSize;
   if (filter === "attachments") {
@@ -461,11 +469,15 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
   const withUrls = await Promise.all((media.data || []).map(async (row) => {
     let previewUrl = row.external_url || "";
     if (row.storage_bucket === publicMediaBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path);
-    if (row.storage_bucket === privateMediaBucket && row.storage_path) previewUrl = (await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600)).data?.signedUrl || "";
+    if (row.storage_bucket === privateMediaBucket && row.storage_path) {
+      const signed = await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600);
+      if (signed.error) throw signed.error;
+      previewUrl = signed.data.signedUrl;
+    }
     if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPublicBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path, "tencent_cos");
     if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket && row.storage_path) {
-      const signed = await supabase.functions.invoke("cos-storage", { body: { action: "signed-url", bucket: cosPrivateBucket, path: row.storage_path, contentId } });
-      previewUrl = signed.error ? "" : String(signed.data?.url || "");
+      const signed = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: cosPrivateBucket, path: row.storage_path, contentId }, "signed-url");
+      previewUrl = String(signed.url || "");
     }
     return { ...row, previewUrl } as MediaRow;
   }));
@@ -491,15 +503,7 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       for (const [index, file] of files.entries()) {
         const type = validateUpload(file);
         let prepared = type.image ? await imageToWebp(file) : file;
-        if (type.video && !browserCanPlayVideo(file)) {
-          setUploadStage(`正在上传视频到云点播 ${index + 1}/${files.length}`);
-          const { saveVodMedia, uploadVideoToVod } = await import("../../lib/vod");
-          const upload = await uploadVideoToVod(file, (value) => setProgress(Math.round(((index + value / 100) / files.length) * 100)));
-          await saveVodMedia({ contentId, file, upload, sortOrder: nextMediaOrder });
-          nextMediaOrder += 10;
-          continue;
-        }
-        setUploadStage(`正在上传 ${index + 1}/${files.length}`);
+        setUploadStage(type.video ? `正在检查并上传视频 ${index + 1}/${files.length}` : `正在上传 ${index + 1}/${files.length}`);
         const path = cosStorageEnabled
           ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
           : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
@@ -508,7 +512,7 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
           onProgress: (value) => setProgress(Math.round(((index + value.percent / 100) / files.length) * 100))
         });
         const sortOrder = type.document ? nextAttachmentOrder : nextMediaOrder;
-        const base = { content_id: contentId, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: prepared.type || "application/octet-stream", size_bytes: prepared.size };
+        const base = { content_id: contentId, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: type.video ? normalizedVideoMimeType(file) || "video/mp4" : prepared.type || "application/octet-stream", size_bytes: prepared.size };
         const dimensions = type.image ? await imageDimensions(prepared) : {};
         const result = type.document
           ? await supabase.from("attachments").insert({ ...base, name: file.name })
@@ -520,7 +524,10 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
       notify(`已上传 ${files.length} 个文件。`);
       await refresh();
     } catch (error) {
-      void reportRuntimeLog({ source: "upload", message: messageOf(error, "上传失败"), error, context: { contentId, fileCount: files.length } });
+      const context = error instanceof EdgeFunctionError
+        ? error.toLogContext({ contentId, fileCount: files.length, provider: cosStorageEnabled ? "tencent_cos" : "supabase" })
+        : { contentId, fileCount: files.length, provider: cosStorageEnabled ? "tencent_cos" : "supabase" };
+      void reportRuntimeLog({ source: error instanceof EdgeFunctionError ? error.functionName : "upload", message: messageOf(error, "上传失败"), error, context });
       notify(error instanceof DOMException && error.name === "AbortError" ? "上传已取消。" : messageOf(error, "上传失败"), true);
     } finally { controller.current = null; setProgress(0); setUploadStage(""); }
   };
@@ -596,48 +603,22 @@ export function ContentMediaManager({ contentId, profile, onChanged }: { content
   const reorder = async (targetId: string) => { if (filter !== "gallery" || !dragging || dragging === targetId || !records.data) return; const rows = [...records.data.items]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); client.setQueryData(mediaKey, { ...records.data, items: rows }); try { const items = rows.map((row, index) => ({ id: row.id, sortOrder: ((page - 1) * mediaPageSize + index + 1) * 10 })); const { error } = await supabase.rpc("reorder_content_media", { p_content_id: contentId, p_items: items }); if (error) throw error; notify("媒体顺序已保存。"); } catch (error) { notify(messageOf(error, "排序失败"), true); await refresh(); } };
   if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
   const total = records.data?.total || 0; const pages = Math.max(1, Math.ceil(total / mediaPageSize));
-  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>图片生成浏览预览；兼容视频直接播放，不兼容编码使用腾讯云点播</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
+  const legacyOnPage = records.data?.items.filter((row) => mediaProvider(row).key === "supabase" && Boolean(row.storage_path)).length || 0;
+  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>新文件保存到腾讯云 COS；视频需为浏览器可播放的 MP4 或 WebM</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/mp4,video/webm,.mp4,.webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
+    {legacyOnPage > 0 && <div className="media-source-banner warning"><Database /><span><strong>当前页有 {legacyOnPage} 个旧 Supabase 文件</strong><small>这些文件不会经过腾讯云加速。Word 正文请重新导入，普通媒体请重新上传。</small></span></div>}
     <div className="media-filter-tabs">{(["gallery", "document", "video", "attachments"] as MediaFilter[]).map((key) => <button type="button" className={filter === key ? "active" : ""} key={key} onClick={() => { setFilter(key); setPage(1); }}>{({ gallery: "图库", document: "正文图片", video: "视频", attachments: "附件" } as Record<MediaFilter, string>)[key]}</button>)}</div>
     {filter !== "attachments" ? <div className="media-library-grid">{records.data?.items.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} draggable={filter === "gallery" && canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onSaved={refresh} onRemove={() => remove("content_media", row)} onGenerateVariants={() => generateVariants(row)} variantBusy={variantBusyId === row.id} onMessage={notify} />)}{!records.data?.items.length && <AdminEmpty icon={<ImagePlus />} title="当前分类暂无媒体" detail="可从上方选择本地文件上传。" />}</div>
-      : <section className="attachment-section">{records.data?.items.map((row) => <div className="attachment-row" key={row.id}><FileText /><div><strong>{String(row.name || "附件")}</strong><span>{String(row.mime_type || "文件")} · {formatBytes(Number(row.size_bytes || 0))}</span></div>{canEdit(profile.role) && <button className="icon-only danger" onClick={() => remove("attachments", row)}><Trash2 /></button>}</div>)}{!records.data?.items.length && <AdminEmpty title="暂无附件" />}</section>}
+      : <section className="attachment-section">{records.data?.items.map((row) => { const provider = mediaProvider(row); return <div className="attachment-row" key={row.id}><FileText /><div><strong>{String(row.name || "附件")}</strong><span>{String(row.mime_type || "文件")} · {formatBytes(Number(row.size_bytes || 0))}</span></div><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span>{canEdit(profile.role) && <button className="icon-only danger" onClick={() => remove("attachments", row)}><Trash2 /></button>}</div>; })}{!records.data?.items.length && <AdminEmpty title="暂无附件" />}</section>}
     {pages > 1 && <div className="pagination"><span>共 {total} 条</span><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><strong>{page} / {pages}</strong><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button></div>}</div>;
 }
 
 function MediaCard({ row, editable, draggable, dragging, onDrag, onDrop, onSaved, onRemove, onGenerateVariants, variantBusy, onMessage }: { row: MediaRow; editable: boolean; draggable: boolean; dragging: boolean; onDrag(): void; onDrop(): void; onSaved(): void; onRemove(): void; onGenerateVariants(): void; variantBusy: boolean; onMessage(value: string, error?: boolean): void }) {
   const [title, setTitle] = useState(String(row.title || "")); const [note, setNote] = useState(String(row.note || "")); const [path, setPath] = useState(Array.isArray(row.hierarchy_path) ? row.hierarchy_path.join(" / ") : "");
-  const [converting, setConverting] = useState(false);
+  const provider = mediaProvider(row);
   const save = async () => { const { error } = await supabase.from("content_media").update({ title: title.trim(), note: note.trim(), hierarchy_path: path.split("/").map((part) => part.trim()).filter(Boolean), alt_text: title.trim() }).eq("id", row.id); if (error) onMessage(error.message, true); else { onMessage("媒体信息已保存。"); onSaved(); } };
-  const repairVideo = async () => {
-    if (!row.previewUrl || row.kind !== "video") return;
-    setConverting(true);
-    try {
-      const { importExistingVideo, refreshVodStatus } = await import("../../lib/vod");
-      await importExistingVideo(row.id, row.previewUrl);
-      let status: "processing" | "ready" | "failed" = "processing";
-      for (let attempt = 0; attempt < 24 && status === "processing"; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 5000));
-        status = (await refreshVodStatus(row.id)).status;
-      }
-      onMessage(status === "ready" ? "视频已迁移到云点播播放器。" : status === "failed" ? "腾讯云处理失败，请查看运行日志。" : "视频仍在云端处理中，稍后刷新状态即可。", status === "failed");
-      await onSaved();
-    } catch (error) {
-      void reportRuntimeLog({ source: "video-vod", message: messageOf(error, "视频迁移失败"), error, context: { mediaId: row.id } });
-      onMessage(messageOf(error, "视频迁移失败"), true);
-    } finally { setConverting(false); }
-  };
-  const checkVod = async () => {
-    setConverting(true);
-    try {
-      const { refreshVodStatus } = await import("../../lib/vod");
-      const result = await refreshVodStatus(row.id);
-      onMessage(result.status === "ready" ? "云点播视频已可以播放。" : result.status === "failed" ? result.error || "云端处理失败。" : "视频仍在云端处理中。", result.status === "failed");
-      await onSaved();
-    } catch (error) { onMessage(messageOf(error, "视频状态查询失败"), true); }
-    finally { setConverting(false); }
-  };
   const playerMedia = { src: String(row.previewUrl || ""), title, mimeType: String(row.mime_type || ""), processingStatus: String(row.processing_status || "ready") as "ready" | "processing" | "failed", videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" as const : undefined, providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined, providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined };
   const needsVariants = row.kind === "image" && (!Array.isArray(row.image_variants) || row.image_variants.length === 0);
-  return <article className={`media-card${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} />{editable && row.video_provider !== "tencent_vod" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={repairVideo}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}迁移到云点播</button>}{editable && row.video_provider === "tencent_vod" && row.processing_status === "processing" && <button type="button" className="button quiet vod-migrate-button" disabled={converting} onClick={checkVod}>{converting ? <LoaderCircle className="spin" /> : <RefreshCcw />}刷新处理状态</button>}</div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="图片名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="图片标注或说明" /></div>{editable && <div className="media-card-actions"><span>{draggable ? "拖动排序" : "正文顺序"}</span>{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <RefreshCcw />}</button>}<button title="保存" onClick={save}><Save /></button>{draggable && <button className="danger" title="删除" onClick={onRemove}><Trash2 /></button>}</div>}</article>;
+  return <article className={`media-card${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} /></div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="图片名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="图片标注或说明" /></div>{editable && <div className="media-card-actions"><span>{draggable ? "拖动排序" : "正文顺序"}</span>{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <RefreshCcw />}</button>}<button title="保存" onClick={save}><Save /></button>{draggable && <button className="danger" title="删除" onClick={onRemove}><Trash2 /></button>}</div>}</article>;
 }
 
 export function CategoriesPage({ profile }: { profile: Profile }) {

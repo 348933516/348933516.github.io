@@ -2,6 +2,20 @@ function bytesToHex(bytes: ArrayBuffer) {
   return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+export class TencentApiError extends Error {
+  readonly code: string;
+  readonly requestId: string | null;
+  readonly status: number;
+
+  constructor(message: string, code: string, status: number, requestId?: string | null) {
+    super(message);
+    this.name = "TencentApiError";
+    this.code = code || "TENCENT_API_FAILED";
+    this.status = status;
+    this.requestId = requestId || null;
+  }
+}
+
 async function sha256(value: string) {
   return bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
@@ -47,6 +61,13 @@ export async function callTencentApi(input: {
     body: payload
   });
   const result = await response.json();
-  if (!response.ok || result.Response?.Error) throw new Error(result.Response?.Error?.Message || `腾讯云请求失败（${response.status}）`);
+  if (!response.ok || result.Response?.Error) {
+    throw new TencentApiError(
+      String(result.Response?.Error?.Message || `腾讯云请求失败（${response.status}）`).slice(0, 500),
+      String(result.Response?.Error?.Code || "TENCENT_API_FAILED").slice(0, 120),
+      response.status,
+      result.Response?.RequestId ? String(result.Response.RequestId).slice(0, 160) : null
+    );
+  }
   return result.Response as Record<string, unknown>;
 }

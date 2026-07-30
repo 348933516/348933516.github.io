@@ -1,4 +1,4 @@
-import { longTaskMinimumMs, longTaskReportCooldownMs, shouldReportLongTasks, summarizeLongTasks, type LongTaskSample } from "./performanceDiagnostics";
+import { longTaskMinimumMs, longTaskReportCooldownMs, shouldReportLongTasks, shouldReportMediaResources, summarizeLongTasks, summarizeMediaResources, type LongTaskSample, type MediaResourceSample } from "./performanceDiagnostics";
 import { supabase } from "./supabase";
 
 export type RuntimeSeverity = "info" | "warning" | "error";
@@ -62,6 +62,9 @@ export function installGlobalRuntimeLogging() {
 
   let performanceObserver: PerformanceObserver | null = null;
   let performanceTimer: number | null = null;
+  let mediaTimer: number | null = null;
+  const mediaReportedRoutes = new Set<string>();
+  let mediaRouteStartMs = 0;
   const pendingByRoute = new Map<string, LongTaskSample[]>();
   const lastReportedAt = new Map<string, number>();
 
@@ -113,12 +116,64 @@ export function installGlobalRuntimeLogging() {
     }
   }
 
+  // Sample once per route after its initial lazy-load window. Only aggregate
+  // provider/timing data is sent; URLs and query strings stay local.
+  const sampleMedia = () => {
+    const route = currentRoute();
+    if (mediaReportedRoutes.has(route) || !("performance" in window)) return;
+    const samples: MediaResourceSample[] = performance.getEntriesByType("resource")
+      .filter((entry) => (entry as PerformanceResourceTiming).initiatorType === "img")
+      .map((entry) => entry as PerformanceResourceTiming)
+      .filter((entry) => entry.startTime >= mediaRouteStartMs)
+      .map((entry) => ({
+        name: entry.name,
+        startTimeMs: entry.startTime,
+        durationMs: entry.duration,
+        responseStartMs: entry.responseStart,
+        transferSizeBytes: entry.transferSize,
+        decodedBodySizeBytes: entry.decodedBodySize
+      }));
+    const summaries = summarizeMediaResources(samples);
+    if (!shouldReportMediaResources(summaries)) return;
+    mediaReportedRoutes.add(route);
+    void reportRuntimeLog({
+      source: "media-performance",
+      severity: "warning",
+      message: "检测到图片资源加载较慢",
+      context: {
+        providers: JSON.stringify(summaries.map((summary) => ({
+          provider: summary.provider,
+          count: summary.count,
+          totalDurationMs: summary.totalDurationMs,
+          maxDurationMs: summary.maxDurationMs,
+          averageTtfbMs: summary.averageTtfbMs,
+          observableTimingCount: summary.observableTimingCount,
+          transferredBytes: summary.transferredBytes,
+          decodedBytes: summary.decodedBytes
+        })))
+      }
+    });
+  };
+  const scheduleMediaSample = () => {
+    if (mediaTimer !== null) window.clearTimeout(mediaTimer);
+    mediaRouteStartMs = performance.now();
+    mediaTimer = window.setTimeout(() => {
+      mediaTimer = null;
+      sampleMedia();
+    }, 12_000);
+  };
+  window.addEventListener("hashchange", scheduleMediaSample);
+  scheduleMediaSample();
+
   return () => {
     window.removeEventListener("error", onError);
     window.removeEventListener("unhandledrejection", onRejection);
+    window.removeEventListener("hashchange", scheduleMediaSample);
     performanceObserver?.disconnect();
     pendingByRoute.clear();
     lastReportedAt.clear();
+    mediaReportedRoutes.clear();
     if (performanceTimer !== null) window.clearTimeout(performanceTimer);
+    if (mediaTimer !== null) window.clearTimeout(mediaTimer);
   };
 }
