@@ -12,7 +12,7 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     env:
-      RELEASE_OUTPUT_DIR: ${{ runner.temp }}/maplestorynk-release
+      RELEASE_OUTPUT_DIR: /tmp/maplestorynk-release
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
