@@ -144,12 +144,12 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).toContain("first_media_provider");
     expect(cosStorageMigration).toContain("cover_provider");
     expect(cosCredentialsFunction).toContain("getCosFederationToken");
-    expect(cosCredentialsFunction).toContain('"name/cos:ListMultipartUploads"');
-    expect(cosCredentialsFunction).toContain('"name/cos:ListParts"');
+    expect(cosCredentialsFunction).not.toContain('"name/cos:ListMultipartUploads"');
+    expect(cosCredentialsFunction).not.toContain('"name/cos:ListParts"');
     expect(cosCredentialsFunction).toContain('"name/cos:GetObject"');
     expect(cosCredentialsFunction).toContain('"name/cos:DeleteObject"');
     expect(cosSharedFunction).toContain("GetFederationToken");
-    expect(cosCredentialsFunction).toContain("bucketActions");
+    expect(cosSharedFunction).toContain("appId: configuration.appId");
     expect(cosCredentialsFunction).toContain("objectActions: actions");
     expect(cosSharedFunction).toContain("buildCosFederationPolicy");
     expect(cosPolicyFunction).toContain(":${input.bucket}/${input.prefix}*");

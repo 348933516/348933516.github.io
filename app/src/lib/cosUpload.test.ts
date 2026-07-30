@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   credentials: vi.fn(),
   uploadFile: vi.fn(),
-  authorizationOptions: null as null | ((options: { Action?: string }, callback: (credentials: unknown) => void) => void)
+  multipartInit: vi.fn(),
+  multipartUpload: vi.fn(),
+  multipartComplete: vi.fn(),
+  multipartAbort: vi.fn()
 }));
 
 vi.mock("./edgeFunctions", async () => {
@@ -14,10 +17,11 @@ vi.mock("./edgeFunctions", async () => {
 vi.mock("cos-js-sdk-v5", () => ({
   default: class {
     uploadFile = mocks.uploadFile;
+    multipartInit = mocks.multipartInit;
+    multipartUpload = mocks.multipartUpload;
+    multipartComplete = mocks.multipartComplete;
+    multipartAbort = mocks.multipartAbort;
     cancelTask = vi.fn();
-    constructor(options: { getAuthorization: typeof mocks.authorizationOptions }) {
-      mocks.authorizationOptions = options.getAuthorization;
-    }
   }
 }));
 
@@ -33,9 +37,13 @@ beforeEach(async () => {
     expiredTime: Math.floor(Date.now() / 1000) + 1800,
     bucket: "maplestorynk-private-1331200863",
     region: "ap-guangzhou",
-    prefix: "drafts/22222222-2222-4222-8222-222222222222/"
+    prefix: "drafts/22222222-2222-4222-8222-222222222222/",
+    policyAppIdVerified: true
   });
-  mocks.authorizationOptions = null;
+  mocks.multipartInit.mockResolvedValue({ UploadId: "upload-1" });
+  mocks.multipartUpload.mockResolvedValue({ ETag: '"part-etag"' });
+  mocks.multipartComplete.mockResolvedValue({ ETag: '"complete-etag"' });
+  mocks.multipartAbort.mockResolvedValue({});
 });
 
 describe("COS upload diagnostics", () => {
@@ -53,7 +61,8 @@ describe("COS upload diagnostics", () => {
       cosRequestId: "request-123",
       stage: "multipart",
       retryCount: 1,
-      code: "AccessDenied"
+      code: "AccessDenied",
+      policyAppIdVerified: false
     });
     expect(error.message).toContain("request-123");
   });
@@ -61,11 +70,11 @@ describe("COS upload diagnostics", () => {
   it("clears cached credentials and retries one authorization failure", async () => {
     const { uploadToCos } = await import("./cosUpload");
     mocks.uploadFile
-      .mockRejectedValueOnce({ statusCode: 403, error: { Code: "AccessDenied", RequestId: "first" }, errorNode: "multipartList" })
+      .mockRejectedValueOnce({ statusCode: 403, error: { Code: "AccessDenied", RequestId: "first" } })
       .mockResolvedValueOnce({ ETag: '"etag-2"' });
 
     const stored = await uploadToCos({
-      file: new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "video/mp4" }),
+      file: new Blob(["small"], { type: "application/octet-stream" }),
       path: "drafts/22222222-2222-4222-8222-222222222222/video.mp4",
       scope: {
         purpose: "content-media",
@@ -80,13 +89,37 @@ describe("COS upload diagnostics", () => {
     expect(stored).toMatchObject({ provider: "tencent_cos", etag: "etag-2" });
   });
 
-  it("uses the SDK authorization action when the SDK error omits errorNode", async () => {
+  it("uses an explicit multipart sequence without listing bucket uploads", async () => {
     const { uploadToCos } = await import("./cosUpload");
-    mocks.uploadFile.mockImplementation(async () => {
-      await new Promise<void>((resolve) => {
-        mocks.authorizationOptions?.({ Action: "name/cos:ListMultipartUploads" }, () => resolve());
-      });
-      throw { statusCode: 403, error: { Code: "AccessDenied", RequestId: "bucket-list-denied" } };
+    const stored = await uploadToCos({
+      file: new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "video/mp4" }),
+      path: "drafts/22222222-2222-4222-8222-222222222222/video.mp4",
+      scope: {
+        purpose: "content-media",
+        contentId: "22222222-2222-4222-8222-222222222222",
+        prefix: "drafts/22222222-2222-4222-8222-222222222222/",
+        visibility: "private"
+      }
+    });
+
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.multipartInit).toHaveBeenCalledTimes(1);
+    expect(mocks.multipartUpload).toHaveBeenCalledTimes(2);
+    expect(mocks.multipartComplete).toHaveBeenCalledWith(expect.objectContaining({
+      UploadId: "upload-1",
+      Parts: [
+        { PartNumber: 1, ETag: '"part-etag"' },
+        { PartNumber: 2, ETag: '"part-etag"' }
+      ]
+    }));
+    expect(stored).toMatchObject({ etag: "complete-etag", sizeBytes: 6 * 1024 * 1024 });
+  });
+
+  it("reports the exact explicit multipart operation and aborts an incomplete upload", async () => {
+    const { uploadToCos } = await import("./cosUpload");
+    mocks.multipartUpload.mockRejectedValue({
+      statusCode: 403,
+      error: { Code: "AccessDenied", RequestId: "upload-part-denied" }
     });
 
     const error = await uploadToCos({
@@ -100,12 +133,11 @@ describe("COS upload diagnostics", () => {
       }
     }).catch((value) => value);
 
-    expect(error).toBeInstanceOf(Error);
     expect(error.details).toMatchObject({
-      operation: "ListMultipartUploads",
-      cosRequestId: "bucket-list-denied",
+      operation: "UploadPart",
+      cosRequestId: "upload-part-denied",
       retryCount: 1
     });
-    expect(mocks.uploadFile).toHaveBeenCalledTimes(2);
+    expect(mocks.multipartAbort).toHaveBeenCalledTimes(2);
   });
 });

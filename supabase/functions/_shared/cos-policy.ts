@@ -7,15 +7,15 @@ export interface CosFederationPolicyInput {
 
 export interface CosFederationPolicyConfiguration {
   region: string;
-  ownerUin: string;
+  appId: string;
 }
 
 export function buildCosFederationPolicy(
   input: CosFederationPolicyInput,
   configuration: CosFederationPolicyConfiguration
 ) {
-  const objectResource = `qcs::cos:${configuration.region}:uid/${configuration.ownerUin}:${input.bucket}/${input.prefix}*`;
-  const bucketResource = `qcs::cos:${configuration.region}:uid/${configuration.ownerUin}:${input.bucket}/*`;
+  const objectResource = `qcs::cos:${configuration.region}:uid/${configuration.appId}:${input.bucket}/${input.prefix}*`;
+  const bucketResource = `qcs::cos:${configuration.region}:uid/${configuration.appId}:${input.bucket}/*`;
   const statement = [
     { effect: "allow", action: input.objectActions, resource: [objectResource] }
   ];

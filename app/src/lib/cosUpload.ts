@@ -30,6 +30,7 @@ export interface CosUploadErrorDetails {
   stage: "credentials" | "upload" | "multipart" | "complete";
   retryCount: number;
   code: string;
+  policyAppIdVerified: boolean;
 }
 
 export class CosUploadError extends Error {
@@ -51,6 +52,7 @@ type TemporaryCredentials = {
   bucket: string;
   region: string;
   prefix: string;
+  policyAppIdVerified?: boolean;
 };
 
 const credentialCache = new Map<string, TemporaryCredentials>();
@@ -106,6 +108,7 @@ export function toCosUploadError(error: unknown, input: {
   stage: CosUploadErrorDetails["stage"];
   retryCount: number;
   operation?: string;
+  policyAppIdVerified?: boolean;
 }) {
   if (error instanceof CosUploadError) return error;
   const statusValue = Number(readErrorField(error, ["statusCode", "status", "httpStatus"]));
@@ -129,7 +132,16 @@ export function toCosUploadError(error: unknown, input: {
     ? "请检查私有桶 CAM 权限及 STS 分片上传动作后重试。"
     : "请保留 request ID 并重试；持续失败时在运行日志中查看该请求。";
   const message = `COS 上传失败：阶段 ${input.stage}，操作 ${operation}，错误 ${code}${httpStatus ? `，HTTP ${httpStatus}` : ""}${cosRequestId ? `，request ID ${cosRequestId}` : ""}。${nextStep} ${rawMessage.slice(0, 300)}`;
-  return new CosUploadError(message, { operation, httpStatus, cosRequestId, bucket: input.bucket, stage: input.stage, retryCount: input.retryCount, code });
+  return new CosUploadError(message, {
+    operation,
+    httpStatus,
+    cosRequestId,
+    bucket: input.bucket,
+    stage: input.stage,
+    retryCount: input.retryCount,
+    code,
+    policyAppIdVerified: input.policyAppIdVerified === true
+  });
 }
 
 async function credentialsFor(scope: CosUploadScope) {
@@ -167,7 +179,6 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
   const { default: CosClient } = await import("cos-js-sdk-v5");
   let lastCredentials = initialCredentials;
   let authorizationError: unknown = null;
-  let lastOperation = "";
   const client = new CosClient({
     ChunkRetryTimes: 4,
     ChunkSize: 5 * 1024 * 1024,
@@ -175,10 +186,7 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
     FileParallelLimit: 1,
     ChunkParallelLimit: 2,
     ProgressInterval: 250,
-    getAuthorization: async (options, callback) => {
-      const runtimeOptions = options as typeof options & { Action?: unknown };
-      const action = typeof runtimeOptions.Action === "string" ? runtimeOptions.Action : "";
-      if (/^name\/cos:[A-Za-z]+$/.test(action)) lastOperation = action.slice("name/cos:".length);
+    getAuthorization: async (_options, callback) => {
       try {
         const value = await credentialsFor(scope);
         lastCredentials = value;
@@ -191,9 +199,93 @@ async function createClient(scope: CosUploadScope, initialCredentials: Temporary
   });
   return {
     client,
-    getAuthorizationError: () => authorizationError,
-    getLastOperation: () => lastOperation
+    getAuthorizationError: () => authorizationError
   };
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException("Upload cancelled", "AbortError");
+}
+
+async function uploadMultipart(input: {
+  client: COS;
+  bucket: string;
+  region: string;
+  path: string;
+  file: Blob;
+  contentType: string;
+  cacheControl: string;
+  signal?: AbortSignal;
+  onProgress?(progress: UploadProgress): void;
+  setOperation(operation: string): void;
+}) {
+  const chunkSize = 5 * 1024 * 1024;
+  let uploadId = "";
+  let currentOperation = "InitiateMultipartUpload";
+  const setOperation = (operation: string) => {
+    currentOperation = operation;
+    input.setOperation(operation);
+  };
+  try {
+    throwIfAborted(input.signal);
+    setOperation("InitiateMultipartUpload");
+    const initialized = await input.client.multipartInit({
+      Bucket: input.bucket,
+      Region: input.region,
+      Key: input.path,
+      ContentType: input.contentType,
+      CacheControl: input.cacheControl
+    });
+    uploadId = initialized.UploadId;
+    const parts: COS.Part[] = [];
+    for (let offset = 0, partNumber = 1; offset < input.file.size; offset += chunkSize, partNumber += 1) {
+      throwIfAborted(input.signal);
+      setOperation("UploadPart");
+      const body = input.file.slice(offset, Math.min(offset + chunkSize, input.file.size));
+      const uploaded = await input.client.multipartUpload({
+        Bucket: input.bucket,
+        Region: input.region,
+        Key: input.path,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+        Body: body,
+        ContentLength: body.size
+      });
+      parts.push({ PartNumber: partNumber, ETag: uploaded.ETag });
+      const loaded = Math.min(offset + body.size, input.file.size);
+      input.onProgress?.({
+        loaded,
+        total: input.file.size,
+        percent: Math.round((loaded / input.file.size) * 100)
+      });
+    }
+    throwIfAborted(input.signal);
+    setOperation("CompleteMultipartUpload");
+    return await input.client.multipartComplete({
+      Bucket: input.bucket,
+      Region: input.region,
+      Key: input.path,
+      UploadId: uploadId,
+      Parts: parts
+    });
+  } catch (error) {
+    const failedOperation = currentOperation;
+    if (uploadId) {
+      try {
+        setOperation("AbortMultipartUpload");
+        await input.client.multipartAbort({
+          Bucket: input.bucket,
+          Region: input.region,
+          Key: input.path,
+          UploadId: uploadId
+        });
+      } catch {
+        // Preserve the original upload failure; incomplete uploads can be cleaned separately.
+      }
+    }
+    input.setOperation(failedOperation);
+    throw error;
+  }
 }
 
 export async function uploadToCos(input: {
@@ -211,28 +303,53 @@ export async function uploadToCos(input: {
     const path = validateObjectPath(input.path, credentials.prefix);
     const expectedBucket = input.scope.visibility === "public" ? cosPublicBucket : cosPrivateBucket;
     if (credentials.bucket !== expectedBucket || credentials.region !== cosRegion) {
-      throw new CosUploadError("COS credentials target does not match the requested bucket", { operation: "credentials", httpStatus: null, cosRequestId: null, bucket: credentials.bucket, stage: "credentials", retryCount, code: "COS_TARGET_MISMATCH" });
+      throw new CosUploadError("COS credentials target does not match the requested bucket", {
+        operation: "credentials",
+        httpStatus: null,
+        cosRequestId: null,
+        bucket: credentials.bucket,
+        stage: "credentials",
+        retryCount,
+        code: "COS_TARGET_MISMATCH",
+        policyAppIdVerified: credentials.policyAppIdVerified === true
+      });
     }
-    const { client, getAuthorizationError, getLastOperation } = await createClient(input.scope, credentials);
+    const { client, getAuthorizationError } = await createClient(input.scope, credentials);
     let taskId = "";
+    let operation = input.file.size > 5 * 1024 * 1024 ? "InitiateMultipartUpload" : "PutObject";
     const abort = () => { if (taskId) client.cancelTask(taskId); };
     input.signal?.addEventListener("abort", abort, { once: true });
     try {
-      const result = await client.uploadFile({
-        Bucket: credentials.bucket,
-        Region: credentials.region,
-        Key: path,
-        Body: input.file,
-        ContentType: input.contentType || input.file.type || "application/octet-stream",
-        CacheControl: input.cacheControl || (input.scope.visibility === "public" ? "public, max-age=31536000, immutable" : "no-store"),
-        SliceSize: 5 * 1024 * 1024,
-        onTaskReady: (id) => { taskId = id; },
-        onProgress: (progress) => input.onProgress?.({
-          loaded: progress.loaded,
-          total: progress.total || input.file.size,
-          percent: Math.round(progress.percent * 100)
+      const contentType = input.contentType || input.file.type || "application/octet-stream";
+      const cacheControl = input.cacheControl || (input.scope.visibility === "public" ? "public, max-age=31536000, immutable" : "no-store");
+      const result = input.file.size > 5 * 1024 * 1024
+        ? await uploadMultipart({
+          client,
+          bucket: credentials.bucket,
+          region: credentials.region,
+          path,
+          file: input.file,
+          contentType,
+          cacheControl,
+          signal: input.signal,
+          onProgress: input.onProgress,
+          setOperation: (value) => { operation = value; }
         })
-      });
+        : await client.uploadFile({
+          Bucket: credentials.bucket,
+          Region: credentials.region,
+          Key: path,
+          Body: input.file,
+          ContentType: contentType,
+          CacheControl: cacheControl,
+          SliceSize: 5 * 1024 * 1024,
+          onTaskReady: (id) => { taskId = id; },
+          onProgress: (progress) => input.onProgress?.({
+            loaded: progress.loaded,
+            total: progress.total || input.file.size,
+            percent: Math.round(progress.percent * 100)
+          })
+        });
       const authorizationError = getAuthorizationError();
       if (authorizationError) throw authorizationError;
       return {
@@ -255,7 +372,8 @@ export async function uploadToCos(input: {
         bucket: credentials.bucket,
         stage,
         retryCount,
-        operation: getLastOperation()
+        operation,
+        policyAppIdVerified: credentials.policyAppIdVerified
       });
     } finally {
       input.signal?.removeEventListener("abort", abort);

@@ -11,10 +11,8 @@ const uploadActions = [
   "name/cos:UploadPart",
   "name/cos:CompleteMultipartUpload",
   "name/cos:AbortMultipartUpload",
-  "name/cos:ListParts",
   "name/cos:HeadObject"
 ];
-const bucketActions = ["name/cos:ListMultipartUploads"];
 
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
@@ -66,8 +64,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
       name: `maplestorynk-${user.id.slice(0, 8)}`,
       bucket,
       prefix,
-      objectActions: actions,
-      bucketActions
+      objectActions: actions
     }));
   } catch (error) {
     const detail = error instanceof Error ? error.message : "";

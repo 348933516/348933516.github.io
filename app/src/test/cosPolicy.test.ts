@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildCosFederationPolicy } from "../../../supabase/functions/_shared/cos-policy";
 
 describe("COS federation policy", () => {
-  it("keeps object writes prefix-scoped and grants multipart listing at bucket scope", () => {
+  it("uses the COS APPID in prefix-scoped object resources", () => {
     const policy = buildCosFederationPolicy({
       bucket: "maplestorynk-private-1331200863",
       prefix: "drafts/22222222-2222-4222-8222-222222222222/",
@@ -10,7 +10,7 @@ describe("COS federation policy", () => {
       bucketActions: ["name/cos:ListMultipartUploads"]
     }, {
       region: "ap-guangzhou",
-      ownerUin: "1331200863"
+      appId: "1331200863"
     });
 
     expect(policy.statement).toEqual([
@@ -29,4 +29,5 @@ describe("COS federation policy", () => {
     ]);
     expect(policy.statement[1].action).not.toContain("name/cos:PutObject");
   });
+
 });

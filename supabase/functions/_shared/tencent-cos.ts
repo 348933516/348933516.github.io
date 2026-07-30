@@ -46,7 +46,10 @@ export async function getCosFederationToken(input: CosFederationPolicyInput & { 
     payload: {
       Name: input.name.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 32),
       DurationSeconds: 1800,
-      Policy: JSON.stringify(buildCosFederationPolicy(input, configuration))
+      Policy: JSON.stringify(buildCosFederationPolicy(input, {
+        region: configuration.region,
+        appId: configuration.appId
+      }))
     }
   });
   const credentials = response.Credentials as Record<string, unknown> | undefined;
@@ -59,7 +62,8 @@ export async function getCosFederationToken(input: CosFederationPolicyInput & { 
     expiredTime: Number(response.ExpiredTime || 0),
     bucket: input.bucket,
     region: configuration.region,
-    prefix: input.prefix
+    prefix: input.prefix,
+    policyAppIdVerified: input.bucket.endsWith(`-${configuration.appId}`)
   };
 }
 
