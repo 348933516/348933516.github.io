@@ -120,6 +120,7 @@ export interface ContentItem {
   publishedAt?: string;
   mediaCount?: number;
   attachmentCount?: number;
+  pendingMediaCount?: number;
 }
 
 export interface PublicData {

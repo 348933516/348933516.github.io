@@ -4,6 +4,20 @@ import { supabase } from "./supabase";
 
 export type StorageProvider = "supabase" | "tencent_cos";
 
+export function isPublishedStorageRecord(input: {
+  provider?: string | null;
+  bucket?: string | null;
+  path?: string | null;
+  externalUrl?: string | null;
+}) {
+  if (input.externalUrl) return true;
+  if (!input.path) return false;
+  if (input.provider === "tencent_cos") {
+    return input.bucket === cosPublicBucket || input.bucket === cosPublicStorageAlias;
+  }
+  return input.bucket === publicMediaBucket;
+}
+
 export function encodeStoragePath(path: string) {
   return path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
 }

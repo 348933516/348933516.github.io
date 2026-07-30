@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { publicMediaBucket } from "./config";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
-import { publicStorageUrl, storedAssetUrl } from "./storage";
+import { isPublishedStorageRecord, publicStorageUrl, storedAssetUrl } from "./storage";
 import type {
   Attachment,
   Category,
@@ -504,6 +504,7 @@ async function mapAdminContentListRows(rows: Array<Record<string, unknown>>) {
       attachments: [],
       mediaCount: Number(row.media_count || 0),
       attachmentCount: Number(row.attachment_count || 0),
+      pendingMediaCount: Number(row.pending_media_count || 0),
       createdBy: row.created_by ? String(row.created_by) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -559,15 +560,15 @@ export async function loadAdminContentPage(input: { page: number; pageSize?: num
 }
 
 export async function loadAdminContent(id: string): Promise<ContentItem> {
-  const [contentResult, mediaCountResult, attachmentCountResult, tagResult] = await Promise.all([
+  const [contentResult, mediaResult, attachmentResult, tagResult] = await Promise.all([
     supabase.from("contents").select("*, categories!inner(id, slug, name)").eq("id", id).single(),
-    supabase.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", id),
-    supabase.from("attachments").select("id", { count: "exact", head: true }).eq("content_id", id),
+    supabase.from("content_media").select("id, storage_provider, storage_bucket, storage_path, external_url").eq("content_id", id),
+    supabase.from("attachments").select("id, storage_provider, storage_bucket, storage_path, external_url").eq("content_id", id),
     supabase.from("content_tags").select("tags(name)").eq("content_id", id)
   ]);
   if (contentResult.error) throw contentResult.error;
-  if (mediaCountResult.error) throw mediaCountResult.error;
-  if (attachmentCountResult.error) throw attachmentCountResult.error;
+  if (mediaResult.error) throw mediaResult.error;
+  if (attachmentResult.error) throw attachmentResult.error;
   if (tagResult.error) throw tagResult.error;
   const row = contentResult.data;
   const category = row.categories as { id: string; slug: string; name: string };
@@ -593,8 +594,14 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
     }),
     media: [],
     attachments: [],
-    mediaCount: mediaCountResult.count || 0,
-    attachmentCount: attachmentCountResult.count || 0,
+    mediaCount: mediaResult.data?.length || 0,
+    attachmentCount: attachmentResult.data?.length || 0,
+    pendingMediaCount: [...(mediaResult.data || []), ...(attachmentResult.data || [])].filter((stored) => !isPublishedStorageRecord({
+      provider: stored.storage_provider,
+      bucket: stored.storage_bucket,
+      path: stored.storage_path,
+      externalUrl: stored.external_url
+    })).length,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,

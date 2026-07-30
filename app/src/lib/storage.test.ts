@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgeMediaUrl, encodeStoragePath, publicStorageUrl, storedAssetUrl } from "./storage";
+import { edgeMediaUrl, encodeStoragePath, isPublishedStorageRecord, publicStorageUrl, storedAssetUrl } from "./storage";
 
 describe("provider-aware storage URLs", () => {
   it("encodes each COS object path segment without losing directories", () => {
@@ -19,5 +19,12 @@ describe("provider-aware storage URLs", () => {
   it("does not expose private objects as public URLs", () => {
     expect(publicStorageUrl({ provider: "supabase", bucket: "maplestorynk-private", path: "drafts/private.png" })).toBe("");
     expect(publicStorageUrl({ provider: "tencent_cos", bucket: "maplestorynk-private-1331200863", path: "drafts/private.png" })).toBe("");
+  });
+
+  it("distinguishes draft objects from published media records", () => {
+    expect(isPublishedStorageRecord({ provider: "tencent_cos", bucket: "maplestorynk-private-1331200863", path: "drafts/video.mp4" })).toBe(false);
+    expect(isPublishedStorageRecord({ provider: "tencent_cos", bucket: "maplestorynk-media-1331200863", path: "content/video.mp4" })).toBe(true);
+    expect(isPublishedStorageRecord({ provider: "supabase", bucket: "maplestorynk-public", path: "legacy/image.webp" })).toBe(true);
+    expect(isPublishedStorageRecord({ externalUrl: "https://example.com/video.mp4" })).toBe(true);
   });
 });

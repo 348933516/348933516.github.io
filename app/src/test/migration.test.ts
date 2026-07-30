@@ -26,6 +26,7 @@ const storageClient = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/s
 const mediaMigrationFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/media-migration/index.ts"), "utf8");
 const publishContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
 const duplicateContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/duplicate-content/index.ts"), "utf8");
+const publicMediaBoundary = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260730113000_public_media_boundary_and_cover_fallback.sql"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -191,6 +192,18 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).toContain("PROMOTION_TARGET_NOT_FOUND");
     expect(publishContentFunction).toContain('client.rpc("commit_content_publication"');
     expect(publishContentFunction).not.toContain('.from("contents")\n    .update({ status: "published"');
+  });
+
+  it("never returns private COS drafts from public RPCs and exposes pending media to administrators", () => {
+    expect(publicMediaBoundary).toContain("maplestorynk-media-1331200863");
+    expect(publicMediaBoundary).not.toContain("storage_provider = 'tencent_cos' or");
+    expect(publicMediaBoundary).toContain("pending_media_count");
+    expect(publicMediaBoundary).toContain("coalesce(cover.storage_path, category.image_path, '')");
+    const publicContentBlock = publicMediaBoundary.slice(
+      publicMediaBoundary.indexOf("create or replace function public.get_public_content"),
+      publicMediaBoundary.indexOf("create or replace function public.get_public_category")
+    );
+    expect(publicContentBlock).not.toContain("maplestorynk-private-1331200863");
   });
 
   it("cleans the single in-flight Word image that may not have reached registration", () => {
