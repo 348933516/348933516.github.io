@@ -28,6 +28,10 @@ describe("browser video transcode pipeline", () => {
     expect(mediaAdmin).not.toContain('request.eq("kind", "video").is("source_import_id", null)');
   });
 
+  it("offers browser repair for legacy videos whose codec was never detected", () => {
+    expect(mediaAdmin).toContain('|| !videoCodec || videoCodec === "browser-incompatible"');
+  });
+
   it("keeps published replacement atomic and caches video and poster objects", () => {
     expect(edgeFunction).toContain("pendingPosterPath");
     expect(edgeFunction).toContain("posterStoragePath");
