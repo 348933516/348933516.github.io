@@ -26,6 +26,7 @@ jobs:
       TENCENT_COS_SECRET_ID: ${{ secrets.TENCENT_COS_SECRET_ID }}
       TENCENT_COS_SECRET_KEY: ${{ secrets.TENCENT_COS_SECRET_KEY }}
       TENCENT_COS_UIN: ${{ secrets.TENCENT_COS_UIN }}
+      VIDEO_WORKER_TOKEN: ${{ secrets.VIDEO_WORKER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,9 +62,12 @@ jobs:
               TENCENT_MEDIA_BASE_URL="https://media.maplestorynk.online" \
               --project-ref "$PROJECT_REF"
           fi
+          if [ -n "$VIDEO_WORKER_TOKEN" ]; then
+            pnpm dlx supabase@latest secrets set VIDEO_WORKER_TOKEN="$VIDEO_WORKER_TOKEN" --project-ref "$PROJECT_REF"
+          fi
       - name: Deploy changed functions
         run: |
-          all_functions=(invite-admin update-admin import-url publish-content restore-revision save-content migrate-legacy batch-content duplicate-content delete-content document-import cos-credentials cos-storage media-migration vod-signature vod-complete vod-import vod-status)
+          all_functions=(invite-admin update-admin import-url publish-content restore-revision save-content migrate-legacy batch-content duplicate-content delete-content document-import cos-credentials cos-storage media-migration video-transcode vod-signature vod-complete vod-import vod-status)
           before="${{ github.event.before }}"
           if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then before="HEAD^"; fi
           changed="$(git diff --name-only "$before" HEAD -- supabase/functions supabase/config.toml)"

@@ -25,11 +25,13 @@ function cleanImageAttributes(attribs: Record<string, string>) {
 
 function cleanBody(value: string) {
   return sanitizeHtml(value, {
-    allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
+    allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "video", "source", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
     allowedAttributes: {
       a: ["href", "target", "rel", "title"],
       img: ["src", "srcset", "sizes", "width", "height", "loading", "decoding", "alt", "title"],
-      figure: ["data-editor-image", "data-media-id", "data-original-src"],
+      video: ["controls", "preload", "playsinline", "poster"],
+      source: ["src", "type"],
+      figure: ["data-editor-image", "data-media-id", "data-media-kind", "data-original-src"],
       figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
       th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],

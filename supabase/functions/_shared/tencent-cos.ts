@@ -133,8 +133,8 @@ export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; buc
   throw lastError instanceof Error ? lastError : new Error(`COS ${input.method} failed`);
 }
 
-export async function headCosObject(bucket: string, key: string) {
-  const response = await cosRequest({ method: "HEAD", bucket, key, operation: "HeadObject" });
+export async function headCosObject(bucket: string, key: string, operation = "HeadObject") {
+  const response = await cosRequest({ method: "HEAD", bucket, key, operation });
   return {
     etag: (response.headers.get("etag") || "").replaceAll('"', ""),
     sizeBytes: Number(response.headers.get("content-length") || 0),
@@ -142,15 +142,18 @@ export async function headCosObject(bucket: string, key: string) {
   };
 }
 
-export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string) {
-  await cosRequest({ method: "HEAD", bucket: sourceBucket, key: sourceKey, operation: "HeadSourceObject" });
+export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string, options?: { cacheControl?: string }) {
+  const source = await headCosObject(sourceBucket, sourceKey, "HeadSourceObject");
   const copySource = `/${sourceBucket}/${encodeKey(sourceKey)}`;
+  const metadataHeaders = options?.cacheControl
+    ? { "x-cos-metadata-directive": "Replaced", "cache-control": options.cacheControl, "content-type": source.contentType }
+    : { "x-cos-metadata-directive": "Copy" };
   await cosRequest({
     method: "PUT",
     bucket: destinationBucket,
     key: destinationKey,
     operation: "CopyObject",
-    headers: { "x-cos-copy-source": copySource, "x-cos-metadata-directive": "Copy" }
+    headers: { "x-cos-copy-source": copySource, ...metadataHeaders }
   });
   return headCosObject(destinationBucket, destinationKey);
 }
@@ -162,4 +165,13 @@ export async function deleteCosObject(bucket: string, key: string) {
 export async function signedCosObjectUrl(bucket: string, key: string) {
   const signed = await cosAuthorization("GET", bucket, key);
   return `https://${signed.host}${signed.path}?${signed.authorization}`;
+}
+
+export async function signedCosUploadUrl(bucket: string, key: string, contentType: string, cacheControl: string) {
+  const headers = { "content-type": contentType, "cache-control": cacheControl };
+  const signed = await cosAuthorization("PUT", bucket, key, headers);
+  return {
+    url: `https://${signed.host}${signed.path}?${signed.authorization}`,
+    headers
+  };
 }

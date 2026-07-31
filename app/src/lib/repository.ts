@@ -110,6 +110,8 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined,
     playbackUrl: row.playback_url ? safeUrl(String(row.playback_url)) : undefined,
     posterUrl: row.poster_url ? safeUrl(String(row.poster_url)) : undefined,
+    posterStoragePath: row.poster_storage_path ? String(row.poster_storage_path) : undefined,
+    placementStatus: row.placement_status === "inserted" ? "inserted" : "unplaced",
     sourceImportId: row.source_import_id ? String(row.source_import_id) : undefined,
     storageProvider: row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase",
     storageBucket: row.storage_bucket ? String(row.storage_bucket) : undefined,
@@ -158,6 +160,38 @@ async function adminStorageUrl(bucket?: string | null, path?: string | null, ext
   if (bucket === publicMediaBucket) return storageUrl(bucket, path, null, provider);
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
   return error ? "" : safeUrl(data.signedUrl);
+}
+
+async function mapAdminMedia(row: Record<string, unknown>): Promise<ContentMedia> {
+  const mapped = mapMedia(row);
+  const bucket = row.storage_bucket ? String(row.storage_bucket) : null;
+  const provider = row.storage_provider ? String(row.storage_provider) : null;
+  const contentId = row.content_id ? String(row.content_id) : null;
+  const variants = Array.isArray(row.image_variants) ? row.image_variants.flatMap((entry) => entry && typeof entry === "object" ? [entry as Record<string, unknown>] : []) : [];
+  const [src, originalSrc, posterUrl, imageVariants] = await Promise.all([
+    adminStorageUrl(bucket, row.storage_path ? String(row.storage_path) : null, row.external_url ? String(row.external_url) : null, provider, contentId),
+    row.original_storage_path ? adminStorageUrl(bucket, String(row.original_storage_path), null, provider, contentId) : Promise.resolve(""),
+    row.poster_url
+      ? Promise.resolve(safeUrl(String(row.poster_url)))
+      : row.poster_storage_path
+        ? adminStorageUrl(bucket, String(row.poster_storage_path), null, provider, contentId)
+        : Promise.resolve(""),
+    Promise.all(variants.map(async (variant) => ({
+      key: String(variant.key || variant.width || "preview"),
+      src: await adminStorageUrl(bucket, String(variant.path || ""), null, provider, contentId),
+      width: Number(variant.width || 0),
+      height: Number(variant.height || 0),
+      mimeType: String(variant.mimeType || variant.mime_type || "image/webp"),
+      sizeBytes: Number(variant.sizeBytes || variant.size_bytes || 0)
+    })))
+  ]);
+  return {
+    ...mapped,
+    src,
+    originalSrc: originalSrc || undefined,
+    posterUrl: posterUrl || undefined,
+    imageVariants: imageVariants.filter((variant) => variant.src && variant.width > 0)
+  };
 }
 
 async function loadStructuredPublicData(): Promise<PublicData | null> {
@@ -618,10 +652,18 @@ export async function loadAdminStandaloneMedia(contentId: string): Promise<Conte
     .is("source_import_id", null)
     .order("sort_order");
   if (error) throw error;
-  return Promise.all((data || []).map(async (row) => ({
-    ...mapMedia(row),
-    src: await adminStorageUrl(row.storage_bucket, row.storage_path, row.external_url, row.storage_provider, row.content_id)
-  })));
+  return Promise.all((data || []).map((row) => mapAdminMedia(row)));
+}
+
+export async function loadAdminEmbeddedMedia(contentId: string, mediaIds: string[]): Promise<ContentMedia[]> {
+  const ids = [...new Set(mediaIds)].filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 500);
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from("content_media")
+    .select("*")
+    .eq("content_id", contentId)
+    .in("id", ids);
+  if (error) throw error;
+  return Promise.all((data || []).map((row) => mapAdminMedia(row)));
 }
 
 export interface MediaStorageMigrationItem {

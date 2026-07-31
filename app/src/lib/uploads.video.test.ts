@@ -16,6 +16,12 @@ describe("COS-only video routing", () => {
     expect(browserCanPlayVideo(file)).toBe(true);
   });
 
+  it("accepts common source containers for the FFmpeg queue", () => {
+    for (const name of ["clip.mov", "clip.m4v", "clip.mkv", "clip.avi"]) {
+      expect(validateUpload(new File(["x"], name, { type: "application/octet-stream" }))).toMatchObject({ video: true });
+    }
+  });
+
   it("rejects a video that exposes metadata but never decodes a frame", async () => {
     vi.useFakeTimers();
     const createObjectURL = vi.fn(() => "blob:test-video");

@@ -9,7 +9,10 @@ type StoredItem = {
   storage_path: string | null;
   original_storage_path?: string | null;
   display_storage_path?: string | null;
+  poster_storage_path?: string | null;
   image_variants?: Array<Record<string, unknown>> | null;
+  kind?: string | null;
+  processing_status?: string | null;
 };
 
 type ObjectCopy = {
@@ -29,6 +32,8 @@ type Promotion = {
   storagePath: string;
   originalStoragePath: string | null;
   displayStoragePath: string | null;
+  posterStoragePath: string | null;
+  posterUrl: string | null;
   imageVariants: Array<Record<string, unknown>>;
   objects: ObjectCopy[];
 };
@@ -51,17 +56,28 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const [mediaResult, attachmentsResult] = await Promise.all([
-    client.from("content_media").select("id, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, image_variants").eq("content_id", contentId),
+    client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, processing_status").eq("content_id", contentId),
     client.from("attachments").select("id, storage_provider, storage_bucket, storage_path").eq("content_id", contentId)
   ]);
   if (mediaResult.error || attachmentsResult.error) {
     return json(functionError("PUBLICATION_MEDIA_QUERY_FAILED", "Unable to read media awaiting publication", "load-media"), 500);
   }
+  const configuration = cosConfiguration();
+  const unfinishedVideo = (mediaResult.data ?? []).find((item) => {
+    if (item.kind !== "video" || item.processing_status === "ready") return false;
+    const hasPublishedFallback = item.storage_provider === "tencent_cos"
+      ? item.storage_bucket === configuration.publicBucket
+      : item.storage_bucket === "maplestorynk-public";
+    return !hasPublishedFallback;
+  });
+  if (unfinishedVideo) {
+    return json(functionError("VIDEO_PROCESSING_PENDING", "视频仍在生成兼容播放版本，请处理完成后再发布。", "validate-media", { media_id: unfinishedVideo.id, processing_status: unfinishedVideo.processing_status }), 409);
+  }
 
   const pending: Array<{ table: Promotion["table"]; item: StoredItem }> = [
     ...(mediaResult.data ?? []).map((item) => ({ table: "content_media" as const, item })),
     ...(attachmentsResult.data ?? []).map((item) => ({ table: "attachments" as const, item }))
-  ].filter(({ item }) => Boolean(item.storage_path) && (item.storage_bucket === "maplestorynk-private" || item.storage_provider === "tencent_cos" && item.storage_bucket === cosConfiguration().privateBucket));
+  ].filter(({ item }) => Boolean(item.storage_path) && (item.storage_bucket === "maplestorynk-private" || item.storage_provider === "tencent_cos" && item.storage_bucket === configuration.privateBucket));
 
   const promoted: Promotion[] = [];
   const copiedObjects: ObjectCopy[] = [];
@@ -80,6 +96,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
       item.storage_path,
       item.original_storage_path,
       item.display_storage_path,
+      item.poster_storage_path,
       ...(Array.isArray(item.image_variants) ? item.image_variants.map((variant) => String(variant.path || "")) : [])
     ].filter(Boolean).map(String))];
     const copiedBySource = new Map<string, string>();
@@ -88,7 +105,12 @@ Deno.serve((request) => edgeHandler(request, async () => {
         const filename = source.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || crypto.randomUUID();
         const destination = `content/${contentId}/${table}/${item.id}/${crypto.randomUUID()}-${filename}`;
         if (provider === "tencent_cos") {
-          await copyCosObject(sourceBucket, source, destinationBucket, destination);
+          const cacheControl = table === "attachments"
+            ? "public, max-age=604800, immutable"
+            : item.kind === "video" && source === item.storage_path
+              ? "public, max-age=2592000, immutable"
+              : "public, max-age=31536000, immutable";
+          await copyCosObject(sourceBucket, source, destinationBucket, destination, { cacheControl });
         } else {
           const { data: file, error: downloadError } = await client.storage.from(sourceBucket).download(source);
           if (downloadError || !file) throw new Error(downloadError?.message ?? "Stored file download failed");
@@ -130,6 +152,12 @@ Deno.serve((request) => edgeHandler(request, async () => {
       storagePath: copiedBySource.get(item.storage_path as string) as string,
       originalStoragePath: item.original_storage_path ? copiedBySource.get(item.original_storage_path) || null : null,
       displayStoragePath: item.display_storage_path ? copiedBySource.get(item.display_storage_path) || null : null,
+      posterStoragePath: item.poster_storage_path ? copiedBySource.get(item.poster_storage_path) || null : null,
+      posterUrl: item.poster_storage_path
+        ? provider === "tencent_cos"
+          ? `${configuration?.mediaBaseUrl}/${String(copiedBySource.get(item.poster_storage_path) || "").split("/").map(encodeURIComponent).join("/")}`
+          : client.storage.from(destinationBucket).getPublicUrl(String(copiedBySource.get(item.poster_storage_path) || "")).data.publicUrl
+        : null,
       imageVariants: (Array.isArray(item.image_variants) ? item.image_variants : []).map((variant) => ({
         ...variant,
         path: copiedBySource.get(String(variant.path || "")) || String(variant.path || "")

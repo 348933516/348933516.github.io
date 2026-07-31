@@ -35,6 +35,28 @@ describe("rich content reader", () => {
     expect(prepared.html).toContain("loading=\"lazy\"");
   });
 
+  it("hydrates an inline video placeholder from its media record", () => {
+    const mediaId = "123e4567-e89b-42d3-a456-426614174001";
+    const prepared = prepareRichDocument(`<p>前文</p><figure data-media-id="${mediaId}" data-media-kind="video"><video controls></video><figcaption>演示</figcaption></figure><p>后文</p>`, [{
+      id: mediaId,
+      kind: "video",
+      src: "https://media.example.test/video.mp4",
+      playbackUrl: "https://media.example.test/playback.mp4",
+      posterUrl: "https://media.example.test/poster.webp",
+      title: "演示",
+      note: "",
+      path: [],
+      altText: "",
+      sortOrder: 10,
+      mimeType: "video/mp4"
+    }]);
+    const document = new DOMParser().parseFromString(prepared.html, "text/html");
+    expect(document.querySelector("figure")?.previousElementSibling?.textContent).toBe("前文");
+    expect(document.querySelector("figure")?.nextElementSibling?.textContent).toBe("后文");
+    expect(document.querySelector("video")?.getAttribute("poster")).toBe("https://media.example.test/poster.webp");
+    expect(document.querySelector("source")?.getAttribute("src")).toBe("https://media.example.test/playback.mp4");
+  });
+
   it("builds stable unique outline targets for h1 through h4", () => {
     const prepared = prepareRichDocument("<h1>地图展示</h1><h2>可爱风</h2><h2>可爱风</h2><h3>★ 特殊 / 标题</h3><h4>   </h4>");
 

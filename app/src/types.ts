@@ -77,6 +77,8 @@ export interface ContentMedia {
   providerAppId?: string;
   playbackUrl?: string;
   posterUrl?: string;
+  posterStoragePath?: string;
+  placementStatus?: "unplaced" | "inserted";
   sourceImportId?: string;
   storageProvider?: "supabase" | "tencent_cos";
   storageBucket?: string;

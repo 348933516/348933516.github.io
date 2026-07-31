@@ -217,6 +217,13 @@ select option { color: #10181d; background: #f4f7f5; }
 .reader-body figure[data-editor-image] { margin: 22px 0; display: grid; gap: 10px; }
 .reader-body figure[data-editor-image] > img { width: 100%; height: auto; border-radius: 8px; display: block; }
 .reader-body figure[data-editor-image] > figcaption { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.reader-body figure[data-media-kind="video"],
+.editor-surface figure[data-media-kind="video"] { margin: 22px 0; display: grid; gap: 10px; }
+.reader-body figure[data-media-kind="video"] > video,
+.editor-surface figure[data-media-kind="video"] > video { width: 100%; aspect-ratio: 16 / 9; display: block; object-fit: contain; background: #111315; }
+.reader-body figure[data-media-kind="video"] > figcaption,
+.editor-surface figure[data-media-kind="video"] > figcaption { min-height: 24px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.editor-surface figure[data-media-kind="video"][data-media-unavailable="true"] > video { opacity: .35; }
 .media-row { margin: 36px 0 0; border-top: 1px solid var(--line); padding-top: 28px; }
 .media-image-button { position: relative; width: 100%; border: 0; border-radius: 6px; padding: 0; overflow: hidden; background: #05080a; }
 .media-image-button img { width: 100%; height: auto; }

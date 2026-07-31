@@ -12,8 +12,9 @@ const controlledAttributes: Record<string, Set<string>> = {
   "data-cell-border-style": new Set(["solid", "dashed", "dotted", "double", "groove", "ridge", "none"]),
   "data-cell-align": new Set(["left", "center", "right", "justify"]),
   "data-editor-image": new Set(["true"]),
+  "data-media-kind": new Set(["image", "video"]),
   "data-office-image-placeholder": new Set(Array.from({ length: 100 }, (_, index) => String(index + 1))),
-  "data-placeholder": new Set(["图片说明"])
+  "data-placeholder": new Set(["图片说明", "视频说明"])
 };
 
 DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
@@ -80,7 +81,11 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (!controlled.has(data.attrValue.toLowerCase())) data.keepAttr = false;
     return;
   }
-  if (["loading", "decoding"].includes(data.attrName)) {
+  if (["loading", "decoding", "preload"].includes(data.attrName)) {
+    if (data.attrName === "preload") {
+      if (!["none", "metadata", "auto"].includes(data.attrValue.toLowerCase())) data.keepAttr = false;
+      return;
+    }
     const allowed = data.attrName === "loading" ? new Set(["lazy", "eager"]) : new Set(["async", "sync", "auto"]);
     if (!allowed.has(data.attrValue.toLowerCase())) data.keepAttr = false;
     return;
@@ -107,12 +112,12 @@ export function sanitizeHtml(value?: string | null) {
     ALLOWED_TAGS: [
       "p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li",
       "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td",
-      "img", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"
+      "img", "video", "source", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"
     ],
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "srcset", "sizes", "width", "height", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth", "loading", "decoding", "data-original-src",
-      "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-office-image-placeholder"
+      "controls", "preload", "playsinline", "poster", "type", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
+      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-media-kind", "data-office-image-placeholder"
     ],
     ALLOW_DATA_ATTR: true
   });

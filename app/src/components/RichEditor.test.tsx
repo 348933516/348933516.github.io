@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RichEditor, type RichEditorHandle } from "./RichEditor";
 
@@ -13,6 +13,7 @@ describe("professional rich editor", () => {
     expect(screen.getByRole("button", { name: "背景高亮" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "两端对齐" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上传本地图片" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上传并插入视频或媒体" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "插入表格" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "清除选区格式" })).toBeInTheDocument();
   });
@@ -102,6 +103,31 @@ describe("professional rich editor", () => {
 
     expect(container.querySelectorAll('.editor-surface img[src="https://example.com/legacy.png"]')).toHaveLength(1);
     expect(container.querySelector(".editor-surface figcaption")).toBeInTheDocument();
+  });
+
+  it("stores managed video positions by media id without persisting a signed URL", async () => {
+    const ref = createRef<RichEditorHandle>();
+    render(<RichEditor ref={ref} value="<p>前文</p><p>后文</p>" />);
+    const mediaId = "123e4567-e89b-42d3-a456-426614174002";
+    await act(async () => ref.current?.insertMedia({ id: mediaId, kind: "video", src: "https://private.example.test/signed.mp4?token=secret", title: "视频", mimeType: "video/mp4" }));
+    await waitFor(() => expect(ref.current?.serialize().html).toContain(`data-media-id="${mediaId}"`));
+    expect(ref.current?.serialize().html).toContain('data-media-kind="video"');
+    expect(ref.current?.serialize().html).not.toContain("token=secret");
+    await act(async () => ref.current?.removeMedia(mediaId));
+    await waitFor(() => expect(ref.current?.serialize().html).not.toContain(mediaId));
+  });
+
+  it("hydrates a saved video position without marking the document dirty", async () => {
+    const mediaId = "123e4567-e89b-42d3-a456-426614174003";
+    const onDirty = vi.fn();
+    const { container } = render(<RichEditor
+      value={`<figure data-media-id="${mediaId}" data-media-kind="video"><video controls></video><figcaption>演示</figcaption></figure>`}
+      media={[{ id: mediaId, kind: "video", src: "https://media.example.test/video.mp4", posterUrl: "https://media.example.test/poster.webp", title: "演示", note: "", path: [], altText: "", sortOrder: 10, mimeType: "video/mp4" }]}
+      onDirty={onDirty}
+    />);
+    await waitFor(() => expect(container.querySelector(".editor-surface video source")).toHaveAttribute("src", "https://media.example.test/video.mp4"));
+    expect(container.querySelector(".editor-surface video")).toHaveAttribute("poster", "https://media.example.test/poster.webp");
+    expect(onDirty).not.toHaveBeenCalled();
   });
 
   it("pastes tab-separated spreadsheet data as an editable table", async () => {

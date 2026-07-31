@@ -16,22 +16,25 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Code2, Eraser,
-  Highlighter, ImagePlus, Italic, Link2, List, ListOrdered, Maximize2, Minus, Palette,
+  Film, Highlighter, ImagePlus, Italic, Link2, List, ListOrdered, Maximize2, Minus, Palette,
   Quote, Redo2, Strikethrough, Table2, Underline as UnderlineIcon, Undo2, X
 } from "lucide-react";
 import { normalizeOfficeClipboardHtml, tabSeparatedTextToTableHtml } from "../lib/officeClipboard";
 import { sanitizeHtml } from "../lib/sanitize";
 import { normalizeInlineMediaHtml } from "../lib/richMedia";
+import type { ContentMedia } from "../types";
 import { BackToTop, DocumentOutline } from "./DocumentNavigation";
 import type { OutlineItem } from "./DocumentNavigation";
 
 interface RichEditorProps {
   value: string;
+  media?: ContentMedia[];
   onChange?: (html: string, text: string, json: Record<string, unknown>) => void;
   onDirty?: () => void;
   onSnapshot?: (snapshot: RichEditorSnapshot) => void;
   onSafeMode?: () => void;
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
+  onUploadMedia?: (file: File) => Promise<RichEditorMedia>;
 }
 
 export interface RichEditorSnapshot {
@@ -44,6 +47,21 @@ export interface RichEditorHandle {
   serialize(): RichEditorSnapshot;
   focus(): void;
   openSafeMode(): void;
+  insertMedia(media: RichEditorMedia): void;
+  removeMedia(mediaId: string): void;
+  replaceMedia(media: RichEditorMedia): void;
+}
+
+export interface RichEditorMedia {
+  id: string;
+  kind: "image" | "video";
+  src?: string;
+  title: string;
+  altText?: string;
+  mimeType?: string;
+  posterUrl?: string;
+  width?: number;
+  height?: number;
 }
 
 interface EditorOutlineItem extends OutlineItem {
@@ -217,7 +235,8 @@ const FigureImage = Node.create({
       sizes: { default: "" },
       width: { default: null },
       height: { default: null },
-      originalSrc: { default: "" }
+      originalSrc: { default: "" },
+      managed: { default: false }
     };
   },
   parseHTML() {
@@ -243,7 +262,8 @@ const FigureImage = Node.create({
           sizes: image?.getAttribute("sizes") || "",
           width: Number(image?.getAttribute("width")) || null,
           height: Number(image?.getAttribute("height")) || null,
-          originalSrc: figure.getAttribute("data-original-src") || ""
+          originalSrc: figure.getAttribute("data-original-src") || "",
+          managed: figure.getAttribute("data-media-kind") === "image"
         };
       }
     }];
@@ -252,9 +272,10 @@ const FigureImage = Node.create({
     return ["figure", {
       "data-editor-image": "true",
       ...(node.attrs.mediaId ? { "data-media-id": node.attrs.mediaId } : {}),
+      ...(node.attrs.managed ? { "data-media-kind": "image" } : {}),
       ...(node.attrs.originalSrc ? { "data-original-src": node.attrs.originalSrc } : {})
     }, ["img", {
-      src: node.attrs.src,
+      ...(!node.attrs.managed && node.attrs.src ? { src: node.attrs.src } : {}),
       alt: node.attrs.alt || "",
       loading: "lazy",
       decoding: "async",
@@ -323,6 +344,99 @@ const FigureImage = Node.create({
           return true;
         },
         destroy() { observer?.disconnect(); }
+      };
+    };
+  }
+});
+
+const FigureVideo = Node.create({
+  name: "figureVideo",
+  group: "block",
+  content: "inline*",
+  draggable: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      mediaId: { default: "" },
+      src: { default: "" },
+      title: { default: "" },
+      mimeType: { default: "video/mp4" },
+      posterUrl: { default: "" }
+    };
+  },
+  parseHTML() {
+    return [{
+      tag: 'figure[data-media-kind="video"][data-media-id]',
+      contentElement: (element) => {
+        const figure = element as HTMLElement;
+        const existing = figure.querySelector("figcaption");
+        if (existing) return existing;
+        const caption = document.createElement("figcaption");
+        caption.dataset.placeholder = "视频说明";
+        figure.append(caption);
+        return caption;
+      },
+      getAttrs: (element) => {
+        const figure = element as HTMLElement;
+        const video = figure.querySelector<HTMLVideoElement>("video");
+        const source = video?.querySelector<HTMLSourceElement>("source");
+        return {
+          mediaId: figure.dataset.mediaId || "",
+          src: source?.getAttribute("src") || video?.getAttribute("src") || "",
+          title: video?.getAttribute("title") || "",
+          mimeType: source?.getAttribute("type") || "video/mp4",
+          posterUrl: video?.getAttribute("poster") || ""
+        };
+      }
+    }];
+  },
+  renderHTML({ node }) {
+    return ["figure", {
+      "data-media-id": node.attrs.mediaId,
+      "data-media-kind": "video"
+    }, ["video", {
+      controls: "",
+      preload: "metadata",
+      playsinline: "",
+      title: node.attrs.title || ""
+    }], ["figcaption", { "data-placeholder": "视频说明" }, 0]];
+  },
+  addNodeView() {
+    return ({ node }) => {
+      const figure = document.createElement("figure");
+      const video = document.createElement("video");
+      const source = document.createElement("source");
+      const caption = document.createElement("figcaption");
+      figure.dataset.mediaKind = "video";
+      video.controls = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.append(source);
+      caption.dataset.placeholder = "视频说明";
+      figure.append(video, caption);
+      let current = node;
+      const applyAttributes = () => {
+        const attrs = current.attrs;
+        figure.dataset.mediaId = attrs.mediaId || "";
+        video.title = attrs.title || "";
+        if (attrs.posterUrl) video.poster = attrs.posterUrl;
+        else video.removeAttribute("poster");
+        source.src = attrs.src || "";
+        source.type = attrs.mimeType || "video/mp4";
+        if (!attrs.src) figure.dataset.mediaUnavailable = "true";
+        else delete figure.dataset.mediaUnavailable;
+        if (!navigator.userAgent.toLowerCase().includes("jsdom")) video.load();
+      };
+      applyAttributes();
+      return {
+        dom: figure,
+        contentDOM: caption,
+        update(updatedNode) {
+          if (updatedNode.type.name !== "figureVideo") return false;
+          current = updatedNode;
+          applyAttributes();
+          return true;
+        }
       };
     };
   }
@@ -493,13 +607,15 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
   </div>;
 }
 
-export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, onChange, onDirty, onSnapshot, onSafeMode, onUploadImages }, ref) {
+export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, media = [], onChange, onDirty, onSnapshot, onSafeMode, onUploadImages, onUploadMedia }, ref) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const mediaFileRef = useRef<HTMLInputElement | null>(null);
   const pasteImagesRef = useRef<(files: File[]) => void>(() => undefined);
   const pasteTableRef = useRef<(html: string) => void>(() => undefined);
   const pasteOfficeHtmlRef = useRef<(html: string, files: File[]) => void>(() => undefined);
   const internalHtml = useRef(normalizeInlineMediaHtml(value));
+  const hydratingMediaRef = useRef(false);
   const lastExternalHtml = useRef(normalizeInlineMediaHtml(value));
   const onChangeRef = useRef(onChange);
   const onDirtyRef = useRef(onDirty);
@@ -518,6 +634,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const [tableToolsOpen, setTableToolsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [message, setMessage] = useState("");
   const [editorOutline, setEditorOutline] = useState<EditorOutlineItem[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState("");
@@ -561,6 +678,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       Link.configure({ openOnClick: false, autolink: true }),
       Image.configure({ allowBase64: false }),
       FigureImage,
+      FigureVideo,
       StyledTable.configure({ resizable: true }),
       TableRow,
       StyledTableHeader,
@@ -603,6 +721,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       }
     },
     onUpdate({ editor: current }) {
+      if (hydratingMediaRef.current) return;
       onDirtyRef.current?.();
       scheduleEditorOutline(current);
       if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
@@ -638,6 +757,47 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     }
   });
 
+  useEffect(() => {
+    if (!editor || !media.length) return;
+    const byId = new Map(media.map((item) => [item.id, item]));
+    const transaction = editor.state.tr;
+    let changed = false;
+    editor.state.doc.descendants((node, position) => {
+      if (node.type.name !== "figureVideo" && node.type.name !== "figureImage") return;
+      const item = byId.get(String(node.attrs.mediaId || ""));
+      if (!item) return;
+      const variants = item.imageVariants || [];
+      const next: Record<string, unknown> = node.type.name === "figureVideo"
+        ? {
+            ...node.attrs,
+            src: item.playbackUrl || item.src || "",
+            title: item.title,
+            mimeType: item.mimeType || "video/mp4",
+            posterUrl: item.posterUrl || ""
+          }
+        : {
+            ...node.attrs,
+            managed: true,
+            src: item.src || "",
+            alt: item.altText || item.title,
+            srcset: variants.map((variant) => `${variant.src} ${variant.width}w`).join(", "),
+            sizes: variants.length ? "(max-width: 720px) 100vw, 1600px" : "",
+            width: item.width || node.attrs.width,
+            height: item.height || node.attrs.height,
+            originalSrc: item.originalSrc || ""
+          };
+      if (Object.keys(next).some((key) => next[key] !== node.attrs[key])) {
+        transaction.setNodeMarkup(position, undefined, next);
+        changed = true;
+      }
+    });
+    if (!changed) return;
+    hydratingMediaRef.current = true;
+    transaction.setMeta("addToHistory", false);
+    editor.view.dispatch(transaction);
+    hydratingMediaRef.current = false;
+  }, [editor, media]);
+
   useImperativeHandle(ref, () => ({
     serialize() {
       if (changeTimerRef.current !== null) {
@@ -655,7 +815,46 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       return { html, text: new DOMParser().parseFromString(html, "text/html").body.textContent || "", json: {} };
     },
     focus() { editor?.commands.focus(); },
-    openSafeMode() { onSafeModeRef.current?.(); }
+    openSafeMode() { onSafeModeRef.current?.(); },
+    insertMedia(media) {
+      if (!editor) return;
+      const node = media.kind === "video"
+        ? { type: "figureVideo", attrs: { mediaId: media.id, src: media.src || "", title: media.title, mimeType: media.mimeType || "video/mp4", posterUrl: media.posterUrl || "" }, content: media.title ? [{ type: "text", text: media.title }] : [] }
+        : { type: "figureImage", attrs: { mediaId: media.id, managed: true, src: media.src || "", alt: media.altText || media.title, width: media.width || null, height: media.height || null }, content: media.title ? [{ type: "text", text: media.title }] : [] };
+      editor.chain().focus().insertContent([node, { type: "paragraph" }]).run();
+    },
+    removeMedia(mediaId) {
+      if (!editor) return;
+      const ranges: Array<{ from: number; to: number }> = [];
+      editor.state.doc.descendants((node, position) => {
+        if ((node.type.name === "figureVideo" || node.type.name === "figureImage") && node.attrs.mediaId === mediaId) {
+          ranges.push({ from: position, to: position + node.nodeSize });
+        }
+      });
+      if (!ranges.length) return;
+      const transaction = editor.state.tr;
+      [...ranges].reverse().forEach(({ from, to }) => transaction.delete(from, to));
+      editor.view.dispatch(transaction);
+    },
+    replaceMedia(media) {
+      if (!editor) return;
+      const transaction = editor.state.tr;
+      editor.state.doc.descendants((node, position) => {
+        if ((node.type.name === "figureVideo" || node.type.name === "figureImage") && node.attrs.mediaId === media.id) {
+          transaction.setNodeMarkup(position, undefined, {
+            ...node.attrs,
+            src: media.src || "",
+            title: media.title,
+            alt: media.altText || media.title,
+            mimeType: media.mimeType || node.attrs.mimeType,
+            posterUrl: media.posterUrl || "",
+            width: media.width || node.attrs.width,
+            height: media.height || node.attrs.height
+          });
+        }
+      });
+      if (transaction.steps.length) editor.view.dispatch(transaction);
+    }
   }), [editor, value]);
 
   useEffect(() => () => {
@@ -749,6 +948,23 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       setUploadingImages(false);
     }
   };
+  const insertUploadedMedia = async (file: File) => {
+    if (!onUploadMedia) return setMessage("当前页面没有开启正文媒体上传。");
+    setUploadingMedia(true);
+    setMessage(`正在上传“${file.name}”...`);
+    try {
+      const media = await onUploadMedia(file);
+      const node = media.kind === "video"
+        ? { type: "figureVideo", attrs: { mediaId: media.id, src: media.src || "", title: media.title, mimeType: media.mimeType || "video/mp4", posterUrl: media.posterUrl || "" }, content: media.title ? [{ type: "text", text: media.title }] : [] }
+        : { type: "figureImage", attrs: { mediaId: media.id, managed: true, src: media.src || "", alt: media.altText || media.title, width: media.width || null, height: media.height || null }, content: media.title ? [{ type: "text", text: media.title }] : [] };
+      editor.chain().focus().insertContent([node, { type: "paragraph" }]).run();
+      setMessage(media.src ? `已将“${media.title}”插入正文。` : `“${media.title}”已插入正文，兼容播放版本生成后即可预览。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "媒体上传失败。");
+    } finally {
+      setUploadingMedia(false);
+    }
+  };
   pasteImagesRef.current = (files) => { void insertImages(files); };
   pasteTableRef.current = (html) => {
     editor.chain().focus().insertContent(html).run();
@@ -829,6 +1045,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   return (
     <div ref={shellRef} className={`editor-shell${fullscreen ? " editor-fullscreen" : ""}`}>
       <input ref={fileRef} className="sr-only" type="file" accept="image/*" multiple onChange={(event) => { insertImages([...(event.target.files || [])]); event.target.value = ""; }} />
+      <input ref={mediaFileRef} className="sr-only" type="file" accept="image/*,video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void insertUploadedMedia(file); event.target.value = ""; }} />
       <div className="editor-toolbar" aria-label="正文编辑工具">
         <div className="editor-ribbon-group compact">
           <span>编辑</span>
@@ -865,6 +1082,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
           <ToolButton title="分隔线" onClick={() => editor.chain().focus().setHorizontalRule().run()}><Minus /></ToolButton>
           <ToolButton title="链接" active={editor.isActive("link")} onClick={setLink}><Link2 /></ToolButton>
           <ToolButton title="上传本地图片" disabled={uploadingImages} onClick={() => fileRef.current?.click()}><ImagePlus /></ToolButton>
+          <ToolButton title="上传并插入视频或媒体" disabled={uploadingMedia} onClick={() => mediaFileRef.current?.click()}><Film /></ToolButton>
           <TableSizePicker open={tablePickerOpen} setOpen={setTablePickerOpen} style={tablePreset} onStyleChange={updateTable} onInsert={insertTable} activePopover={activePopover} setActivePopover={setActivePopover} />
           <ToolButton title="清除选区格式" onClick={() => editor.chain().focus().unsetAllMarks().run()}><Eraser /></ToolButton>
         </div>

@@ -113,14 +113,15 @@ describe("public home", () => {
     expect(container.querySelector(".reader-main")).toBeInTheDocument();
   });
 
-  it("merges document headings and nested media paths into one button-based outline", () => {
+  it("merges document headings and body-referenced media paths into one button-based outline", () => {
+    const galleryId = "323e4567-e89b-42d3-a456-426614174000";
     const withOutline: PublicData = {
       ...data,
       contents: [{
         ...data.contents[0],
-        bodyHtml: "<h2>正文章节</h2><p>内容</p>",
+        bodyHtml: `<h2>正文章节</h2><p>内容</p><figure data-editor-image="true" data-media-id="${galleryId}"><img alt="可爱风地图"></figure>`,
         media: [{
-          id: "gallery-1",
+          id: galleryId,
           kind: "image",
           src: "https://example.com/gallery.png",
           title: "可爱风地图",
@@ -142,7 +143,7 @@ describe("public home", () => {
     expect(screen.getByRole("button", { name: "主题地图" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "可爱风" })).toBeInTheDocument();
     expect(container.querySelector('.document-outline-panel a[href^="#"]')).toBeNull();
-    expect(container.querySelector("#media-gallery-1")).toBeInTheDocument();
+    expect(container.querySelector(`#media-${galleryId}`)).toBeInTheDocument();
   });
 
   it("keeps a stable hook order while remote content changes from loading to loaded", async () => {
@@ -167,7 +168,7 @@ describe("public home", () => {
     }
   });
 
-  it("does not render Word images again in the standalone media gallery", () => {
+  it("renders only media referenced by the body and has no standalone media gallery", () => {
     const inlineId = "123e4567-e89b-42d3-a456-426614174000";
     const galleryId = "223e4567-e89b-42d3-a456-426614174000";
     const withInlineMedia: PublicData = {
@@ -188,8 +189,8 @@ describe("public home", () => {
     );
 
     expect(container.querySelectorAll('img[src="https://example.com/inline.png"]')).toHaveLength(1);
-    expect(container.querySelectorAll('img[src="https://example.com/gallery.png"]')).toHaveLength(1);
-    expect(container.querySelectorAll(".media-row")).toHaveLength(1);
+    expect(container.querySelectorAll('img[src="https://example.com/gallery.png"]')).toHaveLength(0);
+    expect(container.querySelectorAll(".media-row")).toHaveLength(0);
   });
 
   it("only makes the carousel clickable for public internal targets", () => {

@@ -19,3 +19,6 @@ enabled = true
 site_url = "https://348933516.github.io/preview/"
 additional_redirect_urls = ["http://127.0.0.1:5173", "https://348933516.github.io/preview/", "https://maplestorynk.online/preview/"]
 enable_signup = false
+
+[functions.video-transcode]
+verify_jwt = false

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { normalizeInlineMediaDocument } from "../lib/richMedia";
+import { hydrateMediaFigures, normalizeInlineMediaDocument } from "../lib/richMedia";
+import type { ContentMedia } from "../types";
 import type { OutlineItem } from "./DocumentNavigation";
 
 function outlineToken(value: string) {
@@ -14,8 +15,8 @@ function outlineToken(value: string) {
     .slice(0, 64) || "section";
 }
 
-export function prepareRichDocument(value: string) {
-  const document = normalizeInlineMediaDocument(value);
+export function prepareRichDocument(value: string, media: ContentMedia[] = []) {
+  const document = hydrateMediaFigures(normalizeInlineMediaDocument(value), media);
   const headingCounts = new Map<string, number>();
   const outline: OutlineItem[] = [];
   document.querySelectorAll<HTMLElement>("h1, h2, h3, h4").forEach((heading) => {
@@ -73,7 +74,7 @@ export function prepareRichHtml(value: string) {
   return prepareRichDocument(value).html;
 }
 
-export function RichContent({ html, className = "reader-body", prepared = false }: { html: string; className?: string; prepared?: boolean }) {
-  const rendered = useMemo(() => prepared ? html : prepareRichHtml(html), [html, prepared]);
+export function RichContent({ html, media = [], className = "reader-body", prepared = false }: { html: string; media?: ContentMedia[]; className?: string; prepared?: boolean }) {
+  const rendered = useMemo(() => prepared ? html : prepareRichDocument(html, media).html, [html, media, prepared]);
   return <div className={className} dangerouslySetInnerHTML={{ __html: rendered }} />;
 }

@@ -56,9 +56,10 @@ export async function uploadManagedFile(input: {
   onProgress?(progress: UploadProgress): void;
   signal?: AbortSignal;
   upsert?: boolean;
+  allowIncompatibleVideo?: boolean;
 }) : Promise<ManagedUploadResult> {
   const videoMimeType = normalizedVideoMimeType({ name: input.path, type: input.file.type });
-  if (input.purpose === "content-media" && videoMimeType) {
+  if (input.purpose === "content-media" && videoMimeType && !input.allowIncompatibleVideo) {
     const probe = await probeBrowserVideoPlayback(input.file, input.path);
     if (!probe.playable) {
       throw new EdgeFunctionError({
@@ -165,12 +166,18 @@ export async function imageDimensions(file: File) {
 export function validateUpload(file: File) {
   const lowerName = file.name.toLowerCase();
   const image = file.type.startsWith("image/");
-  const video = Boolean(normalizedVideoMimeType(file));
+  const video = isTranscodableVideo(file);
   const document = ["application/pdf", "application/zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/plain", "text/markdown", "text/html"].includes(file.type) || lowerName.endsWith(".pdf") || lowerName.endsWith(".zip") || lowerName.endsWith(".docx") || lowerName.endsWith(".xlsx") || lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(".html") || lowerName.endsWith(".htm");
   if (!image && !video && !document) throw new Error(`不支持的文件类型：${file.type || file.name}`);
-  const maximum = video ? 2 * 1024 * 1024 * 1024 : 100 * 1024 * 1024;
-  if (file.size > maximum) throw new Error(video ? "视频不能超过 2GB" : "单个文件不能超过 100MB");
+  const maximum = video ? 1024 * 1024 * 1024 : 100 * 1024 * 1024;
+  if (file.size > maximum) throw new Error(video ? "视频不能超过 1GB" : "单个文件不能超过 100MB");
   return { image, video, document };
+}
+
+export function isTranscodableVideo(input: Pick<File, "name" | "type">) {
+  const name = input.name.toLowerCase();
+  const type = input.type.toLowerCase().split(";", 1)[0].trim();
+  return type.startsWith("video/") || [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"].some((extension) => name.endsWith(extension));
 }
 
 export function browserCanPlayVideo(file: File) {

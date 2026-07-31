@@ -407,6 +407,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     await writeEvent(client, importId, { phase: "failed", severity: "error", message: "数据库最终提交失败，已保留全部图片，可直接重试", errorCode: String(error.code || "IMPORT_COMMIT_FAILED"), details: { database_error: databaseError } });
     return importError("finalize", error.message.includes("VERSION_CONFLICT") ? "VERSION_CONFLICT" : "IMPORT_COMMIT_FAILED", error.message.includes("VERSION_CONFLICT") ? "资料已被修改，请重新载入后再导入。" : "图片已上传并保留，但数据库提交失败；无需重新上传，可直接重试。", error.message.includes("VERSION_CONFLICT") ? 409 : 400, { import_id: importId, database_error: databaseError, registered_assets: assets.length });
   }
+  await client.from("content_media").update({ placement_status: "inserted" }).eq("content_id", job.content_id).eq("source_import_id", importId);
   const assetIds = assets.map((asset) => asset.mediaId);
   const { count: storedImages, error: countError } = await client.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", job.content_id).in("id", assetIds);
   if (countError || storedImages !== assets.length) return importError("finalize", "IMPORT_VERIFICATION_FAILED", "导入提交后的图片核对失败，请勿发布并查看运行日志。", 500, { import_id: importId, expected_images: assets.length, stored_images: storedImages || 0, body_figures: figureIds.length });
