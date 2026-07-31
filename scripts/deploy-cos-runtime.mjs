@@ -1,5 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import https from "node:https";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
@@ -9,8 +10,10 @@ const secretId = process.env.TENCENT_COS_SECRET_ID || "";
 const secretKey = process.env.TENCENT_COS_SECRET_KEY || "";
 const region = process.env.TENCENT_COS_REGION || "ap-guangzhou";
 const bucket = process.env.TENCENT_COS_PUBLIC_BUCKET || "maplestorynk-media-1331200863";
-const version = "0.12.10";
+const version = "0.12.10-r1";
 const cacheControl = "public, max-age=31536000, immutable";
+const uploadTimeoutMs = 120_000;
+const maxUploadAttempts = 2;
 
 if (!secretId || !secretKey) {
   throw new Error("Tencent COS credentials are required to deploy the browser video runtime");
@@ -47,15 +50,52 @@ for (const asset of assets) {
 }
 
 async function putObject(key, body, headers) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxUploadAttempts; attempt += 1) {
+    try {
+      await putObjectOnce(key, body, headers);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxUploadAttempts) {
+        console.warn(`COS runtime upload attempt ${attempt} failed; retrying ${key}`);
+      }
+    }
+  }
+  throw lastError;
+}
+
+function putObjectOnce(key, body, headers) {
   const signed = authorize("PUT", key, headers);
-  const response = await fetch(`https://${signed.host}${signed.path}`, {
-    method: "PUT",
-    headers: { Authorization: signed.authorization, ...headers },
-    body
+  return new Promise((resolve, reject) => {
+    const request = https.request({
+      method: "PUT",
+      hostname: signed.host,
+      path: signed.path,
+      headers: {
+        Authorization: signed.authorization,
+        ...headers,
+        "content-length": String(body.byteLength)
+      }
+    }, (response) => {
+      const responseChunks = [];
+      response.on("data", (chunk) => responseChunks.push(chunk));
+      response.on("end", () => {
+        if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+          resolve();
+          return;
+        }
+        const requestId = response.headers["x-cos-request-id"] || "unavailable";
+        const responseBody = Buffer.concat(responseChunks).toString("utf8").slice(0, 500);
+        reject(new Error(`COS runtime upload failed with HTTP ${response.statusCode || 0}, request ID ${requestId}: ${responseBody}`));
+      });
+    });
+    request.setTimeout(uploadTimeoutMs, () => {
+      request.destroy(new Error(`COS runtime upload timed out after ${uploadTimeoutMs}ms`));
+    });
+    request.on("error", reject);
+    request.end(body);
   });
-  if (response.ok) return;
-  const requestId = response.headers.get("x-cos-request-id") || "unavailable";
-  throw new Error(`COS runtime upload failed with HTTP ${response.status}, request ID ${requestId}`);
 }
 
 function authorize(method, key, extraHeaders) {

@@ -28,6 +28,7 @@ describe("browser video transcode", () => {
   it("loads the versioned runtime from EdgeOne with a local fallback", () => {
     const source = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/browserVideoTranscode.ts"), "utf8");
     expect(source).toContain('import { mediaBaseUrl } from "./config"');
+    expect(source).toContain('const ffmpegCoreVersion = "0.12.10-r1"');
     expect(source).toContain("site/runtime/ffmpeg/${ffmpegCoreVersion}/");
     expect(source).toContain("import.meta.env.BASE_URL}ffmpeg/");
   });
@@ -39,6 +40,11 @@ describe("browser video transcode", () => {
     expect(deployScript).toContain('"content-encoding": "gzip"');
     expect(deployScript).toContain("max-age=31536000, immutable");
     expect(deployScript).toContain("site/runtime/ffmpeg/");
+    expect(deployScript).toContain('import https from "node:https"');
+    expect(deployScript).toContain('"content-length": String(body.byteLength)');
+    expect(deployScript).toContain("request.setTimeout(uploadTimeoutMs");
+    expect(deployScript).toContain("maxUploadAttempts = 2");
+    expect(deployScript).not.toContain("await fetch(");
     expect(workflow).toContain("node scripts/deploy-cos-runtime.mjs");
   });
 });

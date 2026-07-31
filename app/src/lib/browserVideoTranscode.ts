@@ -22,7 +22,7 @@ type ProgressHandler = (progress: BrowserVideoProgress) => void;
 
 const standardLimit = 300 * 1024 * 1024;
 const lowMemoryLimit = 128 * 1024 * 1024;
-const ffmpegCoreVersion = "0.12.10";
+const ffmpegCoreVersion = "0.12.10-r1";
 let ffmpegPromise: Promise<import("@ffmpeg/ffmpeg").FFmpeg> | null = null;
 let activeProgress: ProgressHandler | null = null;
 let transcodeQueue: Promise<unknown> = Promise.resolve();
