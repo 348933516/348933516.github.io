@@ -111,6 +111,9 @@ describe("public home", () => {
     );
     expect(container.querySelector(".reader-layout")).toHaveClass("without-outline");
     expect(container.querySelector(".reader-main")).toBeInTheDocument();
+    expect(container.querySelector(".detail-article > header > span")).toBeNull();
+    expect(container.querySelector(".detail-meta")).toBeNull();
+    expect(screen.queryByText(/更新于/)).not.toBeInTheDocument();
   });
 
   it("merges document headings and body-referenced media paths into one button-based outline", () => {

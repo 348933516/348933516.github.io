@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, FileImage, FolderOpen, Tag, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Copy, FileImage, FolderOpen, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { BackToTop, DocumentOutline } from "../components/DocumentNavigation";
 import { prepareRichDocument, RichContent } from "../components/RichContent";
@@ -179,7 +179,7 @@ export function DetailPage() {
   return <div className="page-width detail-page">
     <BackToTop blocked={Boolean(lightbox)} />
     <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
-    <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
+    <article className="detail-article"><header><h1>{item.title}</h1><p>{item.summary}</p>{item.tags.length > 0 && <div className="detail-meta">{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div>}</header>
       <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <DocumentOutline items={outline} settings={item.outlineSettings} observe className="reader-document-outline" />}<div className="reader-main"><RichContent html={richDocument.html} prepared /></div></div>
     </article>
     <nav className="previous-next">{previous ? <Link to={`/content/${previous.slug}`}><ArrowLeft /><span>上一篇<strong>{previous.title}</strong></span></Link> : <span />}{next && <Link to={`/content/${next.slug}`}><span>下一篇<strong>{next.title}</strong></span><ArrowRight /></Link>}</nav>
