@@ -116,6 +116,22 @@ describe("public home", () => {
     expect(screen.queryByText(/更新于/)).not.toBeInTheDocument();
   });
 
+  it("keeps related cards while hiding the decorative label, category and date", () => {
+    const withRelated: PublicData = {
+      ...data,
+      contents: [data.contents[0], { ...data.contents[0], id: "p2", slug: "second", title: "第二篇资料" }]
+    };
+    const { container } = render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/content/first"]}>
+        <DataProvider data={withRelated}><Routes><Route path="/content/:slug" element={<DetailPage />} /></Routes></DataProvider>
+      </MemoryRouter></QueryClientProvider>
+    );
+    expect(screen.getByRole("heading", { name: "相关资料" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "第二篇资料" })).toBeInTheDocument();
+    expect(screen.queryByText("RELATED")).not.toBeInTheDocument();
+    expect(container.querySelector(".related .card-meta")).toBeNull();
+  });
+
   it("merges document headings and body-referenced media paths into one button-based outline", () => {
     const galleryId = "323e4567-e89b-42d3-a456-426614174000";
     const withOutline: PublicData = {

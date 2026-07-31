@@ -183,7 +183,7 @@ export function DetailPage() {
       <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <DocumentOutline items={outline} settings={item.outlineSettings} observe className="reader-document-outline" />}<div className="reader-main"><RichContent html={richDocument.html} prepared /></div></div>
     </article>
     <nav className="previous-next">{previous ? <Link to={`/content/${previous.slug}`}><ArrowLeft /><span>上一篇<strong>{previous.title}</strong></span></Link> : <span />}{next && <Link to={`/content/${next.slug}`}><span>下一篇<strong>{next.title}</strong></span><ArrowRight /></Link>}</nav>
-    {related.length > 0 && <section className="related"><div className="section-heading"><div><span>RELATED</span><h2>相关资料</h2></div></div><div className="content-list">{related.map((content) => <ContentCard item={content} key={content.id} />)}</div></section>}
+    {related.length > 0 && <section className="related"><div className="section-heading"><div><h2>相关资料</h2></div></div><div className="content-list">{related.map((content) => <ContentCard item={content} compactMeta key={content.id} />)}</div></section>}
     {lightbox && <div className="lightbox" role="dialog" aria-modal="true" onClick={() => setLightbox(null)}><button type="button" aria-label="关闭"><X /></button><img src={lightbox} alt="放大预览" /></div>}
   </div>;
 }
