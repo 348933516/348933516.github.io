@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { browserVideoTranscodeLimit, buildVideoTranscodeArguments } from "./browserVideoTranscode";
 
@@ -28,7 +29,11 @@ describe("browser video transcode", () => {
   it("loads the versioned runtime from EdgeOne with a local fallback", () => {
     const source = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/browserVideoTranscode.ts"), "utf8");
     expect(source).toContain('import { mediaBaseUrl } from "./config"');
-    expect(source).toContain('const ffmpegCoreVersion = "0.12.10-r1"');
+    expect(source).toContain('const ffmpegCoreVersion = "0.12.10-r2"');
+    expect(source).toContain("ffmpegWasmPartCount = 8");
+    expect(source).toContain("loadEdgeWasm(base, onProgress)");
+    expect(source).toContain("Promise.all(Array.from");
+    expect(source).toContain("URL.createObjectURL(new Blob(parts");
     expect(source).toContain("site/runtime/ffmpeg/${ffmpegCoreVersion}/");
     expect(source).toContain("import.meta.env.BASE_URL}ffmpeg/");
   });
@@ -44,12 +49,22 @@ describe("browser video transcode", () => {
     expect(deployScript).toContain('"content-length": String(body.byteLength)');
     expect(deployScript).toContain("request.setTimeout(uploadTimeoutMs");
     expect(deployScript).toContain("maxUploadAttempts = 2");
-    expect(deployScript).toContain("putMultipartObject");
-    expect(deployScript).toContain("multipartPartSize = 4 * 1024 * 1024");
-    expect(deployScript).toContain("CompleteMultipartUpload");
-    expect(deployScript).toContain("partNumber: String(partNumber)");
-    expect(deployScript).toContain('requestObjectOnce("DELETE"');
+    expect(deployScript).toContain("wasmPartSize = 4 * 1024 * 1024");
+    expect(deployScript).toContain("ffmpeg-core.wasm.part-");
+    expect(deployScript).toContain("...wasmParts");
+    expect(deployScript).not.toContain("ffmpeg-core.wasm`,");
     expect(deployScript).not.toContain("await fetch(");
     expect(workflow).toContain("node scripts/deploy-cos-runtime.mjs");
+  });
+
+  it("splits the WASM into independently compressed COS-safe objects", () => {
+    const wasm = fs.readFileSync(path.resolve(process.cwd(), "app/public/ffmpeg/ffmpeg-core.wasm"));
+    const partSize = 4 * 1024 * 1024;
+    const compressedParts = Array.from({ length: Math.ceil(wasm.byteLength / partSize) }, (_, index) =>
+      gzipSync(wasm.subarray(index * partSize, Math.min(wasm.byteLength, (index + 1) * partSize)), { level: 1 })
+    );
+    expect(compressedParts).toHaveLength(8);
+    expect(Math.max(...compressedParts.map((part) => part.byteLength))).toBeLessThan(5 * 1024 * 1024);
+    expect(Buffer.concat(compressedParts.map((part) => gunzipSync(part))).equals(wasm)).toBe(true);
   });
 });

@@ -10,12 +10,11 @@ const secretId = process.env.TENCENT_COS_SECRET_ID || "";
 const secretKey = process.env.TENCENT_COS_SECRET_KEY || "";
 const region = process.env.TENCENT_COS_REGION || "ap-guangzhou";
 const bucket = process.env.TENCENT_COS_PUBLIC_BUCKET || "maplestorynk-media-1331200863";
-const version = "0.12.10-r1";
+const version = "0.12.10-r2";
 const cacheControl = "public, max-age=31536000, immutable";
 const uploadTimeoutMs = 120_000;
 const maxUploadAttempts = 2;
-const multipartThreshold = 5 * 1024 * 1024;
-const multipartPartSize = 4 * 1024 * 1024;
+const wasmPartSize = 4 * 1024 * 1024;
 
 if (!secretId || !secretKey) {
   throw new Error("Tencent COS credentials are required to deploy the browser video runtime");
@@ -26,6 +25,19 @@ const [coreJavaScript, coreWasm] = await Promise.all([
   readFile(path.join(repositoryRoot, "app/public/ffmpeg/ffmpeg-core.wasm"))
 ]);
 
+const wasmParts = Array.from({ length: Math.ceil(coreWasm.byteLength / wasmPartSize) }, (_, index) => {
+  const rawPart = coreWasm.subarray(index * wasmPartSize, Math.min(coreWasm.byteLength, (index + 1) * wasmPartSize));
+  return {
+    key: `site/runtime/ffmpeg/${version}/ffmpeg-core.wasm.part-${String(index + 1).padStart(2, "0")}`,
+    body: gzipSync(rawPart, { level: 9 }),
+    headers: {
+      "cache-control": cacheControl,
+      "content-encoding": "gzip",
+      "content-type": "application/octet-stream"
+    }
+  };
+});
+
 const assets = [
   {
     key: `site/runtime/ffmpeg/${version}/ffmpeg-core.js`,
@@ -35,15 +47,7 @@ const assets = [
       "content-type": "text/javascript; charset=utf-8"
     }
   },
-  {
-    key: `site/runtime/ffmpeg/${version}/ffmpeg-core.wasm`,
-    body: gzipSync(coreWasm, { level: 9 }),
-    headers: {
-      "cache-control": cacheControl,
-      "content-encoding": "gzip",
-      "content-type": "application/wasm"
-    }
-  }
+  ...wasmParts
 ];
 
 for (const asset of assets) {
@@ -52,44 +56,7 @@ for (const asset of assets) {
 }
 
 async function putObject(key, body, headers) {
-  if (body.byteLength > multipartThreshold) {
-    await putMultipartObject(key, body, headers);
-    return;
-  }
   await requestWithRetry("PUT", key, body, headers);
-}
-
-async function putMultipartObject(key, body, headers) {
-  const initiated = await requestWithRetry("POST", key, Buffer.alloc(0), headers, { uploads: "" });
-  const uploadId = extractXmlTag(initiated.body, "UploadId");
-  if (!uploadId) throw new Error("COS multipart upload did not return an upload ID");
-
-  const completedParts = [];
-  try {
-    const partCount = Math.ceil(body.byteLength / multipartPartSize);
-    for (let index = 0; index < partCount; index += 1) {
-      const partNumber = index + 1;
-      const part = body.subarray(index * multipartPartSize, Math.min(body.byteLength, (index + 1) * multipartPartSize));
-      const uploaded = await requestWithRetry("PUT", key, part, {}, {
-        partNumber: String(partNumber),
-        uploadId
-      });
-      const etag = String(uploaded.headers.etag || "");
-      if (!etag) throw new Error(`COS multipart upload part ${partNumber} did not return an ETag`);
-      completedParts.push({ partNumber, etag });
-      console.log(`Uploaded ${key} part ${partNumber}/${partCount} (${part.byteLength} bytes)`);
-    }
-
-    const completionBody = Buffer.from([
-      "<CompleteMultipartUpload>",
-      ...completedParts.map(({ partNumber, etag }) => `<Part><PartNumber>${partNumber}</PartNumber><ETag>${escapeXml(etag)}</ETag></Part>`),
-      "</CompleteMultipartUpload>"
-    ].join(""));
-    await requestWithRetry("POST", key, completionBody, { "content-type": "application/xml" }, { uploadId });
-  } catch (error) {
-    await requestObjectOnce("DELETE", key, Buffer.alloc(0), {}, { uploadId }).catch(() => undefined);
-    throw error;
-  }
 }
 
 async function requestWithRetry(method, key, body, headers, query = {}) {
@@ -169,14 +136,6 @@ function authorize(method, key, extraHeaders, query = {}) {
     path: requestQuery ? `${requestPath}?${requestQuery}` : requestPath,
     authorization: `q-sign-algorithm=sha1&q-ak=${secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=${headerNames.join(";")}&q-url-param-list=${queryNames}&q-signature=${signature}`
   };
-}
-
-function extractXmlTag(xml, tagName) {
-  return xml.match(new RegExp(`<${tagName}>([^<]+)</${tagName}>`))?.[1] || "";
-}
-
-function escapeXml(value) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function sha1(value) {

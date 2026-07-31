@@ -22,7 +22,8 @@ type ProgressHandler = (progress: BrowserVideoProgress) => void;
 
 const standardLimit = 300 * 1024 * 1024;
 const lowMemoryLimit = 128 * 1024 * 1024;
-const ffmpegCoreVersion = "0.12.10-r1";
+const ffmpegCoreVersion = "0.12.10-r2";
+const ffmpegWasmPartCount = 8;
 let ffmpegPromise: Promise<import("@ffmpeg/ffmpeg").FFmpeg> | null = null;
 let activeProgress: ProgressHandler | null = null;
 let transcodeQueue: Promise<unknown> = Promise.resolve();
@@ -107,17 +108,21 @@ async function loadFfmpeg(onProgress: ProgressHandler) {
       let lastError: unknown;
       for (const base of [edgeBase, localBase]) {
         const ffmpeg = new FFmpeg();
+        let edgeWasmUrl: string | null = null;
         ffmpeg.on("progress", ({ progress }) => {
           activeProgress?.({ stage: "transcoding", percent: Math.max(8, Math.min(92, Math.round(8 + progress * 84))) });
         });
         try {
+          edgeWasmUrl = base === edgeBase ? await loadEdgeWasm(base, onProgress) : null;
           await ffmpeg.load({
             coreURL: new URL("ffmpeg-core.js", base).href,
-            wasmURL: new URL("ffmpeg-core.wasm", base).href
+            wasmURL: edgeWasmUrl || new URL("ffmpeg-core.wasm", base).href
           });
           return ffmpeg;
         } catch (error) {
           lastError = error;
+        } finally {
+          if (edgeWasmUrl) URL.revokeObjectURL(edgeWasmUrl);
         }
       }
       throw lastError instanceof Error ? lastError : new Error("本地视频转换组件加载失败");
@@ -128,6 +133,20 @@ async function loadFfmpeg(onProgress: ProgressHandler) {
   }
   activeProgress = onProgress;
   return ffmpegPromise;
+}
+
+async function loadEdgeWasm(base: URL, onProgress: ProgressHandler) {
+  let completedParts = 0;
+  const parts = await Promise.all(Array.from({ length: ffmpegWasmPartCount }, async (_, index) => {
+    const partName = `ffmpeg-core.wasm.part-${String(index + 1).padStart(2, "0")}`;
+    const response = await fetch(new URL(partName, base));
+    if (!response.ok) throw new Error(`EdgeOne FFmpeg runtime part ${index + 1} returned HTTP ${response.status}`);
+    const part = await response.arrayBuffer();
+    completedParts += 1;
+    onProgress({ stage: "loading", percent: Math.round(4 + (completedParts / ffmpegWasmPartCount) * 3) });
+    return part;
+  }));
+  return URL.createObjectURL(new Blob(parts, { type: "application/wasm" }));
 }
 
 async function createVideoPoster(videoFile: File) {
