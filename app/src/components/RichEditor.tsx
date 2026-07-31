@@ -853,7 +853,15 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
           });
         }
       });
-      if (transaction.steps.length) editor.view.dispatch(transaction);
+      if (transaction.steps.length) {
+        hydratingMediaRef.current = true;
+        transaction.setMeta("addToHistory", false);
+        try {
+          editor.view.dispatch(transaction);
+        } finally {
+          hydratingMediaRef.current = false;
+        }
+      }
     }
   }), [editor, value]);
 

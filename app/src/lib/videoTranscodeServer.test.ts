@@ -8,6 +8,7 @@ const mediaAdmin = fs.readFileSync(path.resolve(process.cwd(), "app/src/pages/ad
 const browserTranscode = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/browserVideoTranscode.ts"), "utf8");
 const publication = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
 const cosStorage = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-cos.ts"), "utf8");
+const richEditor = fs.readFileSync(path.resolve(process.cwd(), "app/src/components/RichEditor.tsx"), "utf8");
 
 describe("browser video transcode pipeline", () => {
   it("keeps the old queue schema harmless for already-created jobs", () => {
@@ -63,5 +64,15 @@ describe("browser video transcode pipeline", () => {
     expect(cosStorage).toContain("sourceContentType?: string");
     expect(edgeFunction).toContain("sourceContentType: pending.contentType");
     expect(edgeFunction).toContain('sourceContentType: pendingPoster?.contentType || "image/webp"');
+  });
+
+  it("refreshes inline players after atomic replacement without marking the body dirty", () => {
+    const replacementBlock = richEditor.slice(
+      richEditor.indexOf("replaceMedia(media)"),
+      richEditor.indexOf("}), [editor, value]")
+    );
+    expect(replacementBlock).toContain("hydratingMediaRef.current = true");
+    expect(replacementBlock).toContain('transaction.setMeta("addToHistory", false)');
+    expect(replacementBlock).toContain("hydratingMediaRef.current = false");
   });
 });
