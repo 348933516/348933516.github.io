@@ -196,6 +196,10 @@ describe("Supabase security migration", () => {
     expect(publishContentFunction).not.toContain('.from("contents")\n    .update({ status: "published"');
     expect(publishContentFunction).toContain("COS_COPY_ACCESS_DENIED");
     expect(publishContentFunction).toContain("cos_request_id");
+    expect(publishContentFunction).toContain("mime_type, original_mime_type");
+    expect(publishContentFunction).toContain("sourceContentType: contentTypeForSource(item, source)");
+    expect(publishContentFunction).toContain("verifyDestination: false");
+    expect(publishContentFunction).not.toContain("{ cacheControl }");
     expect(cosSharedFunction).toContain("parseCosErrorResponse");
     expect(cosSharedFunction).toContain("HeadSourceObject");
     expect(cosSharedFunction).toContain('"x-cos-metadata-directive": "Copy"');

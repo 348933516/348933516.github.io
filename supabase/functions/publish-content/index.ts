@@ -11,6 +11,8 @@ type StoredItem = {
   display_storage_path?: string | null;
   poster_storage_path?: string | null;
   image_variants?: Array<Record<string, unknown>> | null;
+  mime_type?: string | null;
+  original_mime_type?: string | null;
   kind?: string | null;
   processing_status?: string | null;
 };
@@ -38,6 +40,37 @@ type Promotion = {
   objects: ObjectCopy[];
 };
 
+function contentTypeFromPath(path: string) {
+  const extension = path.split("?")[0].split(".").pop()?.toLowerCase();
+  return ({
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    mp4: "video/mp4",
+    m4v: "video/x-m4v",
+    mov: "video/quicktime",
+    webm: "video/webm",
+    pdf: "application/pdf",
+    zip: "application/zip",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    txt: "text/plain"
+  } as Record<string, string>)[extension || ""] || "application/octet-stream";
+}
+
+function contentTypeForSource(item: StoredItem, source: string) {
+  if (source === item.poster_storage_path) return "image/webp";
+  const variant = (Array.isArray(item.image_variants) ? item.image_variants : [])
+    .find((candidate) => String(candidate.path || "") === source);
+  const variantMime = String(variant?.mimeType || variant?.mime_type || "");
+  if (variantMime.includes("/")) return variantMime;
+  if (source === item.original_storage_path && item.original_mime_type?.includes("/")) return item.original_mime_type;
+  if (source === item.storage_path && item.mime_type?.includes("/")) return item.mime_type;
+  return contentTypeFromPath(source);
+}
+
 Deno.serve((request) => edgeHandler(request, async () => {
   const { client, user } = await requireRole(request, ["super_admin", "editor"]);
   const body = await request.json();
@@ -56,8 +89,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const [mediaResult, attachmentsResult] = await Promise.all([
-    client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, processing_status").eq("content_id", contentId),
-    client.from("attachments").select("id, storage_provider, storage_bucket, storage_path").eq("content_id", contentId)
+    client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, mime_type, original_mime_type, processing_status").eq("content_id", contentId),
+    client.from("attachments").select("id, storage_provider, storage_bucket, storage_path, mime_type").eq("content_id", contentId)
   ]);
   if (mediaResult.error || attachmentsResult.error) {
     return json(functionError("PUBLICATION_MEDIA_QUERY_FAILED", "Unable to read media awaiting publication", "load-media"), 500);
@@ -110,7 +143,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
             : item.kind === "video" && source === item.storage_path
               ? "public, max-age=2592000, immutable"
               : "public, max-age=31536000, immutable";
-          await copyCosObject(sourceBucket, source, destinationBucket, destination, { cacheControl });
+          await copyCosObject(sourceBucket, source, destinationBucket, destination, {
+            cacheControl,
+            sourceContentType: contentTypeForSource(item, source),
+            verifyDestination: false
+          });
         } else {
           const { data: file, error: downloadError } = await client.storage.from(sourceBucket).download(source);
           if (downloadError || !file) throw new Error(downloadError?.message ?? "Stored file download failed");
