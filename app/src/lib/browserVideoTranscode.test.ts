@@ -31,7 +31,9 @@ describe("browser video transcode", () => {
     expect(source).toContain('import { mediaBaseUrl } from "./config"');
     expect(source).toContain('const ffmpegCoreVersion = "0.12.10-r2"');
     expect(source).toContain("ffmpegWasmPartCount = 8");
+    expect(source).toContain("maxEdgePartAttempts = 3");
     expect(source).toContain("loadEdgeWasm(base, onProgress)");
+    expect(source).toContain("fetchEdgeWasmPart");
     expect(source).toContain("Promise.all(Array.from");
     expect(source).toContain("URL.createObjectURL(new Blob(parts");
     expect(source).toContain("site/runtime/ffmpeg/${ffmpegCoreVersion}/");

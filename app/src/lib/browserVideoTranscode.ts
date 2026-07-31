@@ -24,6 +24,7 @@ const standardLimit = 300 * 1024 * 1024;
 const lowMemoryLimit = 128 * 1024 * 1024;
 const ffmpegCoreVersion = "0.12.10-r2";
 const ffmpegWasmPartCount = 8;
+const maxEdgePartAttempts = 3;
 let ffmpegPromise: Promise<import("@ffmpeg/ffmpeg").FFmpeg> | null = null;
 let activeProgress: ProgressHandler | null = null;
 let transcodeQueue: Promise<unknown> = Promise.resolve();
@@ -139,14 +140,29 @@ async function loadEdgeWasm(base: URL, onProgress: ProgressHandler) {
   let completedParts = 0;
   const parts = await Promise.all(Array.from({ length: ffmpegWasmPartCount }, async (_, index) => {
     const partName = `ffmpeg-core.wasm.part-${String(index + 1).padStart(2, "0")}`;
-    const response = await fetch(new URL(partName, base));
-    if (!response.ok) throw new Error(`EdgeOne FFmpeg runtime part ${index + 1} returned HTTP ${response.status}`);
-    const part = await response.arrayBuffer();
+    const part = await fetchEdgeWasmPart(new URL(partName, base), index + 1);
     completedParts += 1;
     onProgress({ stage: "loading", percent: Math.round(4 + (completedParts / ffmpegWasmPartCount) * 3) });
     return part;
   }));
   return URL.createObjectURL(new Blob(parts, { type: "application/wasm" }));
+}
+
+async function fetchEdgeWasmPart(url: URL, partNumber: number) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxEdgePartAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return await response.arrayBuffer();
+      lastError = new Error(`EdgeOne FFmpeg runtime part ${partNumber} returned HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < maxEdgePartAttempts) {
+      await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`EdgeOne FFmpeg runtime part ${partNumber} failed`);
 }
 
 async function createVideoPoster(videoFile: File) {
