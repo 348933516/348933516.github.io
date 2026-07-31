@@ -27,6 +27,7 @@ const mediaMigrationFunction = fs.readFileSync(path.resolve(process.cwd(), "supa
 const publishContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
 const duplicateContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/duplicate-content/index.ts"), "utf8");
 const publicMediaBoundary = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260730113000_public_media_boundary_and_cover_fallback.sql"), "utf8");
+const publicationStatusReturnType = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260731100000_fix_publication_status_return_type.sql"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -197,6 +198,9 @@ describe("Supabase security migration", () => {
     expect(cosSharedFunction).toContain("parseCosErrorResponse");
     expect(cosSharedFunction).toContain("HeadSourceObject");
     expect(cosSharedFunction).toContain('"x-cos-metadata-directive": "Copy"');
+    expect(publicationStatusReturnType).toContain("target.status::text");
+    expect(publishContentFunction).toContain("database_code: databaseCode || null");
+    expect(publishContentFunction).toContain('"commit-publication"');
   });
 
   it("never returns private COS drafts from public RPCs and exposes pending media to administrators", () => {

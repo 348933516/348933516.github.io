@@ -148,10 +148,20 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (commitError || !updated) {
     await cleanupPublicCopies();
     const conflict = commitError?.message?.includes("VERSION_CONFLICT");
+    const databaseCode = String(commitError?.code ?? "").slice(0, 40);
+    const databaseMessage = String(commitError?.message ?? "Publication transaction returned no row")
+      .replace(/\s+/g, " ")
+      .slice(0, 300);
     return json(functionError(
       conflict ? "VERSION_CONFLICT" : "PUBLICATION_COMMIT_FAILED",
-      conflict ? "Content was changed by another administrator" : "Unable to commit publication",
-      "commit-publication"
+      conflict
+        ? "Content was changed by another administrator"
+        : `数据库发布事务失败${databaseCode ? `（${databaseCode}）` : ""}，请重试；若持续失败，请记录请求 ID。`,
+      "commit-publication",
+      {
+        database_code: databaseCode || null,
+        database_message: databaseMessage
+      }
     ), conflict ? 409 : 500);
   }
 
