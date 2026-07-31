@@ -75,6 +75,7 @@ describe("browser video transcode pipeline", () => {
     expect(replacementBlock).toContain("if (stored) void removeStoredObjects");
     expect(replacementBlock).toContain('source: "browser-video-cleanup"');
     expect(replacementBlock).not.toContain("if (stored) await removeStoredObjects");
+    expect(replacementBlock).toContain("替换文件已核验并发布");
   });
 
   it("refreshes inline players after atomic replacement without marking the body dirty", () => {

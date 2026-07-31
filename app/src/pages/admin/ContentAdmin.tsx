@@ -856,7 +856,11 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
       onReplaceInBody(mediaRowToEditorMedia({ ...data, storage_bucket: committed.storageBucket, storage_path: committed.storagePath, poster_storage_path: committed.posterStoragePath, mime_type: committed.mimeType, size_bytes: committed.sizeBytes, video_codec: preparedVideo?.codec || null, duration_ms: preparedVideo?.durationMs || null, previewUrl: committed.previewUrl, posterPreviewUrl: committed.posterUrl } as MediaRow));
       stored = null;
       storedPoster = null;
-      notify(preparedVideo?.converted ? "视频已在本机转换并完成原子替换，正文位置和说明保持不变。" : "替换文件已核验，正文位置和说明保持不变。请保存或发布。");
+      notify(preparedVideo?.converted
+        ? "视频已在本机转换并完成原子替换，正文位置和说明保持不变。"
+        : autoPublish
+          ? "替换文件已核验并发布，正文位置和说明保持不变。"
+          : "替换文件已核验，正文位置和说明保持不变。");
       await refresh();
     } catch (error) {
       if (stored) void removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }).catch((cleanupError) => {
