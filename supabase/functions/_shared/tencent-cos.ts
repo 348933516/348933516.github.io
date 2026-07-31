@@ -1,5 +1,8 @@
 import { callTencentApi } from "./tencent-api.ts";
 import { buildCosFederationPolicy, type CosFederationPolicyInput } from "./cos-policy.ts";
+import { CosRequestError, parseCosErrorResponse } from "./cos-error.ts";
+
+export { CosRequestError } from "./cos-error.ts";
 
 const encoder = new TextEncoder();
 
@@ -87,7 +90,7 @@ async function cosAuthorization(method: string, bucket: string, key: string, ext
   };
 }
 
-async function cosRequestOnce(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string> }, signal: AbortSignal) {
+async function cosRequestOnce(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string>; operation?: string }, signal: AbortSignal) {
   const configuration = cosConfiguration();
   const signed = await cosAuthorization(input.method, input.bucket, input.key, input.headers);
   const response = await fetch(`https://${signed.host}${signed.path}`, {
@@ -96,14 +99,21 @@ async function cosRequestOnce(input: { method: "HEAD" | "DELETE" | "PUT"; bucket
     signal
   });
   if (!response.ok && !(input.method === "DELETE" && response.status === 404)) {
-    const detail = (await response.text()).slice(0, 600);
-    throw new Error(`COS ${input.method} 失败（${response.status}）：${detail}`);
+    const detail = (await response.text()).slice(0, 2_000);
+    const operation = input.operation || input.method;
+    throw parseCosErrorResponse({
+      detail,
+      httpStatus: response.status,
+      headerRequestId: response.headers.get("x-cos-request-id"),
+      operation,
+      bucket: input.bucket
+    });
   }
   return response;
 }
 
-export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string> }) {
-  const timeoutMs = input.method === "PUT" ? 25_000 : 8_000;
+export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string>; operation?: string }) {
+  const timeoutMs = input.method === "PUT" ? 45_000 : 8_000;
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const controller = new AbortController();
@@ -111,8 +121,10 @@ export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; buc
     try {
       return await cosRequestOnce(input, controller.signal);
     } catch (error) {
-      lastError = error;
-      if (attempt === 2) throw error;
+      lastError = error instanceof DOMException && error.name === "AbortError"
+        ? new CosRequestError({ operation: input.operation || input.method, code: "COS_TIMEOUT", bucket: input.bucket, message: `COS ${input.operation || input.method} timed out after ${timeoutMs}ms` })
+        : error;
+      if (attempt === 2) throw lastError;
       await new Promise((resolve) => setTimeout(resolve, attempt * 250));
     } finally {
       clearTimeout(timeout);
@@ -122,7 +134,7 @@ export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; buc
 }
 
 export async function headCosObject(bucket: string, key: string) {
-  const response = await cosRequest({ method: "HEAD", bucket, key });
+  const response = await cosRequest({ method: "HEAD", bucket, key, operation: "HeadObject" });
   return {
     etag: (response.headers.get("etag") || "").replaceAll('"', ""),
     sizeBytes: Number(response.headers.get("content-length") || 0),
@@ -131,13 +143,20 @@ export async function headCosObject(bucket: string, key: string) {
 }
 
 export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string) {
+  await cosRequest({ method: "HEAD", bucket: sourceBucket, key: sourceKey, operation: "HeadSourceObject" });
   const copySource = `/${sourceBucket}/${encodeKey(sourceKey)}`;
-  await cosRequest({ method: "PUT", bucket: destinationBucket, key: destinationKey, headers: { "x-cos-copy-source": copySource } });
+  await cosRequest({
+    method: "PUT",
+    bucket: destinationBucket,
+    key: destinationKey,
+    operation: "CopyObject",
+    headers: { "x-cos-copy-source": copySource, "x-cos-metadata-directive": "Copy" }
+  });
   return headCosObject(destinationBucket, destinationKey);
 }
 
 export async function deleteCosObject(bucket: string, key: string) {
-  await cosRequest({ method: "DELETE", bucket, key });
+  await cosRequest({ method: "DELETE", bucket, key, operation: "DeleteObject" });
 }
 
 export async function signedCosObjectUrl(bucket: string, key: string) {

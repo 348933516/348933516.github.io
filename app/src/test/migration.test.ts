@@ -192,6 +192,11 @@ describe("Supabase security migration", () => {
     expect(cosStorageMigration).toContain("PROMOTION_TARGET_NOT_FOUND");
     expect(publishContentFunction).toContain('client.rpc("commit_content_publication"');
     expect(publishContentFunction).not.toContain('.from("contents")\n    .update({ status: "published"');
+    expect(publishContentFunction).toContain("COS_COPY_ACCESS_DENIED");
+    expect(publishContentFunction).toContain("cos_request_id");
+    expect(cosSharedFunction).toContain("parseCosErrorResponse");
+    expect(cosSharedFunction).toContain("HeadSourceObject");
+    expect(cosSharedFunction).toContain('"x-cos-metadata-directive": "Copy"');
   });
 
   it("never returns private COS drafts from public RPCs and exposes pending media to administrators", () => {

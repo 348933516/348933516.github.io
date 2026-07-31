@@ -16,7 +16,8 @@ describe("COS-only video routing", () => {
     expect(browserCanPlayVideo(file)).toBe(true);
   });
 
-  it("uses metadata instead of waiting for a large video's first decoded frame", async () => {
+  it("rejects a video that exposes metadata but never decodes a frame", async () => {
+    vi.useFakeTimers();
     const createObjectURL = vi.fn(() => "blob:test-video");
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
@@ -25,6 +26,45 @@ describe("COS-only video routing", () => {
     vi.spyOn(document, "createElement").mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
       const element = originalCreateElement(tagName, options);
       if (tagName === "video") {
+        Object.defineProperty(element, "load", {
+          configurable: true,
+          value: vi.fn(() => queueMicrotask(() => element.dispatchEvent(new Event("loadedmetadata"))))
+        });
+        Object.defineProperty(element, "play", { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+        Object.defineProperty(element, "pause", { configurable: true, value: vi.fn() });
+      }
+      return element;
+    }) as typeof document.createElement);
+
+    const result = probeBrowserVideoPlayback(new Blob(["video"], { type: "video/mp4" }), "clip.mp4");
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual({
+      mimeType: "video/mp4",
+      playable: false,
+      reason: "no-video-frame"
+    });
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-video");
+    vi.useRealTimers();
+  });
+
+  it("accepts an MP4 only after the browser decodes a video frame", async () => {
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:test-video-frame") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const originalCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tagName, options);
+      if (tagName === "video") {
+        Object.defineProperty(element, "videoWidth", { configurable: true, value: 1920 });
+        Object.defineProperty(element, "videoHeight", { configurable: true, value: 1080 });
+        Object.defineProperty(element, "requestVideoFrameCallback", {
+          configurable: true,
+          value: vi.fn((callback: VideoFrameRequestCallback) => {
+            queueMicrotask(() => callback(0, {} as VideoFrameCallbackMetadata));
+            return 1;
+          })
+        });
+        Object.defineProperty(element, "play", { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
         Object.defineProperty(element, "load", {
           configurable: true,
           value: vi.fn(() => queueMicrotask(() => element.dispatchEvent(new Event("loadedmetadata"))))
@@ -38,7 +78,5 @@ describe("COS-only video routing", () => {
       mimeType: "video/mp4",
       playable: true
     });
-    expect(createObjectURL).toHaveBeenCalledOnce();
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-video");
   });
 });

@@ -10,6 +10,7 @@ import { RichContent } from "../../components/RichContent";
 import { AppErrorBoundary } from "../../components/AppErrorBoundary";
 import type { RichEditorHandle, RichEditorSnapshot } from "../../components/RichEditor";
 import { VideoPlayer } from "../../components/VideoPlayer";
+import { StandaloneMediaPreview } from "../../components/StandaloneMediaPreview";
 import { cosPrivateBucket, cosPublicBucket, cosStorageEnabled, mediaBaseUrl, privateMediaBucket, publicMediaBucket, supabasePublishableKey, supabaseUrl } from "../../lib/config";
 import type { ImportPreview, WorksheetPreview, WordImportProgress, WordUploadSession } from "../../lib/documents";
 import { randomId } from "../../lib/id";
@@ -22,7 +23,6 @@ import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { clearEditorRecovery, readEditorRecovery, saveEditorRecovery } from "../../lib/editorRecovery";
 import { EdgeFunctionError, invokeEdgeFunction } from "../../lib/edgeFunctions";
 import { CosUploadError } from "../../lib/cosUpload";
-import { standaloneMedia } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { removeStoredObjects } from "../../lib/storage";
@@ -410,6 +410,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     {recovery && <div className="recovery-banner"><div><strong>发现未提交的本地修改</strong><span>可恢复上次关闭前的编辑内容。</span></div><button onClick={() => { draftRef.current = recovery; setDraft(recovery); setDirty(true); setRecovery(null); }}>恢复</button><button onClick={clearRecovery}>忽略</button></div>}
     {Boolean(content.data.pendingMediaCount) && <div className="media-publish-banner"><div><strong>{content.data.pendingMediaCount} 个媒体已上传，正在等待发布</strong><span>正文文字与媒体分开管理；发布后，图片和视频会显示在资料详情的正文下方。</span></div><button className="button primary" type="button" disabled={saving} onClick={publish}><Check />发布媒体更新</button></div>}
     <div className="workspace-tabs"><button className={tab === "body" ? "active" : ""} onClick={() => setTab("body")}><FileText />正文</button><button className={tab === "media" ? "active" : ""} onClick={() => setTab("media")}><FileImage />媒体与附件 <span>{(content.data.mediaCount || 0) + (content.data.attachmentCount || 0)}</span></button><button className={tab === "preview" ? "active" : ""} onClick={openPreview}><Eye />阅读预览</button></div>
+    {tab === "body" && <BodyStandaloneMedia contentId={id} bodyHtml={draft.bodyHtml} />}
     <div className="workspace-body"><main className="workspace-main">{tab === "body" && <><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} stage={importStage} jobId={importJobId} failure={importFailure} registeredImages={registeredImages} currentImage={currentImage} retries={importRetries} onConfirm={confirmImport} onCancel={discardPendingImport} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}{importComplete ? <section className="import-complete-summary"><Check /><h2>文档与 {importComplete.imageCount} 张原图已安全保存</h2><p>为避免一次加载全部原图，专业编辑器暂未打开。可以先阅读预览，或在需要修改时继续编辑。</p><small>导入任务：{importComplete.jobId}</small><div><button className="button primary" type="button" onClick={openPreview}><Eye />阅读预览</button><button className="button quiet" type="button" onClick={() => setImportComplete(null)}><FilePenLine />继续编辑</button></div></section> : editorSafeMode ? <section className="editor-safe-mode"><h2>编辑器安全模式</h2><p>正文以只读方式显示，保存的数据没有丢失。</p><button className="button" type="button" onClick={() => setEditorSafeMode(false)}>重新打开编辑器</button><RichContent html={draft.bodyHtml} /></section> : <AppErrorBoundary scope="rich-editor" resetKey={`${id}:${draft.version}:${editorSafeMode}`} onSafeMode={() => setEditorSafeMode(true)}><Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor ref={editorRef} value={draft.bodyHtml} onDirty={() => setDirty(true)} onSnapshot={saveRecoverySnapshot} onSafeMode={() => setEditorSafeMode(true)} onUploadImages={uploadInlineImages} /></Suspense></AppErrorBoundary>}</>}
       {tab === "media" && <ContentMediaManager contentId={id} profile={profile} autoPublish={content.data.status === "published" && canPublish(profile.role)} publishVersion={draft.version} onChanged={async () => { await content.refetch(); invalidateContentLists(); }} />}
       {tab === "preview" && <DraftPreview draft={draft} item={content.data} />}</main>
@@ -434,14 +435,14 @@ function ImportConfirmation({ preview, selectedSheets, onSelectedSheets, mode, o
   </section>;
 }
 
-function DraftPreview({ draft, item }: { draft: ContentDraft; item: ContentItem }) {
-  const media = useQuery({ queryKey: ["admin-preview-media", item.id], queryFn: () => loadAdminStandaloneMedia(item.id), staleTime: 30_000 });
-  const galleryMedia = standaloneMedia(draft.bodyHtml, media.data || []);
-  return <article className="draft-preview"><header><span>{item.categoryName}</span><h1>{draft.title}</h1><p>{draft.summary}</p></header><RichContent html={draft.bodyHtml} />{galleryMedia.map((media) => <PreviewMedia key={media.id} media={media} />)}</article>;
+function BodyStandaloneMedia({ contentId, bodyHtml }: { contentId: string; bodyHtml: string }) {
+  const media = useQuery({ queryKey: ["admin-body-media", contentId], queryFn: () => loadAdminStandaloneMedia(contentId), staleTime: 30_000 });
+  return <StandaloneMediaPreview bodyHtml={bodyHtml} media={media.data || []} />;
 }
 
-function PreviewMedia({ media }: { media: ContentItem["media"][number] }) {
-  return <figure>{media.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={media} /></div> : <img src={media.src} alt={media.altText || media.title} />}<figcaption><strong>{media.title}</strong>{media.note && <p>{media.note}</p>}</figcaption></figure>;
+function DraftPreview({ draft, item }: { draft: ContentDraft; item: ContentItem }) {
+  const media = useQuery({ queryKey: ["admin-preview-media", item.id], queryFn: () => loadAdminStandaloneMedia(item.id), staleTime: 30_000 });
+  return <article className="draft-preview"><header><span>{item.categoryName}</span><h1>{draft.title}</h1><p>{draft.summary}</p></header><RichContent html={draft.bodyHtml} /><StandaloneMediaPreview bodyHtml={draft.bodyHtml} media={media.data || []} /></article>;
 }
 
 type MediaRow = Record<string, unknown> & { id: string; storage_bucket: string | null; storage_path: string | null; external_url: string | null; mime_type?: string | null; previewUrl?: string };

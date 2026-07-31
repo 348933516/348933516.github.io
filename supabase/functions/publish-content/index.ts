@@ -1,5 +1,6 @@
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
-import { copyCosObject, cosConfiguration, deleteCosObject } from "../_shared/tencent-cos.ts";
+import { functionError } from "../_shared/function-errors.ts";
+import { copyCosObject, cosConfiguration, CosRequestError, deleteCosObject } from "../_shared/tencent-cos.ts";
 
 type StoredItem = {
   id: string;
@@ -37,16 +38,16 @@ Deno.serve((request) => edgeHandler(request, async () => {
   const body = await request.json();
   const contentId = String(body.contentId ?? "");
   const expectedVersion = Number(body.version);
-  if (!contentId || !Number.isFinite(expectedVersion)) return json({ error: "Invalid content version" }, 400);
+  if (!contentId || !Number.isFinite(expectedVersion)) return json(functionError("CONTENT_VERSION_INVALID", "Invalid content version", "validate-input"), 400);
 
   const { data: content, error: contentError } = await client
     .from("contents")
     .select("id, version")
     .eq("id", contentId)
     .single();
-  if (contentError || !content) return json({ error: contentError?.message ?? "Content not found" }, 404);
+  if (contentError || !content) return json(functionError("CONTENT_NOT_FOUND", "Content not found", "load-content"), 404);
   if (content.version !== expectedVersion) {
-    return json({ error: "Content was changed by another administrator", code: "VERSION_CONFLICT" }, 409);
+    return json(functionError("VERSION_CONFLICT", "Content was changed by another administrator", "validate-version"), 409);
   }
 
   const [mediaResult, attachmentsResult] = await Promise.all([
@@ -54,7 +55,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     client.from("attachments").select("id, storage_provider, storage_bucket, storage_path").eq("content_id", contentId)
   ]);
   if (mediaResult.error || attachmentsResult.error) {
-    return json({ error: mediaResult.error?.message ?? attachmentsResult.error?.message }, 400);
+    return json(functionError("PUBLICATION_MEDIA_QUERY_FAILED", "Unable to read media awaiting publication", "load-media"), 500);
   }
 
   const pending: Array<{ table: Promotion["table"]; item: StoredItem }> = [
@@ -99,7 +100,26 @@ Deno.serve((request) => edgeHandler(request, async () => {
       }
     } catch (error) {
       await cleanupPublicCopies();
-      return json({ error: error instanceof Error ? error.message : "Stored file promotion failed" }, 400);
+      if (error instanceof CosRequestError) {
+        const accessDenied = error.httpStatus === 401 || error.httpStatus === 403 || /accessdenied|signature|auth/i.test(error.code);
+        const code = accessDenied ? "COS_COPY_ACCESS_DENIED" : error.code === "COS_TIMEOUT" ? "COS_COPY_TIMEOUT" : "COS_COPY_FAILED";
+        const message = accessDenied
+          ? `COS 发布复制被拒绝：${error.operation}${error.requestId ? `，request ID ${error.requestId}` : ""}。请为服务端 CAM 子账号补齐私有桶 GetObject 和发布桶 PutObject 权限。`
+          : `COS 发布复制失败：${error.operation}，${error.code}${error.requestId ? `，request ID ${error.requestId}` : ""}。`;
+        return json(functionError(code, message, "copy-media", {
+          operation: error.operation,
+          http_status: error.httpStatus,
+          cos_request_id: error.requestId,
+          source_bucket: sourceBucket,
+          destination_bucket: destinationBucket,
+          media_id: item.id,
+          media_table: table
+        }), 502);
+      }
+      return json(functionError("MEDIA_PROMOTION_FAILED", error instanceof Error ? error.message : "Stored file promotion failed", "copy-media", {
+        media_id: item.id,
+        media_table: table
+      }), 500);
     }
     promoted.push({
       table,
@@ -128,7 +148,11 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (commitError || !updated) {
     await cleanupPublicCopies();
     const conflict = commitError?.message?.includes("VERSION_CONFLICT");
-    return json({ error: conflict ? "Content was changed by another administrator" : commitError?.message ?? "Unable to commit publication", code: conflict ? "VERSION_CONFLICT" : "PUBLICATION_COMMIT_FAILED" }, conflict ? 409 : 500);
+    return json(functionError(
+      conflict ? "VERSION_CONFLICT" : "PUBLICATION_COMMIT_FAILED",
+      conflict ? "Content was changed by another administrator" : "Unable to commit publication",
+      "commit-publication"
+    ), conflict ? 409 : 500);
   }
 
   if (promoted.length) {

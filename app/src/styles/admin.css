@@ -355,6 +355,32 @@
 }
 .media-publish-banner > div { min-width: 0; margin-right: auto; display: grid; gap: 4px; }
 .media-publish-banner span { color: var(--admin-muted); font-size: 12px; }
+.standalone-media-preview {
+  display: grid;
+  gap: 14px;
+  color: var(--admin-text);
+}
+.content-workspace > .standalone-media-preview {
+  width: calc(100% - 406px);
+  max-width: 960px;
+  margin: 28px 378px 0 28px;
+}
+.standalone-media-preview > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.standalone-media-preview > header strong { font-size: 15px; }
+.standalone-media-preview > header span { color: var(--admin-muted); font-size: 12px; }
+.standalone-media-preview > div { display: grid; gap: 24px; }
+.standalone-media-preview figure { margin: 0; }
+.standalone-media-preview figure > img,
+.standalone-media-preview .media-video-shell { width: 100%; max-height: 70vh; }
+.standalone-media-preview figure > img { display: block; object-fit: contain; background: #17191d; }
+.standalone-media-preview figcaption { padding-top: 10px; }
+.standalone-media-preview figcaption p { margin: 5px 0 0; color: var(--admin-muted); }
+.draft-preview > .standalone-media-preview { border-top: 1px solid var(--admin-line); padding: 30px 42px; }
 .content-table-row { min-height: 82px; border-color: var(--admin-line); color: var(--admin-text); }
 .content-table-row:hover { background: #fafaf8; }
 .content-row-title > span,
@@ -633,6 +659,7 @@
   .admin-page-heading h1 { font-size: 26px; }
   .workspace-header { padding: 10px 14px; }
   .workspace-body { grid-template-columns: 1fr; }
+  .content-workspace > .standalone-media-preview { width: auto; max-width: none; margin: 18px 14px 0; }
   .workspace-inspector { border-top: 1px solid var(--admin-line); border-left: 0; }
   .content-table-head { display: none; }
   .media-publish-banner { align-items: stretch; padding: 12px 14px; flex-direction: column; }
@@ -664,6 +691,8 @@
   .workspace-actions { grid-template-columns: 1fr 1fr; }
   .workspace-actions .button.primary { grid-column: 1 / -1; }
   .workspace-main { padding: 14px 10px; }
+  .standalone-media-preview > header { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .draft-preview > .standalone-media-preview { padding: 22px 18px; }
   .category-manager-row { padding: 14px; }
   .auth-panel { padding: 28px 20px; }
   .auth-secondary { grid-template-columns: 1fr; }

@@ -1,6 +1,10 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer } from "./VideoPlayer";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("video player", () => {
   it("embeds Tencent VOD by app id and file id", () => {
@@ -23,5 +27,19 @@ describe("video player", () => {
     const { container } = render(<VideoPlayer media={{ src: "https://example.com/original.mp4", playbackUrl: "https://media.example.com/video.mp4", posterUrl: "https://media.example.com/poster.webp", title: "视频", mimeType: "video/mp4", processingStatus: "ready" }} />);
     expect(container.querySelector("video source")).toHaveAttribute("src", "https://media.example.com/video.mp4");
     expect(container.querySelector("video")).toHaveAttribute("poster", "https://media.example.com/poster.webp");
+  });
+
+  it("reports an audio-only decode when playback advances without a video frame", async () => {
+    vi.useFakeTimers();
+    const { container } = render(<VideoPlayer media={{ src: "https://example.com/hevc.mp4", title: "不兼容视频", mimeType: "video/mp4", processingStatus: "ready" }} />);
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "currentTime", { configurable: true, value: 2 });
+    Object.defineProperty(video, "paused", { configurable: true, value: false });
+    Object.defineProperty(video, "requestVideoFrameCallback", { configurable: true, value: vi.fn(() => 1) });
+    fireEvent.play(video);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_100); });
+
+    expect(screen.getByText("视频有声音但没有画面")).toBeInTheDocument();
+    expect(screen.getByText(/H\.264\/AAC MP4/)).toBeInTheDocument();
   });
 });

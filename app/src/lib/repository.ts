@@ -3,6 +3,7 @@ import { publicMediaBucket } from "./config";
 import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
 import { isPublishedStorageRecord, publicStorageUrl, storedAssetUrl } from "./storage";
+import { invokeEdgeFunction } from "./edgeFunctions";
 import type {
   Attachment,
   Category,
@@ -946,9 +947,11 @@ export async function changeContentStatus(id: string, version: number, status: "
 }
 
 export async function publishContent(id: string, version: number) {
-  const { data, error } = await supabase.functions.invoke("publish-content", { body: { contentId: id, version } });
-  if (error || data?.error) throw new Error(data?.code === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : data?.error || error?.message);
-  return data;
+  return invokeEdgeFunction<Record<string, unknown>>(
+    "publish-content",
+    { contentId: id, version },
+    "publish"
+  );
 }
 
 export async function batchContent(items: Array<{ id: string; version: number }>, action: "move" | "draft" | "hidden" | "trashed", categoryId?: string) {

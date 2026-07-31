@@ -15,7 +15,7 @@ export type SupportedVideoMimeType = "video/mp4" | "video/webm";
 export interface VideoPlaybackProbe {
   mimeType: SupportedVideoMimeType | null;
   playable: boolean;
-  reason?: "unsupported-type" | "browser-unavailable" | "decode-failed" | "timeout";
+  reason?: "unsupported-type" | "browser-unavailable" | "decode-failed" | "no-video-frame" | "timeout";
 }
 
 export interface ManagedUploadResult {
@@ -196,7 +196,7 @@ export async function probeBrowserVideoPlayback(file: Blob, name = "video") : Pr
 
   const video = document.createElement("video");
   const objectUrl = URL.createObjectURL(file);
-  video.preload = "metadata";
+  video.preload = "auto";
   video.muted = true;
   video.playsInline = true;
   video.src = objectUrl;
@@ -208,10 +208,30 @@ export async function probeBrowserVideoPlayback(file: Blob, name = "video") : Pr
         settled = true;
         resolve(value);
       };
-      const timeout = window.setTimeout(() => finish({ mimeType, playable: false, reason: "timeout" }), 8_000);
-      video.addEventListener("loadedmetadata", () => {
-        window.clearTimeout(timeout);
-        finish({ mimeType, playable: true });
+      const timeout = window.setTimeout(() => finish({ mimeType, playable: false, reason: "no-video-frame" }), 8_000);
+      video.addEventListener("loadedmetadata", async () => {
+        try {
+          await video.play();
+          if (typeof video.requestVideoFrameCallback === "function") {
+            video.requestVideoFrameCallback(() => {
+              window.clearTimeout(timeout);
+              finish(video.videoWidth > 0 && video.videoHeight > 0
+                ? { mimeType, playable: true }
+                : { mimeType, playable: false, reason: "no-video-frame" });
+            });
+            return;
+          }
+          const onDecodedData = () => {
+            if (video.videoWidth <= 0 || video.videoHeight <= 0) return;
+            window.clearTimeout(timeout);
+            finish({ mimeType, playable: true });
+          };
+          video.addEventListener("loadeddata", onDecodedData, { once: true });
+          video.addEventListener("canplay", onDecodedData, { once: true });
+        } catch {
+          window.clearTimeout(timeout);
+          finish({ mimeType, playable: false, reason: "decode-failed" });
+        }
       }, { once: true });
       video.addEventListener("error", () => {
         window.clearTimeout(timeout);
