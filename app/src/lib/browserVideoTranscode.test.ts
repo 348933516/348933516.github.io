@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { browserVideoTranscodeLimit, buildVideoTranscodeArguments } from "./browserVideoTranscode";
 
@@ -15,5 +17,11 @@ describe("browser video transcode", () => {
     expect(argumentsList).toContain("yuv420p");
     expect(argumentsList).toContain("+faststart");
     expect(argumentsList.at(-1)).toBe("compatible.mp4");
+  });
+
+  it("ships the ESM core required by Vite's module worker", () => {
+    const core = fs.readFileSync(path.resolve(process.cwd(), "app/public/ffmpeg/ffmpeg-core.js"), "utf8");
+    expect(core).toContain("import.meta.url");
+    expect(core).toContain("export default createFFmpegCore");
   });
 });

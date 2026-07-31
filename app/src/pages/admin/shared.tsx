@@ -19,7 +19,12 @@ export function canEditItem(profile: Profile, item: ContentItem) {
   return profile.role === "super_admin" || profile.role === "editor" || (profile.role === "uploader" && item.status === "draft" && item.createdBy === profile.id);
 }
 
-export function messageOf(error: unknown, fallback = "操作失败") { return error instanceof Error ? error.message : fallback; }
+export function messageOf(error: unknown, fallback = "操作失败") {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error.trim();
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message.trim()) return error.message;
+  return fallback;
+}
 
 export function publicAssetUrl(path?: string | null, provider?: string | null) {
   return storedAssetUrl(path, provider);
