@@ -565,9 +565,9 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
     return { items: (result.data || []) as MediaRow[], total: result.count || 0 };
   }
   let request = supabase.from("content_media").select("*", { count: "exact" }).eq("content_id", contentId);
-  if (filter === "document") request = request.not("source_import_id", "is", null);
+  if (filter === "document") request = request.eq("kind", "image").not("source_import_id", "is", null);
   if (filter === "gallery") request = request.eq("kind", "image").is("source_import_id", null);
-  if (filter === "video") request = request.eq("kind", "video").is("source_import_id", null);
+  if (filter === "video") request = request.eq("kind", "video");
   const media = await request.order("sort_order").range(from, from + mediaPageSize - 1);
   if (media.error) throw media.error;
   const withUrls = await Promise.all((media.data || []).map(async (row) => {

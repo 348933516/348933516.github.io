@@ -23,6 +23,11 @@ describe("browser video transcode pipeline", () => {
     expect(mediaAdmin).toContain("不使用轻量服务器");
   });
 
+  it("keeps every video visible even when legacy rows carry an import id", () => {
+    expect(mediaAdmin).toContain('if (filter === "video") request = request.eq("kind", "video");');
+    expect(mediaAdmin).not.toContain('request.eq("kind", "video").is("source_import_id", null)');
+  });
+
   it("keeps published replacement atomic and caches video and poster objects", () => {
     expect(edgeFunction).toContain("pendingPosterPath");
     expect(edgeFunction).toContain("posterStoragePath");
