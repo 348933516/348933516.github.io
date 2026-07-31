@@ -478,7 +478,14 @@ td[data-cell-align="justify"], th[data-cell-align="justify"] { text-align: justi
   .category-visual { width: 76px; }
   .content-card { grid-template-columns: 120px minmax(0,1fr); }
   .card-cover { min-height: 190px; }
-  .reader-layout { grid-template-columns: 1fr; }
+  .reader-layout.with-outline,
+  .reader-layout.without-outline { grid-template-columns: minmax(0, 1fr); }
+  .reader-layout,
+  .reader-main,
+  .reader-body {
+    min-width: 0;
+    max-width: 100%;
+  }
   .reader-outline { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
   .detail-article > header { padding: 28px 22px; }
   .detail-article h1 { font-size: 34px; }

@@ -50,4 +50,14 @@ describe("bundled theme cleanup", () => {
     expect(css).toMatch(/\.carousel-slide-preview img \{[^}]*object-fit: contain;/);
     expect(css).toMatch(/\.mini-carousel-frame > img,[^}]*object-fit: contain;/);
   });
+
+  it("collapses the public document outline grid to one column on phones", () => {
+    const css = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
+    const mobileOverride = css.lastIndexOf(".reader-layout.with-outline,\n  .reader-layout.without-outline {");
+    const desktopColumns = css.indexOf(".reader-layout.with-outline { grid-template-columns: 220px minmax(0,1fr); }");
+
+    expect(mobileOverride).toBeGreaterThan(desktopColumns);
+    expect(css.slice(mobileOverride, mobileOverride + 180)).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(css).toContain(".reader-layout,\n  .reader-main,\n  .reader-body {");
+  });
 });
