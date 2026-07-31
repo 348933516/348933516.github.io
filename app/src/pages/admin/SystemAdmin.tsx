@@ -249,9 +249,32 @@ export function HistoryPage({ profile }: { profile: Profile }) {
 }
 
 function MediaMigrationPanel() {
-  return <section className="admin-panel"><div className="panel-heading"><div><h2>媒体存储策略</h2><p>旧媒体保留在 Supabase，需要更新时重新上传；新图片、Word 文档、附件和兼容视频直接使用腾讯 COS。</p></div><Database /></div>
-    <div className="audit-detail"><span>旧数据：保留，不迁移、不删除</span><span>新上传：腾讯 COS + EdgeOne</span><span>旧媒体迁移：已停用</span></div>
-  </section>;
+  const client = useQueryClient();
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState("");
+  const privacy = useQuery({
+    queryKey: ["attachment-privacy"],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("attachment-privacy", { body: { action: "status" } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      return data as { total: number; completed: number; pending: number; failed: number };
+    },
+    refetchInterval: (query) => query.state.data?.pending ? 8_000 : false
+  });
+  const run = async () => {
+    setRunning(true);
+    setMessage("");
+    try {
+      const { data, error } = await supabase.functions.invoke("attachment-privacy", { body: { action: "run", limit: 5 } });
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      setMessage(`本批已处理 ${Number(data.processed || 0)} 个附件。`);
+      await client.invalidateQueries({ queryKey: ["attachment-privacy"] });
+    } catch (error) { setMessage(error instanceof Error ? error.message : "附件私有化失败"); }
+    finally { setRunning(false); }
+  };
+  return <><section className="admin-panel"><div className="panel-heading"><div><h2>媒体存储策略</h2><p>旧图片可按需重新上传；新图片、Word 文档和兼容视频使用腾讯 COS 与 EdgeOne。</p></div><Database /></div>
+    <div className="audit-detail"><span>新媒体：腾讯 COS + EdgeOne</span><span>附件：仅私有 COS，公开页面不返回</span><span>图片：仍可查看原图</span></div>
+  </section><section className="admin-panel"><div className="panel-heading"><div><h2>附件私有化</h2><p>核验私有副本成功后才切换数据库并删除公开副本，失败项目可继续处理。</p></div><ShieldCheck /></div>{privacy.isLoading ? <AdminLoading label="正在读取附件清理队列" /> : <div className="audit-detail"><span>总数：{privacy.data?.total || 0}</span><span>已完成：{privacy.data?.completed || 0}</span><span>待处理：{privacy.data?.pending || 0}</span><span>失败：{privacy.data?.failed || 0}</span>{message && <span>{message}</span>}<button className="button primary" type="button" disabled={running || !(privacy.data?.pending || privacy.data?.failed)} onClick={run}>{running ? <LoaderCircle className="spin" /> : <ShieldCheck />}处理下一批</button></div>}</section></>;
 }
 
 function auditText(action: string) {

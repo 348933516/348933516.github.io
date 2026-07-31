@@ -67,6 +67,14 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
     if (!/^[0-9a-f-]{36}$/i.test(data.attrValue)) data.keepAttr = false;
     return;
   }
+  if (data.attrName === "data-outline-id") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.attrValue)) data.keepAttr = false;
+    return;
+  }
+  if (data.attrName === "controlslist") {
+    if (data.attrValue.toLowerCase() !== "nodownload noremoteplayback") data.keepAttr = false;
+    return;
+  }
    if (["data-text-color", "data-highlight", "data-table-color", "data-cell-background", "data-cell-border-color"].includes(data.attrName)) {
     const value = data.attrValue.toLowerCase();
     if (!safeHex.test(value) && !colorTokens.has(value)) data.keepAttr = false;
@@ -116,8 +124,8 @@ export function sanitizeHtml(value?: string | null) {
     ],
     ALLOWED_ATTR: [
       "href", "target", "rel", "src", "srcset", "sizes", "width", "height", "alt", "title", "colspan", "rowspan", "class", "style", "colwidth", "loading", "decoding", "data-original-src",
-      "controls", "preload", "playsinline", "poster", "type", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
-      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-media-kind", "data-office-image-placeholder"
+      "controls", "controlslist", "preload", "playsinline", "poster", "type", "data-font-family", "data-font-size", "data-text-color", "data-highlight", "data-table-border", "data-table-style",
+      "data-table-color", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "data-editor-image", "data-media-id", "data-media-kind", "data-outline-id", "data-office-image-placeholder"
     ],
     ALLOW_DATA_ATTR: true
   });

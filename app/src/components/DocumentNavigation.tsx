@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { ArrowUp, ListTree, X } from "lucide-react";
+import { ArrowUp, ListTree, Pencil, RotateCcw, X } from "lucide-react";
+import { defaultOutlineSettings, normalizeOutlineSettings, outlineLabel } from "../lib/outline";
+import type { OutlineSettings } from "../types";
 
 export type OutlineItemKind = "heading" | "media";
 
@@ -18,6 +20,9 @@ interface DocumentOutlineProps {
   observe?: boolean;
   className?: string;
   onNavigate?: (item: OutlineItem) => void;
+  settings?: OutlineSettings;
+  editable?: boolean;
+  onSettingsChange?: (settings: OutlineSettings) => void;
 }
 
 function prefersReducedMotion() {
@@ -74,16 +79,19 @@ function useObservedOutline(items: OutlineItem[], enabled: boolean) {
   return activeId;
 }
 
-export function DocumentOutline({ items, activeId, observe = false, className = "", onNavigate }: DocumentOutlineProps) {
+export function DocumentOutline({ items, activeId, observe = false, className = "", onNavigate, settings, editable = false, onSettingsChange }: DocumentOutlineProps) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const activeButtonRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const observedId = useObservedOutline(items, observe && !activeId);
   const currentId = activeId || observedId;
+  const normalizedSettings = normalizeOutlineSettings(settings || defaultOutlineSettings);
   const grouped = useMemo(() => items.map((item, index) => ({
-    item,
+    item: { ...item, label: outlineLabel(normalizedSettings, item.id, item.label) },
+    originalLabel: item.label,
     startsGroup: index === 0 || items[index - 1].kind !== item.kind
-  })), [items]);
+  })), [items, normalizedSettings]);
 
   useEffect(() => {
     const button = activeButtonRef.current;
@@ -106,6 +114,13 @@ export function DocumentOutline({ items, activeId, observe = false, className = 
     else scrollToOutlineTarget(item.targetId);
     setOpen(false);
   };
+  const changeSettings = (patch: Partial<OutlineSettings>) => onSettingsChange?.(normalizeOutlineSettings({ ...normalizedSettings, ...patch }));
+  const changeItemLabel = (item: OutlineItem, value: string) => changeSettings({ labels: { ...normalizedSettings.labels, [item.id]: value } });
+  const resetItemLabel = (item: OutlineItem) => {
+    const labels = { ...normalizedSettings.labels };
+    delete labels[item.id];
+    changeSettings({ labels });
+  };
 
   return (
     <aside className={`document-outline ${open ? "open" : ""} ${className}`.trim()}>
@@ -113,12 +128,12 @@ export function DocumentOutline({ items, activeId, observe = false, className = 
         <ListTree />大纲<span>{items.length}</span>
       </button>
       {open && <button className="outline-backdrop" type="button" aria-label="关闭大纲" onClick={() => setOpen(false)} />}
-      <nav ref={panelRef} className="document-outline-panel" aria-label="文章大纲">
-        <header><strong><ListTree />文章大纲</strong><button type="button" aria-label="关闭大纲" onClick={() => setOpen(false)}><X /></button></header>
+      <nav ref={panelRef} className={`document-outline-panel${editing ? " editing" : ""}`} aria-label={normalizedSettings.title}>
+        <header>{editing ? <input aria-label="大纲面板标题" value={normalizedSettings.title} onChange={(event) => changeSettings({ title: event.target.value })} /> : <strong><ListTree />{normalizedSettings.title}</strong>}<div>{editable && <button type="button" aria-label={editing ? "完成大纲改名" : "编辑大纲名称"} title={editing ? "完成" : "编辑名称"} onClick={() => setEditing((value) => !value)}><Pencil /></button>}<button className="outline-close" type="button" aria-label="关闭大纲" onClick={() => setOpen(false)}><X /></button></div></header>
         <div className="document-outline-list">
-          {grouped.map(({ item, startsGroup }) => (
+          {grouped.map(({ item, originalLabel, startsGroup }) => (
             <div className="document-outline-entry" key={item.id}>
-              {startsGroup && <span className="outline-section-label">{item.kind === "heading" ? "正文" : "图片目录"}</span>}
+              {startsGroup && (editing ? <input className="outline-section-input" aria-label={`${item.kind === "heading" ? "正文" : "图片"}分组名称`} value={item.kind === "heading" ? normalizedSettings.headingGroupLabel : normalizedSettings.mediaGroupLabel} onChange={(event) => changeSettings(item.kind === "heading" ? { headingGroupLabel: event.target.value } : { mediaGroupLabel: event.target.value })} /> : <span className="outline-section-label">{item.kind === "heading" ? normalizedSettings.headingGroupLabel : normalizedSettings.mediaGroupLabel}</span>)}
               <button
                 type="button"
                 className={currentId === item.id ? "active" : ""}
@@ -129,6 +144,7 @@ export function DocumentOutline({ items, activeId, observe = false, className = 
               >
                 <span />{item.label}
               </button>
+              {editing && <div className="outline-label-editor"><input aria-label={`修改目录名称：${originalLabel}`} value={normalizedSettings.labels[item.id] || ""} placeholder={originalLabel} onChange={(event) => changeItemLabel(item, event.target.value)} /><button type="button" title="恢复正文名称" aria-label={`恢复“${originalLabel}”`} onClick={() => resetItemLabel(item)}><RotateCcw /></button></div>}
             </div>
           ))}
         </div>

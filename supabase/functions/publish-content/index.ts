@@ -88,11 +88,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
     return json(functionError("VERSION_CONFLICT", "Content was changed by another administrator", "validate-version"), 409);
   }
 
-  const [mediaResult, attachmentsResult] = await Promise.all([
-    client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, mime_type, original_mime_type, processing_status").eq("content_id", contentId),
-    client.from("attachments").select("id, storage_provider, storage_bucket, storage_path, mime_type").eq("content_id", contentId)
-  ]);
-  if (mediaResult.error || attachmentsResult.error) {
+  const mediaResult = await client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, mime_type, original_mime_type, processing_status").eq("content_id", contentId);
+  if (mediaResult.error) {
     return json(functionError("PUBLICATION_MEDIA_QUERY_FAILED", "Unable to read media awaiting publication", "load-media"), 500);
   }
   const configuration = cosConfiguration();
@@ -108,8 +105,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   }
 
   const pending: Array<{ table: Promotion["table"]; item: StoredItem }> = [
-    ...(mediaResult.data ?? []).map((item) => ({ table: "content_media" as const, item })),
-    ...(attachmentsResult.data ?? []).map((item) => ({ table: "attachments" as const, item }))
+    ...(mediaResult.data ?? []).map((item) => ({ table: "content_media" as const, item }))
   ].filter(({ item }) => Boolean(item.storage_path) && (item.storage_bucket === "maplestorynk-private" || item.storage_provider === "tencent_cos" && item.storage_bucket === configuration.privateBucket));
 
   const promoted: Promotion[] = [];

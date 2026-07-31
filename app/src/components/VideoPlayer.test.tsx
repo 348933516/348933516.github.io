@@ -15,6 +15,11 @@ describe("video player", () => {
   it("keeps a native fallback for legacy videos", () => {
     const { container } = render(<VideoPlayer media={{ src: "https://example.com/legacy.mp4", title: "旧视频", mimeType: "video/mp4", processingStatus: "ready" }} />);
     expect(container.querySelector("video source")).toHaveAttribute("src", "https://example.com/legacy.mp4");
+    const video = container.querySelector("video") as HTMLVideoElement;
+    expect(video).toHaveAttribute("controlslist", "nodownload noremoteplayback");
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    video.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("explains that a video with no public source is waiting for publication", () => {

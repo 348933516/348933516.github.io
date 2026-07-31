@@ -119,6 +119,7 @@ describe("public home", () => {
       ...data,
       contents: [{
         ...data.contents[0],
+        outlineEnabled: true,
         bodyHtml: `<h2>正文章节</h2><p>内容</p><figure data-editor-image="true" data-media-id="${galleryId}"><img alt="可爱风地图"></figure>`,
         media: [{
           id: galleryId,

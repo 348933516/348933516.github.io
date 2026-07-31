@@ -70,7 +70,7 @@ jobs:
         run: node scripts/deploy-cos-runtime.mjs
       - name: Deploy changed functions
         run: |
-          all_functions=(invite-admin update-admin import-url publish-content restore-revision save-content migrate-legacy batch-content duplicate-content delete-content document-import cos-credentials cos-storage media-migration video-transcode vod-signature vod-complete vod-import vod-status)
+          all_functions=(invite-admin update-admin import-url publish-content restore-revision save-content migrate-legacy batch-content duplicate-content delete-content document-import cos-credentials cos-storage media-migration attachment-privacy video-transcode vod-signature vod-complete vod-import vod-status)
           before="${{ github.event.before }}"
           if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then before="HEAD^"; fi
           changed="$(git diff --name-only "$before" HEAD -- supabase/functions supabase/config.toml)"

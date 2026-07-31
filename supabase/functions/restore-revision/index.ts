@@ -31,6 +31,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
       status: "draft",
       is_featured: snapshot.is_featured ?? false,
       sort_order: snapshot.sort_order ?? 100,
+      outline_enabled: snapshot.outline_enabled ?? false,
+      outline_settings: snapshot.outline_settings ?? { title: "文章大纲", headingGroupLabel: "正文", mediaGroupLabel: "图片目录", labels: {} },
       scheduled_for: null,
       updated_by: user.id
     })

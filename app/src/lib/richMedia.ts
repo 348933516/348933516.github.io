@@ -42,6 +42,7 @@ export function mediaFigureHtml(media: ContentMedia) {
   if (media.kind === "video") {
     const video = document.createElement("video");
     video.controls = true;
+    video.setAttribute("controlslist", "nodownload noremoteplayback");
     video.preload = "metadata";
     video.playsInline = true;
     figure.append(video);
@@ -116,6 +117,7 @@ export function hydrateMediaFigures(document: Document, media: ContentMedia[]) {
       figure.prepend(video);
     }
     video.controls = true;
+    video.setAttribute("controlslist", "nodownload noremoteplayback");
     video.preload = "metadata";
     video.playsInline = true;
     if (item.posterUrl) video.poster = item.posterUrl;

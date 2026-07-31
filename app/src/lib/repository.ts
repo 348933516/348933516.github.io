@@ -4,8 +4,8 @@ import { sanitizeHtml, safeUrl, slugify } from "./sanitize";
 import { supabase } from "./supabase";
 import { isPublishedStorageRecord, publicStorageUrl, storedAssetUrl } from "./storage";
 import { invokeEdgeFunction } from "./edgeFunctions";
+import { defaultOutlineSettings, normalizeOutlineSettings } from "./outline";
 import type {
-  Attachment,
   Category,
   CarouselSlide,
   ContentDraft,
@@ -119,20 +119,6 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
   };
 }
 
-function mapAttachment(row: Record<string, unknown>): Attachment {
-  return {
-    id: String(row.id),
-    name: String(row.name || "Attachment"),
-    url: storageUrl(row.storage_bucket as string, row.storage_path as string, row.external_url as string, row.storage_provider as string),
-    mimeType: row.mime_type ? String(row.mime_type) : undefined,
-    sizeBytes: row.size_bytes ? Number(row.size_bytes) : undefined,
-    sortOrder: Number(row.sort_order || 100),
-    storageProvider: row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase",
-    storageBucket: row.storage_bucket ? String(row.storage_bucket) : undefined,
-    storagePath: row.storage_path ? String(row.storage_path) : undefined
-  };
-}
-
 function mapCarouselSlide(row: Record<string, unknown>): CarouselSlide {
   return {
     id: String(row.id),
@@ -212,13 +198,11 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
 
   const contentRows = contentsResult.data || [];
   const contentIds = contentRows.map((row) => row.id);
-  const [mediaResult, attachmentsResult, tagsResult] = contentIds.length ? await Promise.all([
+  const [mediaResult, tagsResult] = contentIds.length ? await Promise.all([
     supabase.from("content_media").select("*").in("content_id", contentIds).order("sort_order"),
-    supabase.from("attachments").select("*").in("content_id", contentIds).order("sort_order"),
     supabase.from("content_tags").select("content_id, tags(name)").in("content_id", contentIds)
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+  ]) : [{ data: [], error: null }, { data: [], error: null }];
   if (mediaResult.error) throw mediaResult.error;
-  if (attachmentsResult.error) throw attachmentsResult.error;
   if (tagsResult.error) throw tagsResult.error;
 
   const mediaByContent = new Map<string, ContentMedia[]>();
@@ -226,12 +210,6 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
     const list = mediaByContent.get(row.content_id) || [];
     list.push(mapMedia(row));
     mediaByContent.set(row.content_id, list);
-  }
-  const attachmentsByContent = new Map<string, Attachment[]>();
-  for (const row of attachmentsResult.data || []) {
-    const list = attachmentsByContent.get(row.content_id) || [];
-    list.push(mapAttachment(row));
-    attachmentsByContent.set(row.content_id, list);
   }
   const tagsByContent = new Map<string, string[]>();
   for (const row of tagsResult.data || []) {
@@ -267,7 +245,9 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
     version: row.version,
     tags: tagsByContent.get(row.id) || [],
     media: mediaByContent.get(row.id) || [],
-    attachments: attachmentsByContent.get(row.id) || [],
+    attachments: [],
+    outlineEnabled: Boolean(row.outline_enabled),
+    outlineSettings: normalizeOutlineSettings(row.outline_settings),
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -327,6 +307,8 @@ async function loadLegacyPublicData(): Promise<PublicData> {
         sortOrder: (mediaIndex + 1) * 10
       })).filter((media) => media.src),
       attachments: [],
+      outlineEnabled: false,
+      outlineSettings: defaultOutlineSettings,
       createdBy: undefined,
       createdAt: String(row.updatedAt || new Date().toISOString()),
       updatedAt: String(row.updatedAt || new Date().toISOString())
@@ -394,6 +376,7 @@ function mapPublicSummary(row: Record<string, unknown>): ContentItem {
     title: String(row.title || ""), summary: String(row.summary || ""), bodyHtml: "", bodyJson: {}, bodyText: "", sourceRecord: "",
     status: "published", featured: Boolean(row.is_featured), sortOrder: Number(row.sort_order || 100), version: Number(row.version || 1),
     tags: [], media, attachments: [], createdAt: String(row.created_at || ""), updatedAt: String(row.updated_at || ""),
+    outlineEnabled: Boolean(row.outline_enabled), outlineSettings: normalizeOutlineSettings(row.outline_settings),
     publishedAt: row.published_at ? String(row.published_at) : undefined,
     mediaCount: row.media_count === null || row.media_count === undefined ? media.length : Number(row.media_count)
   };
@@ -419,6 +402,20 @@ export async function loadPublicHome(): Promise<PublicData> {
   };
   cachePublicHome(result);
   return result;
+}
+
+export async function loadPublicShell(): Promise<PublicData> {
+  const { data, error } = await supabase.rpc("get_public_shell");
+  if (missingRpc(error)) return loadPublicHome();
+  if (error) throw error;
+  const payload = (data || {}) as Record<string, unknown>;
+  return {
+    settings: mapSettings((payload.settings || {}) as Record<string, unknown>),
+    categories: [],
+    contents: [],
+    carouselSlides: [],
+    backendMode: "structured"
+  };
 }
 
 export async function loadPublicCategory(slug: string, offset = 0, limit = 20): Promise<PublicCategoryData | null> {
@@ -451,9 +448,11 @@ export async function loadPublicContent(slug: string): Promise<PublicContentData
   const row = payload.content as Record<string, unknown>;
   const item: ContentItem = {
     ...mapPublicSummary(row), bodyHtml: sanitizeHtml(String(row.body_html || "")), bodyText: String(row.body_text || ""),
+    outlineEnabled: Boolean(row.outline_enabled),
+    outlineSettings: normalizeOutlineSettings(row.outline_settings),
     tags: Array.isArray(payload.tags) ? payload.tags.map(String) : [],
     media: (Array.isArray(payload.media) ? payload.media : []).map((entry) => mapMedia(entry as Record<string, unknown>)),
-    attachments: (Array.isArray(payload.attachments) ? payload.attachments : []).map((entry) => mapAttachment(entry as Record<string, unknown>))
+    attachments: []
   };
   return { item, siblings: (Array.isArray(payload.siblings) ? payload.siblings : []).map((entry) => mapPublicSummary(entry as Record<string, unknown>)) };
 }
@@ -490,6 +489,8 @@ export async function loadAdminContents(): Promise<ContentItem[]> {
       tags: [],
       media: (row.content_media || []).map(mapMedia),
       attachments: [],
+      outlineEnabled: Boolean(row.outline_enabled),
+      outlineSettings: normalizeOutlineSettings(row.outline_settings),
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -541,6 +542,8 @@ async function mapAdminContentListRows(rows: Array<Record<string, unknown>>) {
       mediaCount: Number(row.media_count || 0),
       attachmentCount: Number(row.attachment_count || 0),
       pendingMediaCount: Number(row.pending_media_count || 0),
+      outlineEnabled: Boolean(row.outline_enabled),
+      outlineSettings: normalizeOutlineSettings(row.outline_settings),
       createdBy: row.created_by ? String(row.created_by) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -638,6 +641,8 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
       path: stored.storage_path,
       externalUrl: stored.external_url
     })).length,
+    outlineEnabled: Boolean(row.outline_enabled),
+    outlineSettings: normalizeOutlineSettings(row.outline_settings),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,

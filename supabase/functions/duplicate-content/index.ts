@@ -48,6 +48,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
     status: "draft",
     is_featured: false,
     sort_order: source.sort_order,
+    outline_enabled: false,
+    outline_settings: source.outline_settings,
     created_by: user.id,
     updated_by: user.id,
     active_document_import_id: source.active_document_import_id

@@ -3,6 +3,28 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
 
 const allowedStatuses = ["draft", "published", "hidden", "trashed"];
+const outlineUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function cleanOutlineSettings(value: unknown, bodyHtml: string) {
+  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const ids = new Set(Array.from(bodyHtml.matchAll(/data-outline-id=["']([0-9a-f-]{36})["']/gi)).map((match) => match[1].toLowerCase()));
+  const rawLabels = input.labels && typeof input.labels === "object" ? input.labels as Record<string, unknown> : {};
+  const labels: Record<string, string> = {};
+  for (const [key, rawLabel] of Object.entries(rawLabels).slice(0, 500)) {
+    const [id, marker, pathIndex] = key.toLowerCase().split(":");
+    if (!outlineUuid.test(id) || !ids.has(id)) continue;
+    if (marker && (marker !== "path" || !/^[0-3]$/.test(pathIndex || ""))) continue;
+    const label = String(rawLabel ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (label) labels[key.toLowerCase()] = label;
+  }
+  const text = (candidate: unknown, fallback: string) => String(candidate ?? "").replace(/\s+/g, " ").trim().slice(0, 80) || fallback;
+  return {
+    title: text(input.title, "文章大纲"),
+    headingGroupLabel: text(input.headingGroupLabel ?? input.heading_group_label, "正文"),
+    mediaGroupLabel: text(input.mediaGroupLabel ?? input.media_group_label, "图片目录"),
+    labels
+  };
+}
 
 function cleanSlug(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 160);
@@ -23,15 +45,25 @@ function cleanImageAttributes(attribs: Record<string, string>) {
   return next;
 }
 
+function cleanOutlineAttributes(attribs: Record<string, string>) {
+  const next = { ...attribs };
+  if (next["data-outline-id"] && !outlineUuid.test(next["data-outline-id"])) delete next["data-outline-id"];
+  return next;
+}
+
 function cleanBody(value: string) {
   return sanitizeHtml(value, {
     allowedTags: ["p", "br", "strong", "em", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "a", "table", "thead", "tbody", "tr", "th", "td", "img", "video", "source", "figure", "figcaption", "code", "pre", "hr", "span", "mark", "div"],
     allowedAttributes: {
       a: ["href", "target", "rel", "title"],
       img: ["src", "srcset", "sizes", "width", "height", "loading", "decoding", "alt", "title"],
-      video: ["controls", "preload", "playsinline", "poster"],
+      video: ["controls", "controlslist", "preload", "playsinline", "poster"],
       source: ["src", "type"],
-      figure: ["data-editor-image", "data-media-id", "data-media-kind", "data-original-src"],
+      figure: ["data-editor-image", "data-media-id", "data-media-kind", "data-original-src", "data-outline-id"],
+      h1: ["data-outline-id"],
+      h2: ["data-outline-id"],
+      h3: ["data-outline-id"],
+      h4: ["data-outline-id"],
       figcaption: ["data-placeholder"],
       table: ["data-table-border", "data-table-style", "data-table-color", "style"],
       th: ["colspan", "rowspan", "colwidth", "data-cell-background", "data-cell-align", "data-cell-border-width", "data-cell-border-style", "data-cell-border-color", "style"],
@@ -65,8 +97,13 @@ function cleanBody(value: string) {
       figure: (tagName, attribs) => {
         const next = { ...attribs };
         if (next["data-original-src"] && !/^https:\/\/[^\s]+$/i.test(next["data-original-src"])) delete next["data-original-src"];
+        if (next["data-outline-id"] && !outlineUuid.test(next["data-outline-id"])) delete next["data-outline-id"];
         return { tagName, attribs: next };
-      }
+      },
+      h1: (tagName, attribs) => ({ tagName, attribs: cleanOutlineAttributes(attribs) }),
+      h2: (tagName, attribs) => ({ tagName, attribs: cleanOutlineAttributes(attribs) }),
+      h3: (tagName, attribs) => ({ tagName, attribs: cleanOutlineAttributes(attribs) }),
+      h4: (tagName, attribs) => ({ tagName, attribs: cleanOutlineAttributes(attribs) })
     }
   });
 }
@@ -147,6 +184,8 @@ Deno.serve((request) => edgeHandler(request, async () => {
     status,
     is_featured: profile.role === "uploader" ? false : Boolean(body.featured),
     sort_order: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 100,
+    outline_enabled: Boolean(body.outlineEnabled),
+    outline_settings: cleanOutlineSettings(body.outlineSettings, cleanedBody),
     updated_by: user.id
   };
 

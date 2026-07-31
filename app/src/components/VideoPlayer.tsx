@@ -42,5 +42,5 @@ export function VideoPlayer({ media }: { media: Pick<ContentMedia, "src" | "titl
   if (!source) return <div className="media-video-error"><strong>视频尚未公开</strong><span>请在后台发布本次媒体更新后再播放。</span></div>;
   if (failure === "video-codec") return <div className="media-video-error"><strong>视频有声音但没有画面</strong><span>该文件的视频编码与当前浏览器不兼容。请转换为 H.264/AAC MP4 后重新上传；仅修改扩展名不会转换编码。</span></div>;
   if (failure === "network") return <div className="media-video-error"><strong>浏览器暂时无法播放这个视频</strong><span>请检查网络后重试；如果仍然失败，请确认视频为 H.264/AAC MP4 或 WebM。</span><button className="button quiet" onClick={reload}><RefreshCcw />重新加载</button></div>;
-  return <video key={reloadKey} controls preload="metadata" playsInline poster={media.posterUrl} onPlay={(event) => verifyDecodedFrame(event.currentTarget)} onError={() => setFailure("network")}><source src={source} type={type} /></video>;
+  return <video key={reloadKey} controls controlsList="nodownload noremoteplayback" disablePictureInPicture={false} preload="metadata" playsInline poster={media.posterUrl} onContextMenu={(event) => event.preventDefault()} onPlay={(event) => verifyDecodedFrame(event.currentTarget)} onError={() => setFailure("network")}><source src={source} type={type} /></video>;
 }

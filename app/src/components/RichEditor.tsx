@@ -22,7 +22,8 @@ import {
 import { normalizeOfficeClipboardHtml, tabSeparatedTextToTableHtml } from "../lib/officeClipboard";
 import { sanitizeHtml } from "../lib/sanitize";
 import { normalizeInlineMediaHtml } from "../lib/richMedia";
-import type { ContentMedia } from "../types";
+import { outlineUuidPattern } from "../lib/outline";
+import type { ContentMedia, OutlineSettings } from "../types";
 import { BackToTop, DocumentOutline } from "./DocumentNavigation";
 import type { OutlineItem } from "./DocumentNavigation";
 
@@ -35,6 +36,8 @@ interface RichEditorProps {
   onSafeMode?: () => void;
   onUploadImages?: (files: File[]) => Promise<Array<{ src: string; alt: string; caption?: string }>>;
   onUploadMedia?: (file: File) => Promise<RichEditorMedia>;
+  outlineSettings?: OutlineSettings;
+  onOutlineSettingsChange?: (settings: OutlineSettings) => void;
 }
 
 export interface RichEditorSnapshot {
@@ -70,25 +73,57 @@ interface EditorOutlineItem extends OutlineItem {
   endPosition: number;
 }
 
-function extractEditorOutline(editor: Editor): EditorOutlineItem[] {
+function newOutlineId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.random() * 16 | 0;
+    return (char === "x" ? value : value & 3 | 8).toString(16);
+  });
+}
+
+function extractEditorOutline(editor: Editor, media: ContentMedia[] = []): EditorOutlineItem[] {
   const result: EditorOutlineItem[] = [];
+  const mediaById = new Map(media.map((item) => [item.id, item]));
   editor.state.doc.descendants((node, position) => {
-    if (node.type.name !== "heading") return;
+    const isHeading = node.type.name === "heading";
+    const isMedia = node.type.name === "figureImage" || node.type.name === "figureVideo";
+    if (!isHeading && !isMedia) return;
     const label = node.textContent.replace(/\s+/g, " ").trim();
-    if (!label) return;
-    result.push({
-      id: `editor-outline-${position}`,
-      label,
-      level: Number(node.attrs.level) || 1,
-      kind: "heading",
-      targetId: `editor-heading-${position}`,
+    const mediaLabel = String(node.attrs.title || node.attrs.alt || "媒体").replace(/\s+/g, " ").trim();
+    if (!label && !isMedia) return;
+    const outlineId = outlineUuidPattern.test(String(node.attrs.outlineId || "")) ? String(node.attrs.outlineId) : `editor-outline-${position}`;
+    const source = isMedia ? mediaById.get(String(node.attrs.mediaId || "")) : undefined;
+    const segments = isMedia ? source?.path.map((part) => part.trim()).filter(Boolean) || [] : [];
+    if (isMedia && !segments.length) segments.push(label || mediaLabel);
+    (isMedia ? segments.slice(0, 4) : [label]).forEach((itemLabel, index, list) => result.push({
+      id: isMedia && list.length > 1 ? `${outlineId}:path:${index}` : outlineId,
+      label: itemLabel,
+      level: isHeading ? Number(node.attrs.level) || 1 : Math.min(index + 1, 4),
+      kind: isHeading ? "heading" : "media",
+      targetId: `editor-outline-target-${outlineId}`,
       nodePosition: position,
       selectionPosition: Math.min(position + 1, editor.state.doc.content.size),
       endPosition: position + node.nodeSize
-    });
+    }));
   });
   return result;
 }
+
+const OutlineHeading = Extension.create({
+  name: "outlineHeadingAttribute",
+  addGlobalAttributes() {
+    return [{
+      types: ["heading"],
+      attributes: {
+        outlineId: {
+          default: "",
+          parseHTML: (element: HTMLElement) => element.getAttribute("data-outline-id") || "",
+          renderHTML: (attributes: Record<string, string>) => outlineUuidPattern.test(attributes.outlineId || "") ? { "data-outline-id": attributes.outlineId } : {}
+        }
+      }
+    }];
+  }
+});
 
 function sameEditorOutline(left: EditorOutlineItem[], right: EditorOutlineItem[]) {
   return left.length === right.length && left.every((item, index) => {
@@ -236,7 +271,8 @@ const FigureImage = Node.create({
       width: { default: null },
       height: { default: null },
       originalSrc: { default: "" },
-      managed: { default: false }
+      managed: { default: false },
+      outlineId: { default: "" }
     };
   },
   parseHTML() {
@@ -263,7 +299,8 @@ const FigureImage = Node.create({
           width: Number(image?.getAttribute("width")) || null,
           height: Number(image?.getAttribute("height")) || null,
           originalSrc: figure.getAttribute("data-original-src") || "",
-          managed: figure.getAttribute("data-media-kind") === "image"
+          managed: figure.getAttribute("data-media-kind") === "image",
+          outlineId: figure.getAttribute("data-outline-id") || ""
         };
       }
     }];
@@ -273,7 +310,8 @@ const FigureImage = Node.create({
       "data-editor-image": "true",
       ...(node.attrs.mediaId ? { "data-media-id": node.attrs.mediaId } : {}),
       ...(node.attrs.managed ? { "data-media-kind": "image" } : {}),
-      ...(node.attrs.originalSrc ? { "data-original-src": node.attrs.originalSrc } : {})
+      ...(node.attrs.originalSrc ? { "data-original-src": node.attrs.originalSrc } : {}),
+      ...(outlineUuidPattern.test(node.attrs.outlineId || "") ? { "data-outline-id": node.attrs.outlineId } : {})
     }, ["img", {
       ...(!node.attrs.managed && node.attrs.src ? { src: node.attrs.src } : {}),
       alt: node.attrs.alt || "",
@@ -304,6 +342,13 @@ const FigureImage = Node.create({
         else delete figure.dataset.mediaId;
         if (attrs.originalSrc) figure.dataset.originalSrc = attrs.originalSrc;
         else delete figure.dataset.originalSrc;
+        if (outlineUuidPattern.test(attrs.outlineId || "")) {
+          figure.dataset.outlineId = attrs.outlineId;
+          figure.id = `editor-outline-target-${attrs.outlineId}`;
+        } else {
+          delete figure.dataset.outlineId;
+          figure.removeAttribute("id");
+        }
         image.alt = attrs.alt || "";
         image.loading = "lazy";
         image.decoding = "async";
@@ -361,7 +406,8 @@ const FigureVideo = Node.create({
       src: { default: "" },
       title: { default: "" },
       mimeType: { default: "video/mp4" },
-      posterUrl: { default: "" }
+      posterUrl: { default: "" },
+      outlineId: { default: "" }
     };
   },
   parseHTML() {
@@ -385,7 +431,8 @@ const FigureVideo = Node.create({
           src: source?.getAttribute("src") || video?.getAttribute("src") || "",
           title: video?.getAttribute("title") || "",
           mimeType: source?.getAttribute("type") || "video/mp4",
-          posterUrl: video?.getAttribute("poster") || ""
+          posterUrl: video?.getAttribute("poster") || "",
+          outlineId: figure.getAttribute("data-outline-id") || ""
         };
       }
     }];
@@ -393,11 +440,13 @@ const FigureVideo = Node.create({
   renderHTML({ node }) {
     return ["figure", {
       "data-media-id": node.attrs.mediaId,
-      "data-media-kind": "video"
+      "data-media-kind": "video",
+      ...(outlineUuidPattern.test(node.attrs.outlineId || "") ? { "data-outline-id": node.attrs.outlineId } : {})
     }, ["video", {
       controls: "",
       preload: "metadata",
       playsinline: "",
+      controlslist: "nodownload noremoteplayback",
       title: node.attrs.title || ""
     }], ["figcaption", { "data-placeholder": "视频说明" }, 0]];
   },
@@ -409,6 +458,8 @@ const FigureVideo = Node.create({
       const caption = document.createElement("figcaption");
       figure.dataset.mediaKind = "video";
       video.controls = true;
+      video.setAttribute("controlslist", "nodownload noremoteplayback");
+      video.oncontextmenu = (event) => { event.preventDefault(); };
       video.preload = "metadata";
       video.playsInline = true;
       video.append(source);
@@ -418,6 +469,13 @@ const FigureVideo = Node.create({
       const applyAttributes = () => {
         const attrs = current.attrs;
         figure.dataset.mediaId = attrs.mediaId || "";
+        if (outlineUuidPattern.test(attrs.outlineId || "")) {
+          figure.dataset.outlineId = attrs.outlineId;
+          figure.id = `editor-outline-target-${attrs.outlineId}`;
+        } else {
+          delete figure.dataset.outlineId;
+          figure.removeAttribute("id");
+        }
         video.title = attrs.title || "";
         if (attrs.posterUrl) video.poster = attrs.posterUrl;
         else video.removeAttribute("poster");
@@ -607,7 +665,7 @@ function TableSizePicker({ open, setOpen, style, onStyleChange, onInsert, active
   </div>;
 }
 
-export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, media = [], onChange, onDirty, onSnapshot, onSafeMode, onUploadImages, onUploadMedia }, ref) {
+export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor({ value, media = [], onChange, onDirty, onSnapshot, onSafeMode, onUploadImages, onUploadMedia, outlineSettings, onOutlineSettingsChange }, ref) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const mediaFileRef = useRef<HTMLInputElement | null>(null);
@@ -625,6 +683,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
   const idleCallbackRef = useRef<number | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
   const editorOutlineRef = useRef<EditorOutlineItem[]>([]);
+  const assigningOutlineIdsRef = useRef(false);
   const lastSnapshotAtRef = useRef(0);
   const largeDocumentRef = useRef(value.length > 500_000 || (value.match(/<figure\b/gi)?.length || 0) > 50);
   const [activePopover, setActivePopover] = useState<PopoverKey>(null);
@@ -650,11 +709,28 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     setActiveHeadingId(active?.id || "");
   }, []);
 
+  const ensureOutlineIds = useCallback((current: Editor) => {
+    if (assigningOutlineIdsRef.current) return false;
+    const transaction = current.state.tr;
+    current.state.doc.descendants((node, position) => {
+      if (!["heading", "figureImage", "figureVideo"].includes(node.type.name)) return;
+      if (outlineUuidPattern.test(String(node.attrs.outlineId || ""))) return;
+      transaction.setNodeMarkup(position, undefined, { ...node.attrs, outlineId: newOutlineId() });
+    });
+    if (!transaction.steps.length) return false;
+    assigningOutlineIdsRef.current = true;
+    transaction.setMeta("outlineIds", true).setMeta("addToHistory", false);
+    try { current.view.dispatch(transaction); }
+    finally { assigningOutlineIdsRef.current = false; }
+    return true;
+  }, []);
+
   const scheduleEditorOutline = useCallback((current: Editor, immediate = false) => {
     if (outlineTimerRef.current !== null) window.clearTimeout(outlineTimerRef.current);
     const update = () => {
       outlineTimerRef.current = null;
-      const next = extractEditorOutline(current);
+      ensureOutlineIds(current);
+      const next = extractEditorOutline(current, media);
       if (!sameEditorOutline(editorOutlineRef.current, next)) {
         editorOutlineRef.current = next;
         setEditorOutline(next);
@@ -663,11 +739,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
     };
     if (immediate) update();
     else outlineTimerRef.current = window.setTimeout(update, 120);
-  }, [updateActiveHeading]);
+  }, [ensureOutlineIds, media, updateActiveHeading]);
 
   const editor = useEditor({
     extensions: [
       StarterKit,
+      OutlineHeading,
       TextStyle,
       ControlledFontFamily,
       ControlledColor,
@@ -720,8 +797,12 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
         return false;
       }
     },
-    onUpdate({ editor: current }) {
+    onUpdate({ editor: current, transaction }) {
       if (hydratingMediaRef.current) return;
+      if (transaction.getMeta("outlineIds")) {
+        scheduleEditorOutline(current);
+        return;
+      }
       onDirtyRef.current?.();
       scheduleEditorOutline(current);
       if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
@@ -805,6 +886,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
         changeTimerRef.current = null;
       }
       if (editor) {
+        ensureOutlineIds(editor);
         const snapshot = serializeEditor(editor);
         internalHtml.current = snapshot.html;
         lastExternalHtml.current = snapshot.html;
@@ -863,7 +945,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
         }
       }
     }
-  }), [editor, value]);
+  }), [editor, ensureOutlineIds, value]);
 
   useEffect(() => () => {
     if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
@@ -1120,7 +1202,7 @@ export const RichEditor = forwardRef<RichEditorHandle, RichEditorProps>(function
       </div>
       {message && <div className="editor-message">{message}</div>}
       <div className={`editor-document-layout ${editorOutline.length ? "with-outline" : "without-outline"}`}>
-        {editorOutline.length > 0 && <DocumentOutline items={editorOutline} activeId={activeHeadingId} className="editor-document-outline" onNavigate={navigateEditorOutline} />}
+        {editorOutline.length > 0 && <DocumentOutline items={editorOutline} activeId={activeHeadingId} className="editor-document-outline" onNavigate={navigateEditorOutline} settings={outlineSettings} editable onSettingsChange={onOutlineSettingsChange} />}
         <div className="editor-document-canvas"><EditorContent editor={editor} /></div>
       </div>
       <BackToTop getScrollTarget={getEditorScrollTarget} className="editor-back-to-top" />

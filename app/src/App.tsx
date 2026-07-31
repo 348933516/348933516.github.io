@@ -3,13 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { DataProvider } from "./data";
-import { fallbackPublicData, loadPublicHome, readPublicHomeCache } from "./lib/repository";
+import { fallbackPublicData, loadPublicHome, loadPublicShell, readPublicHomeCache } from "./lib/repository";
 import { SiteLayout } from "./components/SiteLayout";
 import { CategoryPage, DetailPage, HomePage, NotFoundPage } from "./pages/PublicPages";
 import { installGlobalRuntimeLogging } from "./lib/runtimeLogs";
 import { syncSiteFavicon } from "./lib/favicon";
-import { supabase } from "./lib/supabase";
-import { storedAssetUrl } from "./lib/storage";
 
 function lazyWithRefresh(loader: () => Promise<{ default: ComponentType }>, key: string) {
   return lazy(async () => {
@@ -35,26 +33,15 @@ const LoginPage = lazyWithRefresh(() => import("./pages/LoginPage").then((module
 export function App() {
   useEffect(() => installGlobalRuntimeLogging(), []);
   const location = useLocation();
-  const favicon = useQuery({
-    queryKey: ["site-favicon"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("site_settings").select("favicon_path,favicon_provider").eq("id", "main").maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    staleTime: 5 * 60_000,
-    retry: 1
-  });
-  useEffect(() => {
-    const path = favicon.data?.favicon_path ? String(favicon.data.favicon_path) : "";
-    const provider = String(favicon.data?.favicon_provider || "supabase");
-    syncSiteFavicon(path ? storedAssetUrl(path, provider) : undefined);
-  }, [favicon.data]);
   const publicRoute = !location.pathname.startsWith("/admin") && location.pathname !== "/login";
-  const site = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, enabled: publicRoute, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
+  const homeRoute = location.pathname === "/";
+  const home = useQuery({ queryKey: ["public-home"], queryFn: loadPublicHome, enabled: publicRoute && homeRoute, staleTime: 5 * 60_000, retry: 1, placeholderData: () => readPublicHomeCache() || fallbackPublicData });
+  const shell = useQuery({ queryKey: ["public-shell"], queryFn: loadPublicShell, enabled: publicRoute && !homeRoute, staleTime: 5 * 60_000, retry: 1 });
+  const site = homeRoute ? home : shell;
   const data = site.error
     ? { ...(site.data || fallbackPublicData), loading: false, errorMessage: site.error instanceof Error ? site.error.message : "资料库暂时无法读取" }
     : site.data || fallbackPublicData;
+  useEffect(() => syncSiteFavicon(data.settings.faviconUrl), [data.settings.faviconUrl]);
   return <DataProvider data={data}><Suspense fallback={<div className="boot-state"><LoaderCircle className="spin" /><strong>正在加载管理模块</strong></div>}><Routes>
     <Route path="/admin/*" element={<AdminPage />} />
     <Route path="/login" element={<LoginPage />} />

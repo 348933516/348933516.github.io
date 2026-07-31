@@ -256,8 +256,7 @@ function CarouselSlideRow({
     const reordered = [...rows];
     const [moved] = reordered.splice(index, 1);
     reordered.splice(targetIndex, 0, moved);
-    const results = await Promise.all(reordered.map((row, rowIndex) => supabase.from("carousel_slides").update({ sort_order: (rowIndex + 1) * 10, updated_by: actorId }).eq("id", row.id)));
-    const error = results.find((result) => result.error)?.error;
+    const { error } = await supabase.rpc("reorder_carousel_slides", { p_items: reordered.map((row, rowIndex) => ({ id: row.id, sortOrder: (rowIndex + 1) * 10 })) });
     if (error) onMessage(error.message, true);
     else await onSaved();
   };

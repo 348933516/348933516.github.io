@@ -54,7 +54,9 @@ describe("rich content reader", () => {
     expect(document.querySelector("figure")?.previousElementSibling?.textContent).toBe("前文");
     expect(document.querySelector("figure")?.nextElementSibling?.textContent).toBe("后文");
     expect(document.querySelector("video")?.getAttribute("poster")).toBe("https://media.example.test/poster.webp");
-    expect(document.querySelector("source")?.getAttribute("src")).toBe("https://media.example.test/playback.mp4");
+    expect(document.querySelector("source")?.getAttribute("src")).toBeNull();
+    expect(document.querySelector("source")?.getAttribute("data-reader-src")).toBe("https://media.example.test/playback.mp4");
+    expect(document.querySelector("video")?.getAttribute("controlslist")).toBe("nodownload noremoteplayback");
   });
 
   it("builds stable unique outline targets for h1 through h4", () => {
@@ -69,5 +71,22 @@ describe("rich content reader", () => {
     const document = new DOMParser().parseFromString(prepared.html, "text/html");
     expect(document.getElementById("section-可爱风-2")?.textContent).toBe("可爱风");
     expect(document.querySelector("h4")?.hasAttribute("id")).toBe(false);
+  });
+
+  it("keeps custom outline labels separate while preserving body order", () => {
+    const headingId = "123e4567-e89b-42d3-a456-426614174010";
+    const mediaId = "123e4567-e89b-42d3-a456-426614174011";
+    const mediaOutlineId = "123e4567-e89b-42d3-a456-426614174012";
+    const prepared = prepareRichDocument(`<h2 data-outline-id="${headingId}">正文原标题</h2><figure data-editor-image="true" data-media-id="${mediaId}" data-outline-id="${mediaOutlineId}"><img alt="地图"><figcaption>图片说明</figcaption></figure>`, [{
+      id: mediaId, kind: "image", src: "https://example.com/map.webp", title: "地图", note: "", path: ["地图目录"], altText: "地图", sortOrder: 10
+    }], {
+      title: "导航",
+      headingGroupLabel: "章节",
+      mediaGroupLabel: "插图",
+      labels: { [headingId]: "自定义章节", [mediaOutlineId]: "自定义图片项" }
+    });
+
+    expect(prepared.outline.map((item) => [item.kind, item.label])).toEqual([["heading", "自定义章节"], ["media", "自定义图片项"]]);
+    expect(new DOMParser().parseFromString(prepared.html, "text/html").querySelector("h2")?.textContent).toBe("正文原标题");
   });
 });

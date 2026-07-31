@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileImage, FolderOpen, Maximize2, Tag, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Copy, FileImage, FolderOpen, Tag, X } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { BackToTop, DocumentOutline } from "../components/DocumentNavigation";
-import type { OutlineItem } from "../components/DocumentNavigation";
 import { prepareRichDocument, RichContent } from "../components/RichContent";
-import { VideoPlayer } from "../components/VideoPlayer";
 import { useSiteData } from "../data";
 import { normalizeCarouselTarget } from "../lib/carousel";
 import { buildShareUrl, copyShareUrl } from "../lib/share";
 import { loadPublicCategory, loadPublicContent } from "../lib/repository";
-import type { ContentItem, ContentMedia } from "../types";
+import type { ContentItem } from "../types";
 
 function formatDate(value?: string) {
   if (!value) return "";
@@ -21,44 +19,18 @@ function cover(item: ContentItem) {
   return item.media.find((media) => media.kind === "image")?.src || "";
 }
 
-function buildMediaOutline(mediaItems: ContentMedia[]): OutlineItem[] {
-  const seen = new Set<string>();
-  const result: OutlineItem[] = [];
-  mediaItems.forEach((media) => {
-    const segments = media.path.map((part) => part.trim()).filter(Boolean);
-    if (!segments.length && media.title.trim()) segments.push(media.title.trim());
-    segments.forEach((label, index) => {
-      const pathKey = segments.slice(0, index + 1).join("\u001f");
-      if (seen.has(pathKey)) return;
-      seen.add(pathKey);
-      result.push({
-        id: `outline-media-${media.id}-${index}`,
-        label,
-        level: Math.min(index + 1, 4),
-        kind: "media",
-        targetId: `media-${media.id}`
-      });
-    });
-  });
-  return result;
-}
-
-function ContentCard({ item }: { item: ContentItem }) {
+function ContentCard({ item, compactMeta = false }: { item: ContentItem; compactMeta?: boolean }) {
   return (
     <article className="content-card">
       <Link className="card-cover" to={`/content/${item.slug}`}>{cover(item) ? <img src={cover(item)} alt={item.title} loading="lazy" /> : <span className="media-placeholder"><FileImage /></span>}</Link>
       <div className="card-content">
-        <div className="card-meta"><span>{item.categoryName}</span><span>{formatDate(item.publishedAt || item.updatedAt)}</span></div>
+        {!compactMeta && <div className="card-meta"><span>{item.categoryName}</span><span>{formatDate(item.publishedAt || item.updatedAt)}</span></div>}
         <h3><Link to={`/content/${item.slug}`}>{item.title}</Link></h3>
         <p>{item.summary}</p>
         <div className="card-footer"><span><FileImage />{item.mediaCount ?? item.media.length} 张媒体</span><Link to={`/content/${item.slug}`}>查看详情<ArrowRight /></Link></div>
       </div>
     </article>
   );
-}
-
-function VideoMedia({ media }: { media: ContentMedia }) {
-  return <div className="media-video-shell"><VideoPlayer media={media} /></div>;
 }
 
 function ShareButton({ route }: { route: string }) {
@@ -184,7 +156,7 @@ export function CategoryPage() {
   if (!useLocal && result.isLoading) return <PublicRouteLoading label="正在读取分类资料" />;
   if (result.error) return <PublicRouteError error={result.error} retry={() => result.refetch()} />;
   if (!category) return <NotFoundPage />;
-  return <div className="page-width page-stack"><div className="detail-actions"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><ShareButton route={`/category/${category.slug}`} /></div><header className="page-header"><span>资料类目</span><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {total} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} key={item.id} />)}</div>{total > 20 && <nav className="public-pagination"><button disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}><ChevronLeft />上一页</button><span>第 {page + 1} 页</span><button disabled={(page + 1) * 20 >= total} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight /></button></nav>}</div>;
+  return <div className="page-width page-stack"><div className="detail-actions"><Link className="back-link" to="/"><ArrowLeft />返回首页</Link><ShareButton route={`/category/${category.slug}`} /></div><header className="page-header"><h1>{category.name}</h1><p>{category.description}</p></header><div className="result-count">共 {total} 篇已发布资料</div><div className="content-list">{items.map((item) => <ContentCard item={item} compactMeta key={item.id} />)}</div>{total > 20 && <nav className="public-pagination"><button disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}><ChevronLeft />上一页</button><span>第 {page + 1} 页</span><button disabled={(page + 1) * 20 >= total} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight /></button></nav>}</div>;
 }
 
 export function DetailPage() {
@@ -194,7 +166,7 @@ export function DetailPage() {
   const localItem = contents.find((content) => content.slug === slug);
   const result = useQuery({ queryKey: ["public-content", slug], queryFn: () => loadPublicContent(slug), enabled: !localItem, staleTime: 5 * 60_000 });
   const item = localItem || result.data?.item;
-  const richDocument = useMemo(() => prepareRichDocument(item?.bodyHtml || "", item?.media || []), [item?.bodyHtml, item?.media]);
+  const richDocument = useMemo(() => prepareRichDocument(item?.bodyHtml || "", item?.media || [], item?.outlineSettings), [item?.bodyHtml, item?.media, item?.outlineSettings]);
   if (!localItem && result.isLoading) return <PublicRouteLoading label="正在读取资料正文" />;
   if (result.error) return <PublicRouteError error={result.error} retry={() => result.refetch()} />;
   if (!item) return <NotFoundPage />;
@@ -203,14 +175,12 @@ export function DetailPage() {
   const position = categoryItems.findIndex((content) => content.id === item.id);
   const previous = position > 0 ? categoryItems[position - 1] : null;
   const next = position >= 0 && position < categoryItems.length - 1 ? categoryItems[position + 1] : null;
-  const embeddedMedia = item.media.filter((media) => richDocument.referencedMediaIds.has(media.id));
-  const outline = [...richDocument.outline, ...buildMediaOutline(embeddedMedia)];
+  const outline = item.outlineEnabled ? richDocument.outline : [];
   return <div className="page-width detail-page">
     <BackToTop blocked={Boolean(lightbox)} />
     <div className="detail-actions"><Link className="back-link" to={`/category/${item.categorySlug}`}><ArrowLeft />返回{item.categoryName}</Link><ShareButton route={`/content/${item.slug}`} /></div>
     <article className="detail-article"><header><span>{item.categoryName}</span><h1>{item.title}</h1><p>{item.summary}</p><div className="detail-meta"><span><CalendarDays />更新于 {formatDate(item.updatedAt)}</span>{item.tags.map((tag) => <span key={tag}><Tag />{tag}</span>)}</div></header>
-      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <DocumentOutline items={outline} observe className="reader-document-outline" />}<div className="reader-main"><RichContent html={richDocument.html} prepared />
-      {item.attachments.length > 0 && <section className="attachment-list"><h2>相关附件</h2>{item.attachments.map((attachment) => <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}><Download /><span><strong>{attachment.name}</strong><small>{attachment.sizeBytes ? `${(attachment.sizeBytes / 1024 / 1024).toFixed(1)} MB` : "下载附件"}</small></span></a>)}</section>}</div></div>
+      <div className={`reader-layout ${outline.length ? "with-outline" : "without-outline"}`}>{outline.length > 0 && <DocumentOutline items={outline} settings={item.outlineSettings} observe className="reader-document-outline" />}<div className="reader-main"><RichContent html={richDocument.html} prepared /></div></div>
     </article>
     <nav className="previous-next">{previous ? <Link to={`/content/${previous.slug}`}><ArrowLeft /><span>上一篇<strong>{previous.title}</strong></span></Link> : <span />}{next && <Link to={`/content/${next.slug}`}><span>下一篇<strong>{next.title}</strong></span><ArrowRight /></Link>}</nav>
     {related.length > 0 && <section className="related"><div className="section-heading"><div><span>RELATED</span><h2>相关资料</h2></div></div><div className="content-list">{related.map((content) => <ContentCard item={content} key={content.id} />)}</div></section>}

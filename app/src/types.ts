@@ -97,6 +97,13 @@ export interface Attachment {
   storagePath?: string;
 }
 
+export interface OutlineSettings {
+  title: string;
+  headingGroupLabel: string;
+  mediaGroupLabel: string;
+  labels: Record<string, string>;
+}
+
 export interface ContentItem {
   id: string;
   slug: string;
@@ -123,6 +130,8 @@ export interface ContentItem {
   mediaCount?: number;
   attachmentCount?: number;
   pendingMediaCount?: number;
+  outlineEnabled?: boolean;
+  outlineSettings?: OutlineSettings;
 }
 
 export interface PublicData {
@@ -161,4 +170,6 @@ export interface ContentDraft {
   sortOrder: number;
   version?: number;
   tags: string[];
+  outlineEnabled?: boolean;
+  outlineSettings?: OutlineSettings;
 }
