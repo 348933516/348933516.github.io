@@ -1,7 +1,42 @@
 import { corsHeaders, edgeHandler, json, requireRole } from "../_shared/auth.ts";
-import { copyCosObject, cosConfiguration, deleteCosObject, headCosObject, signedCosObjectUrl } from "../_shared/tencent-cos.ts";
+import { copyCosObject, cosConfiguration, CosRequestError, deleteCosObject, headCosObject, signedCosObjectUrl } from "../_shared/tencent-cos.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function replacementFailure(stage: string, error: unknown) {
+  const requestId = crypto.randomUUID();
+  if (error instanceof CosRequestError) {
+    console.error(`[video-replacement:${requestId}]`, JSON.stringify({
+      stage,
+      operation: error.operation,
+      code: error.code,
+      httpStatus: error.httpStatus,
+      cosRequestId: error.requestId,
+      bucket: error.bucket
+    }));
+    const status = error.httpStatus === 403 ? 502 : 500;
+    const requestDetail = error.requestId ? `, COS request ID ${error.requestId}` : "";
+    return json({
+      error: `Video replacement failed during ${stage}: COS ${error.operation} returned ${error.code}${requestDetail}.`,
+      code: "VIDEO_REPLACEMENT_COS_FAILED",
+      stage,
+      operation: error.operation,
+      http_status: error.httpStatus,
+      cos_request_id: error.requestId,
+      request_id: requestId
+    }, status);
+  }
+  console.error(`[video-replacement:${requestId}]`, JSON.stringify({
+    stage,
+    errorType: error instanceof Error ? error.name : typeof error
+  }));
+  return json({
+    error: `Video replacement failed during ${stage}. Request ID ${requestId}.`,
+    code: "VIDEO_REPLACEMENT_FAILED",
+    stage,
+    request_id: requestId
+  }, 500);
+}
 
 async function handleAdmin(request: Request, body: Record<string, unknown>) {
   const { client, user, profile } = await requireRole(request, ["super_admin", "editor", "uploader"]);
@@ -18,12 +53,16 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
   if (!media) return json({ error: "Media was not found" }, 404);
 
   if (action === "commit-replacement") {
+    let stage = "configuration";
+    try {
     const configuration = cosConfiguration();
     if (media.pending_storage_provider !== "tencent_cos" || media.pending_storage_bucket !== configuration.privateBucket || !media.pending_storage_path) return json({ error: "No verified replacement is pending" }, 409);
+    stage = "verify-video";
     const pending = await headCosObject(media.pending_storage_bucket, media.pending_storage_path);
     if (pending.sizeBytes <= 0 || pending.sizeBytes !== Number(media.pending_size_bytes || 0)) return json({ error: "Replacement object verification failed" }, 422);
     const pendingPosterPath = String(body.posterPath || "");
     if (pendingPosterPath && (!pendingPosterPath.startsWith(`drafts/${contentId}/`) || pendingPosterPath === media.pending_storage_path)) return json({ error: "Invalid replacement poster path" }, 400);
+    stage = "verify-poster";
     const pendingPoster = pendingPosterPath ? await headCosObject(configuration.privateBucket, pendingPosterPath) : null;
     if (pendingPoster && (pendingPoster.sizeBytes <= 0 || !pendingPoster.contentType.startsWith("image/"))) return json({ error: "Replacement poster verification failed" }, 422);
     const published = content.status === "published";
@@ -39,11 +78,13 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
     const copiedPaths: string[] = [];
     if (published) {
       try {
+        stage = "copy-video";
         await copyCosObject(media.pending_storage_bucket, media.pending_storage_path, destinationBucket, destinationPath, {
           cacheControl: media.kind === "video" ? "public, max-age=2592000, immutable" : "public, max-age=31536000, immutable"
         });
         copiedPaths.push(destinationPath);
         if (pendingPosterPath && destinationPosterPath) {
+          stage = "copy-poster";
           await copyCosObject(configuration.privateBucket, pendingPosterPath, destinationBucket, destinationPosterPath, {
             cacheControl: "public, max-age=31536000, immutable"
           });
@@ -68,6 +109,7 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
     const posterUrl = published && destinationPosterPath
       ? `${configuration.mediaBaseUrl}/${destinationPosterPath.split("/").map(encodeURIComponent).join("/")}`
       : null;
+    stage = "commit-database";
     const { error: updateError } = await client.from("content_media").update({
       storage_provider: "tencent_cos",
       storage_bucket: destinationBucket,
@@ -103,6 +145,7 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
       published && pendingPosterPath ? { bucket: configuration.privateBucket, path: pendingPosterPath } : null
     ].filter((item): item is { bucket: string; path: string } => Boolean(item?.bucket && item?.path && !(item.bucket === destinationBucket && item.path === destinationPath)));
     await Promise.allSettled(obsolete.map((item) => deleteCosObject(item.bucket, item.path)));
+    stage = "build-preview";
     const previewUrl = published
       ? `${configuration.mediaBaseUrl}/${destinationPath.split("/").map(encodeURIComponent).join("/")}`
       : await signedCosObjectUrl(destinationBucket, destinationPath);
@@ -112,6 +155,9 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
         : await signedCosObjectUrl(destinationBucket, destinationPosterPath)
       : null;
     return json({ ok: true, previewUrl, posterUrl: posterPreviewUrl, storageBucket: destinationBucket, storagePath: destinationPath, posterStoragePath: destinationPosterPath, mimeType: media.pending_mime_type || pending.contentType, sizeBytes: pending.sizeBytes });
+    } catch (error) {
+      return replacementFailure(stage, error);
+    }
   }
 
   return json({ error: "Unsupported admin action" }, 400);

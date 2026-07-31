@@ -45,4 +45,14 @@ describe("browser video transcode pipeline", () => {
     expect(publication).toContain("public, max-age=31536000, immutable");
     expect(publication).toContain("hasPublishedFallback");
   });
+
+  it("returns safe stage-specific COS diagnostics for replacement failures", () => {
+    expect(edgeFunction).toContain("replacementFailure(stage, error)");
+    expect(edgeFunction).toContain('stage = "verify-video"');
+    expect(edgeFunction).toContain('stage = "copy-video"');
+    expect(edgeFunction).toContain('stage = "copy-poster"');
+    expect(edgeFunction).toContain('code: "VIDEO_REPLACEMENT_COS_FAILED"');
+    expect(edgeFunction).toContain("cos_request_id: error.requestId");
+    expect(edgeFunction).not.toContain("pending_storage_path,\n      request_id");
+  });
 });
