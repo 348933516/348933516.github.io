@@ -1,3 +1,4 @@
+import { mediaBaseUrl } from "./config";
 import { probeBrowserVideoPlayback } from "./uploads";
 
 export type BrowserVideoStage = "checking" | "loading" | "transcoding" | "poster" | "verifying";
@@ -21,6 +22,7 @@ type ProgressHandler = (progress: BrowserVideoProgress) => void;
 
 const standardLimit = 300 * 1024 * 1024;
 const lowMemoryLimit = 128 * 1024 * 1024;
+const ffmpegCoreVersion = "0.12.10";
 let ffmpegPromise: Promise<import("@ffmpeg/ffmpeg").FFmpeg> | null = null;
 let activeProgress: ProgressHandler | null = null;
 let transcodeQueue: Promise<unknown> = Promise.resolve();
@@ -100,16 +102,25 @@ async function loadFfmpeg(onProgress: ProgressHandler) {
   if (!ffmpegPromise) {
     ffmpegPromise = (async () => {
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-      const ffmpeg = new FFmpeg();
-      ffmpeg.on("progress", ({ progress }) => {
-        activeProgress?.({ stage: "transcoding", percent: Math.max(8, Math.min(92, Math.round(8 + progress * 84))) });
-      });
-      const base = new URL(`${import.meta.env.BASE_URL}ffmpeg/`, window.location.origin);
-      await ffmpeg.load({
-        coreURL: new URL("ffmpeg-core.js", base).href,
-        wasmURL: new URL("ffmpeg-core.wasm", base).href
-      });
-      return ffmpeg;
+      const edgeBase = new URL(`${mediaBaseUrl}/site/runtime/ffmpeg/${ffmpegCoreVersion}/`);
+      const localBase = new URL(`${import.meta.env.BASE_URL}ffmpeg/`, window.location.origin);
+      let lastError: unknown;
+      for (const base of [edgeBase, localBase]) {
+        const ffmpeg = new FFmpeg();
+        ffmpeg.on("progress", ({ progress }) => {
+          activeProgress?.({ stage: "transcoding", percent: Math.max(8, Math.min(92, Math.round(8 + progress * 84))) });
+        });
+        try {
+          await ffmpeg.load({
+            coreURL: new URL("ffmpeg-core.js", base).href,
+            wasmURL: new URL("ffmpeg-core.wasm", base).href
+          });
+          return ffmpeg;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error("本地视频转换组件加载失败");
     })().catch((error) => {
       ffmpegPromise = null;
       throw error;
