@@ -80,13 +80,15 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
       try {
         stage = "copy-video";
         await copyCosObject(media.pending_storage_bucket, media.pending_storage_path, destinationBucket, destinationPath, {
-          cacheControl: media.kind === "video" ? "public, max-age=2592000, immutable" : "public, max-age=31536000, immutable"
+          cacheControl: media.kind === "video" ? "public, max-age=2592000, immutable" : "public, max-age=31536000, immutable",
+          sourceContentType: pending.contentType
         });
         copiedPaths.push(destinationPath);
         if (pendingPosterPath && destinationPosterPath) {
           stage = "copy-poster";
           await copyCosObject(configuration.privateBucket, pendingPosterPath, destinationBucket, destinationPosterPath, {
-            cacheControl: "public, max-age=31536000, immutable"
+            cacheControl: "public, max-age=31536000, immutable",
+            sourceContentType: pendingPoster?.contentType || "image/webp"
           });
           copiedPaths.push(destinationPosterPath);
         }

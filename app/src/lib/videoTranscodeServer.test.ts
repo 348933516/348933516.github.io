@@ -7,6 +7,7 @@ const edgeFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/funct
 const mediaAdmin = fs.readFileSync(path.resolve(process.cwd(), "app/src/pages/admin/ContentAdmin.tsx"), "utf8");
 const browserTranscode = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/browserVideoTranscode.ts"), "utf8");
 const publication = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
+const cosStorage = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/_shared/tencent-cos.ts"), "utf8");
 
 describe("browser video transcode pipeline", () => {
   it("keeps the old queue schema harmless for already-created jobs", () => {
@@ -54,5 +55,13 @@ describe("browser video transcode pipeline", () => {
     expect(edgeFunction).toContain('code: "VIDEO_REPLACEMENT_COS_FAILED"');
     expect(edgeFunction).toContain("cos_request_id: error.requestId");
     expect(edgeFunction).not.toContain("pending_storage_path,\n      request_id");
+  });
+
+  it("tolerates slow cross-cloud COS verification without redundant source HEAD requests", () => {
+    expect(cosStorage).toContain('input.method === "HEAD" ? 20_000');
+    expect(cosStorage).toContain("const attempts = 3");
+    expect(cosStorage).toContain("sourceContentType?: string");
+    expect(edgeFunction).toContain("sourceContentType: pending.contentType");
+    expect(edgeFunction).toContain('sourceContentType: pendingPoster?.contentType || "image/webp"');
   });
 });

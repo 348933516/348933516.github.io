@@ -113,9 +113,10 @@ async function cosRequestOnce(input: { method: "HEAD" | "DELETE" | "PUT"; bucket
 }
 
 export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; bucket: string; key: string; headers?: Record<string, string>; operation?: string }) {
-  const timeoutMs = input.method === "PUT" ? 45_000 : 8_000;
+  const timeoutMs = input.method === "PUT" ? 60_000 : input.method === "HEAD" ? 20_000 : 15_000;
+  const attempts = 3;
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -124,8 +125,8 @@ export async function cosRequest(input: { method: "HEAD" | "DELETE" | "PUT"; buc
       lastError = error instanceof DOMException && error.name === "AbortError"
         ? new CosRequestError({ operation: input.operation || input.method, code: "COS_TIMEOUT", bucket: input.bucket, message: `COS ${input.operation || input.method} timed out after ${timeoutMs}ms` })
         : error;
-      if (attempt === 2) throw lastError;
-      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+      if (attempt === attempts) throw lastError;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
     } finally {
       clearTimeout(timeout);
     }
@@ -142,11 +143,11 @@ export async function headCosObject(bucket: string, key: string, operation = "He
   };
 }
 
-export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string, options?: { cacheControl?: string }) {
-  const source = await headCosObject(sourceBucket, sourceKey, "HeadSourceObject");
+export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string, options?: { cacheControl?: string; sourceContentType?: string }) {
+  const sourceContentType = options?.sourceContentType || (await headCosObject(sourceBucket, sourceKey, "HeadSourceObject")).contentType;
   const copySource = `/${sourceBucket}/${encodeKey(sourceKey)}`;
   const metadataHeaders = options?.cacheControl
-    ? { "x-cos-metadata-directive": "Replaced", "cache-control": options.cacheControl, "content-type": source.contentType }
+    ? { "x-cos-metadata-directive": "Replaced", "cache-control": options.cacheControl, "content-type": sourceContentType }
     : { "x-cos-metadata-directive": "Copy" };
   await cosRequest({
     method: "PUT",

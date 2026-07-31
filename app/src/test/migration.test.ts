@@ -171,7 +171,8 @@ describe("Supabase security migration", () => {
     expect(cosStorageFunction).toContain("retryResults");
     expect(storageClient).toContain('action: "delete-many"');
     expect(cosSharedFunction).toContain("controller.abort()");
-    expect(cosSharedFunction).toContain("attempt <= 2");
+    expect(cosSharedFunction).toContain("const attempts = 3");
+    expect(cosSharedFunction).toContain("attempt <= attempts");
   });
 
   it("can cancel a legacy media migration without changing or deleting source media", () => {
