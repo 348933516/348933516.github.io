@@ -22,11 +22,12 @@ import { reportRuntimeLog } from "../../lib/runtimeLogs";
 import { clearEditorRecovery, readEditorRecovery, saveEditorRecovery } from "../../lib/editorRecovery";
 import { EdgeFunctionError, invokeEdgeFunction } from "../../lib/edgeFunctions";
 import { CosUploadError } from "../../lib/cosUpload";
+import { prepareBrowserVideo, type BrowserVideoProgress } from "../../lib/browserVideoTranscode";
 import { referencedMediaIds, removeMediaFigureHtml } from "../../lib/richMedia";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { removeStoredObjects } from "../../lib/storage";
-import { imageDimensions, imageToWebp, imageToWebpVariant, normalizedVideoMimeType, probeBrowserVideoPlayback, uploadManagedFile, validateUpload } from "../../lib/uploads";
+import { imageDimensions, imageToWebp, imageToWebpVariant, normalizedVideoMimeType, uploadManagedFile, validateUpload } from "../../lib/uploads";
 import type { Category, ContentDraft, ContentItem, ContentMedia, ContentStatus, Profile } from "../../types";
 import {
   AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
@@ -44,6 +45,20 @@ function composeImportPreview(worksheets: WorksheetPreview[], selectedNames: str
   const selected = worksheets.filter((sheet) => selectedNames.includes(sheet.name));
   const bodyHtml = sanitizeHtml(selected.map((sheet) => `<h2>${escapeHtml(sheet.name)}</h2>${sheet.bodyHtml}`).join(""));
   return { bodyHtml, bodyText: selected.map((sheet) => `${sheet.name}\n${sheet.bodyText}`).join("\n\n") };
+}
+
+function browserVideoStageText(progress: BrowserVideoProgress) {
+  return ({
+    checking: "正在检查视频画面",
+    loading: "首次加载本地转换组件",
+    transcoding: "正在本机转换为 H.264/AAC",
+    poster: "正在生成视频封面",
+    verifying: "正在验证转换结果"
+  } as Record<BrowserVideoProgress["stage"], string>)[progress.stage];
+}
+
+function videoPosterPath(videoPath: string) {
+  return `${videoPath.replace(/\.[^.\/]+$/, "")}-poster.webp`;
 }
 
 export function DashboardPage({ profile }: { profile: Profile }) {
@@ -408,9 +423,10 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const uploadInlineMedia = async (file: File): Promise<RichEditorMedia> => {
     const type = validateUpload(file);
     if (!type.image && !type.video) throw new Error("正文只能插入图片或视频。");
-    const videoProbe = type.video ? await probeBrowserVideoPlayback(file, file.name) : null;
-    const needsTranscode = Boolean(type.video && !videoProbe?.playable);
-    const prepared = type.image ? await imageToWebp(file) : file;
+    const preparedVideo = type.video ? await prepareBrowserVideo(file, (value) => {
+      setImportProgress(Math.round(value.percent * 0.6));
+    }) : null;
+    const prepared = type.image ? await imageToWebp(file) : preparedVideo?.video || file;
     const path = cosStorageEnabled
       ? `drafts/${id}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
       : `${profile.id}/${id}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
@@ -420,13 +436,23 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
       purpose: "content-media",
       contentId: id,
       visibility: "private",
-      allowIncompatibleVideo: needsTranscode,
-      onProgress: (value) => setImportProgress(value.percent)
+      onProgress: (value) => setImportProgress(preparedVideo ? 60 + Math.round(value.percent * 0.3) : value.percent)
     });
+    let storedPoster: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
     try {
+      if (preparedVideo) {
+        storedPoster = await uploadManagedFile({
+          file: preparedVideo.poster,
+          path: videoPosterPath(path),
+          purpose: "content-media",
+          contentId: id,
+          visibility: "private",
+          onProgress: (value) => setImportProgress(90 + Math.round(value.percent * 0.1))
+        });
+      }
       const count = await supabase.from("content_media").select("id", { count: "exact", head: true }).eq("content_id", id);
       if (count.error) throw count.error;
-      const dimensions = type.image ? await imageDimensions(prepared) : {};
+      const dimensions = type.image ? await imageDimensions(prepared) : preparedVideo ? { width: preparedVideo.width, height: preparedVideo.height } : {};
       const title = file.name.replace(/\.[^.]+$/, "");
       const result = await supabase.from("content_media").insert({
         content_id: id,
@@ -436,33 +462,36 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
         storage_path: stored.path,
         title,
         alt_text: file.name,
-        mime_type: type.video ? normalizedVideoMimeType(file) || file.type || "application/octet-stream" : prepared.type,
+        mime_type: type.video ? normalizedVideoMimeType(prepared) || prepared.type || "video/mp4" : prepared.type,
         size_bytes: prepared.size,
         sort_order: (count.count || 0) * 10 + 10,
         created_by: profile.id,
-        processing_status: needsTranscode ? "processing" : "ready",
-        video_codec: needsTranscode ? "browser-incompatible" : type.video ? "browser-compatible" : null,
+        processing_status: "ready",
+        video_codec: preparedVideo?.codec || null,
+        duration_ms: preparedVideo?.durationMs || null,
+        poster_storage_path: storedPoster?.path || null,
         placement_status: "inserted",
         ...dimensions
       }).select("*").single();
       if (result.error || !result.data) throw result.error || new Error("媒体登记失败");
-      if (needsTranscode) {
-        await invokeEdgeFunction("video-transcode", { action: "enqueue", contentId: id, mediaId: result.data.id, inputCodec: videoProbe?.reason || "browser-incompatible" }, "inline-video-enqueue");
-      }
       let previewUrl = "";
-      if (!needsTranscode) {
-        if (stored.provider === "tencent_cos") {
-          const signed = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: stored.bucket, path: stored.path, contentId: id }, "inline-media-preview");
-          previewUrl = String(signed.url || "");
-        } else {
-          previewUrl = (await supabase.storage.from(stored.bucket).createSignedUrl(stored.path, 3600)).data?.signedUrl || "";
+      let posterPreviewUrl = "";
+      if (stored.provider === "tencent_cos") {
+        const signed = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: stored.bucket, path: stored.path, contentId: id }, "inline-media-preview");
+        previewUrl = String(signed.url || "");
+        if (storedPoster) {
+          const signedPoster = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: storedPoster.bucket, path: storedPoster.path, contentId: id }, "inline-media-poster-preview");
+          posterPreviewUrl = String(signedPoster.url || "");
         }
+      } else {
+        previewUrl = (await supabase.storage.from(stored.bucket).createSignedUrl(stored.path, 3600)).data?.signedUrl || "";
+        if (storedPoster) posterPreviewUrl = (await supabase.storage.from(storedPoster.bucket).createSignedUrl(storedPoster.path, 3600)).data?.signedUrl || "";
       }
-      notify(needsTranscode ? "视频已插入正文并进入自动转换队列。" : "媒体已上传并插入正文。");
+      notify(preparedVideo?.converted ? "视频已在本机转换为 H.264/AAC，并上传到正文当前位置。" : "媒体已上传并插入正文。");
       void content.refetch();
-      return mediaRowToEditorMedia({ ...result.data, previewUrl } as MediaRow);
+      return mediaRowToEditorMedia({ ...result.data, previewUrl, posterPreviewUrl } as MediaRow);
     } catch (error) {
-      await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId: id });
+      await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId: id });
       throw error;
     } finally {
       setImportProgress(0);
@@ -565,14 +594,7 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
     }
     return { ...row, previewUrl, posterPreviewUrl } as MediaRow;
   }));
-  if (filter !== "video" || !withUrls.length) return { items: withUrls, total: media.count || 0 };
-  const status = await invokeEdgeFunction<{ jobs?: Array<Record<string, unknown>> }>("video-transcode", { action: "status", contentId }, "video-status");
-  const jobs = new Map<string, Record<string, unknown>>();
-  for (const job of status.jobs || []) {
-    const mediaId = String(job.media_id || "");
-    if (mediaId && !jobs.has(mediaId)) jobs.set(mediaId, job);
-  }
-  return { items: withUrls.map((row) => ({ ...row, transcodeJob: jobs.get(row.id) } as MediaRow)), total: media.count || 0 };
+  return { items: withUrls, total: media.count || 0 };
 }
 
 function CosUploadProbe({ contentId, profile, onMessage }: { contentId: string; profile: Profile; onMessage(value: string, error?: boolean): void }) {
@@ -621,7 +643,7 @@ function CosUploadProbe({ contentId, profile, onMessage }: { contentId: string; 
 }
 
 export function ContentMediaManager({ contentId, profile, autoPublish = false, publishVersion, onInsert, onRemoveFromBody, onReplaceInBody, onChanged }: { contentId: string; profile: Profile; autoPublish?: boolean; publishVersion?: number; onInsert(media: RichEditorMedia): void; onRemoveFromBody(mediaId: string): void | Promise<void>; onReplaceInBody(media: RichEditorMedia): void; onChanged(): void | Promise<void> }) {
-  const client = useQueryClient(); const [filter, setFilter] = useState<MediaFilter>("gallery"); const [page, setPage] = useState(1); const mediaKey = ["admin-media", contentId, filter, page] as const; const records = useQuery({ queryKey: mediaKey, queryFn: () => loadMediaRecords(contentId, page, filter), enabled: Boolean(contentId), placeholderData: (previous) => previous, refetchInterval: filter === "video" ? 10_000 : false });
+  const client = useQueryClient(); const [filter, setFilter] = useState<MediaFilter>("gallery"); const [page, setPage] = useState(1); const mediaKey = ["admin-media", contentId, filter, page] as const; const records = useQuery({ queryKey: mediaKey, queryFn: () => loadMediaRecords(contentId, page, filter), enabled: Boolean(contentId), placeholderData: (previous) => previous });
   const [progress, setProgress] = useState(0); const [uploadStage, setUploadStage] = useState(""); const [message, setMessage] = useState(""); const [errorState, setErrorState] = useState(false); const controller = useRef<AbortController | null>(null); const [dragging, setDragging] = useState<string | null>(null); const [variantBusyId, setVariantBusyId] = useState<string | null>(null);
   const refresh = async () => { await client.invalidateQueries({ queryKey: ["admin-media", contentId] }); await onChanged(); };
   const notify = (value: string, error = false) => { setMessage(value); setErrorState(error); };
@@ -636,34 +658,50 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
       if (attachmentCountResult.error) throw attachmentCountResult.error;
       let nextMediaOrder = (mediaCountResult.count || 0) * 10 + 10;
       let nextAttachmentOrder = (attachmentCountResult.count || 0) * 10 + 10;
-      let queuedTranscodes = 0;
+      let convertedVideos = 0;
       for (const [index, file] of files.entries()) {
         const type = validateUpload(file);
-        const videoProbe = type.video ? await probeBrowserVideoPlayback(file, file.name) : null;
-        const needsTranscode = Boolean(type.video && !videoProbe?.playable);
-        let prepared = type.image ? await imageToWebp(file) : file;
-        setUploadStage(type.video ? `${needsTranscode ? "正在上传转码源文件" : "正在上传兼容视频"} ${index + 1}/${files.length}` : `正在上传 ${index + 1}/${files.length}`);
+        const preparedVideo = type.video ? await prepareBrowserVideo(file, (value) => {
+          setUploadStage(`${browserVideoStageText(value)} ${index + 1}/${files.length}`);
+          setProgress(Math.round(((index + value.percent / 100 * 0.55) / files.length) * 100));
+        }) : null;
+        const prepared = type.image ? await imageToWebp(file) : preparedVideo?.video || file;
+        if (preparedVideo?.converted) convertedVideos += 1;
+        setUploadStage(type.video ? `正在上传兼容视频 ${index + 1}/${files.length}` : `正在上传 ${index + 1}/${files.length}`);
         const path = cosStorageEnabled
           ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
           : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
         const stored = await uploadManagedFile({
           file: prepared, path, purpose: "content-media", contentId, visibility: "private", signal: controller.current.signal,
-          allowIncompatibleVideo: needsTranscode,
-          onProgress: (value) => setProgress(Math.round(((index + value.percent / 100) / files.length) * 100))
+          onProgress: (value) => setProgress(Math.round(((index + (0.55 + value.percent / 100 * 0.37)) / files.length) * 100))
         });
+        let storedPoster: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
+        try {
+          if (preparedVideo) {
+            setUploadStage(`正在上传视频封面 ${index + 1}/${files.length}`);
+            storedPoster = await uploadManagedFile({
+              file: preparedVideo.poster,
+              path: videoPosterPath(path),
+              purpose: "content-media",
+              contentId,
+              visibility: "private",
+              signal: controller.current.signal,
+              onProgress: (value) => setProgress(Math.round(((index + (0.92 + value.percent / 100 * 0.08)) / files.length) * 100))
+            });
+          }
+        } catch (error) {
+          await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId });
+          throw error;
+        }
         const sortOrder = type.document ? nextAttachmentOrder : nextMediaOrder;
-        const base = { content_id: contentId, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: type.video ? normalizedVideoMimeType(file) || file.type || "application/octet-stream" : prepared.type || "application/octet-stream", size_bytes: prepared.size };
-        const dimensions = type.image ? await imageDimensions(prepared) : {};
+        const base = { content_id: contentId, storage_provider: stored.provider, storage_bucket: stored.bucket, storage_path: stored.path, sort_order: sortOrder, created_by: profile.id, mime_type: type.video ? normalizedVideoMimeType(prepared) || prepared.type || "video/mp4" : prepared.type || "application/octet-stream", size_bytes: prepared.size };
+        const dimensions = type.image ? await imageDimensions(prepared) : preparedVideo ? { width: preparedVideo.width, height: preparedVideo.height } : {};
         if (type.document) {
           const result = await supabase.from("attachments").insert({ ...base, name: file.name });
           if (result.error) { await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId }); throw result.error; }
         } else {
-          const result = await supabase.from("content_media").insert({ ...base, kind: type.video ? "video" : "image", title: file.name.replace(/\.[^.]+$/, ""), alt_text: file.name, processing_status: needsTranscode ? "processing" : "ready", video_codec: needsTranscode ? "browser-incompatible" : type.video ? "browser-compatible" : null, placement_status: "unplaced", ...dimensions }).select("id").single();
-          if (result.error || !result.data) { await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId }); throw result.error || new Error("媒体登记失败"); }
-          if (needsTranscode) {
-            await invokeEdgeFunction("video-transcode", { action: "enqueue", contentId, mediaId: result.data.id, inputCodec: videoProbe?.reason || "browser-incompatible" }, "video-enqueue");
-            queuedTranscodes += 1;
-          }
+          const result = await supabase.from("content_media").insert({ ...base, kind: type.video ? "video" : "image", title: file.name.replace(/\.[^.]+$/, ""), alt_text: file.name, processing_status: "ready", video_codec: preparedVideo?.codec || null, duration_ms: preparedVideo?.durationMs || null, poster_storage_path: storedPoster?.path || null, placement_status: "unplaced", ...dimensions }).select("id").single();
+          if (result.error || !result.data) { await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }); throw result.error || new Error("媒体登记失败"); }
         }
         if (type.document) nextAttachmentOrder += 10;
         else nextMediaOrder += 10;
@@ -675,19 +713,17 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
           : "attachments";
       setFilter(uploadedFilter);
       setPage(1);
-      if (queuedTranscodes > 0) {
-        notify(`已上传 ${files.length} 个文件，其中 ${queuedTranscodes} 个视频正在自动转换为 H.264/AAC。处理完成后再发布。`);
-      } else if (autoPublish && publishVersion) {
+      if (autoPublish && publishVersion) {
         setUploadStage("上传完成，正在发布媒体更新");
         try {
           await publishContent(contentId, publishVersion);
-          notify(`已上传并发布 ${files.length} 个文件。`);
+          notify(`已上传并发布 ${files.length} 个文件${convertedVideos ? `，其中 ${convertedVideos} 个视频已在本机转换为 H.264/AAC` : ""}。`);
         } catch (publishError) {
           void reportRuntimeLog({ source: "publish-content", message: messageOf(publishError, "媒体自动发布失败"), error: publishError, context: { contentId, fileCount: files.length } });
           notify(`文件已安全上传，但自动发布失败：${messageOf(publishError)}。请点击右上角“发布媒体更新”重试。`, true);
         }
       } else {
-        notify(`已上传 ${files.length} 个文件到草稿区。请点击右上角“发布媒体更新”，公开页面才会显示。`);
+        notify(`已上传 ${files.length} 个文件到草稿区${convertedVideos ? `，其中 ${convertedVideos} 个视频已在本机完成兼容转换` : ""}。请点击右上角“发布媒体更新”，公开页面才会显示。`);
       }
       await refresh();
     } catch (error) {
@@ -773,50 +809,58 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
       void reportRuntimeLog({ source: "storage-cleanup", message: messageOf(storageError, "存储文件清理失败"), error: storageError, context: { table, recordId: row.id, provider: row.storage_provider } });
     });
     if (row.pending_storage_bucket && row.pending_storage_path) void removeStoredObjects({ provider: String(row.pending_storage_provider || "tencent_cos"), bucket: String(row.pending_storage_bucket), paths: [String(row.pending_storage_path)], contentId });
-    const transcodeJob = row.transcodeJob && typeof row.transcodeJob === "object" ? row.transcodeJob as Record<string, unknown> : null;
-    const transcodeJobId = String(transcodeJob?.id || "");
-    if (transcodeJobId) {
-      void removeStoredObjects({ provider: "tencent_cos", bucket: cosPrivateBucket, paths: [`drafts/${contentId}/transcodes/${transcodeJobId}.mp4`, `drafts/${contentId}/transcodes/${transcodeJobId}.webp`], contentId });
-      void removeStoredObjects({ provider: "tencent_cos", bucket: cosPublicBucket, paths: [`content/${contentId}/content_media/${row.id}/${transcodeJobId}.mp4`, `content/${contentId}/content_media/${row.id}/${transcodeJobId}.webp`], contentId });
-    }
   };
   const replace = async (row: MediaRow, file: File) => {
     const type = validateUpload(file);
     if (row.kind === "video" && !type.video) return notify("请选择视频文件进行替换。", true);
     if (row.kind === "image" && !type.image) return notify("请选择图片文件进行替换。", true);
-    const videoProbe = type.video ? await probeBrowserVideoPlayback(file, file.name) : null;
-    const needsTranscode = Boolean(type.video && !videoProbe?.playable);
-    const prepared = type.image ? await imageToWebp(file) : file;
+    const preparedVideo = type.video ? await prepareBrowserVideo(file, (value) => {
+      setUploadStage(`${browserVideoStageText(value)}“${String(row.title || file.name)}”`);
+      setProgress(Math.round(value.percent * 0.6));
+    }) : null;
+    const prepared = type.image ? await imageToWebp(file) : preparedVideo?.video || file;
     const path = cosStorageEnabled
       ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
       : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
     setUploadStage(`正在验证并替换“${String(row.title || file.name)}”`);
+    let stored: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
+    let storedPoster: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
     try {
-      const stored = await uploadManagedFile({ file: prepared, path, purpose: "content-media", contentId, visibility: "private", allowIncompatibleVideo: needsTranscode, onProgress: (value) => setProgress(value.percent) });
-      const dimensions = type.image ? await imageDimensions(prepared) : {};
+      stored = await uploadManagedFile({ file: prepared, path, purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(preparedVideo ? 60 + Math.round(value.percent * 0.3) : value.percent) });
+      if (preparedVideo) {
+        storedPoster = await uploadManagedFile({ file: preparedVideo.poster, path: videoPosterPath(path), purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(90 + Math.round(value.percent * 0.1)) });
+      }
+      const dimensions = type.image ? await imageDimensions(prepared) : preparedVideo ? { width: preparedVideo.width, height: preparedVideo.height } : {};
       const { data, error } = await supabase.from("content_media").update({
         pending_storage_provider: stored.provider,
         pending_storage_bucket: stored.bucket,
         pending_storage_path: stored.path,
-        pending_mime_type: type.video ? normalizedVideoMimeType(file) || file.type || "application/octet-stream" : prepared.type,
+        pending_mime_type: type.video ? normalizedVideoMimeType(prepared) || prepared.type || "video/mp4" : prepared.type,
         pending_size_bytes: prepared.size,
         pending_width: "width" in dimensions ? dimensions.width : null,
         pending_height: "height" in dimensions ? dimensions.height : null,
-        processing_status: needsTranscode ? "processing" : row.processing_status || "ready"
+        processing_status: row.processing_status || "ready"
       }).eq("id", row.id).select("*").single();
       if (error || !data) {
-        await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path], contentId });
+        await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId });
         throw error || new Error("媒体替换登记失败");
       }
-      if (needsTranscode) {
-        await invokeEdgeFunction("video-transcode", { action: "enqueue", contentId, mediaId: row.id, inputCodec: videoProbe?.reason || "browser-incompatible" }, "video-replace-enqueue");
-      } else {
-        const committed = await invokeEdgeFunction<{ previewUrl?: string; storageBucket?: string; storagePath?: string; mimeType?: string; sizeBytes?: number }>("video-transcode", { action: "commit-replacement", contentId, mediaId: row.id }, "commit-media-replacement");
-        onReplaceInBody(mediaRowToEditorMedia({ ...data, storage_bucket: committed.storageBucket, storage_path: committed.storagePath, mime_type: committed.mimeType, size_bytes: committed.sizeBytes, previewUrl: committed.previewUrl } as MediaRow));
-      }
-      notify(needsTranscode ? "替换源文件已上传，正在自动转换；完成前旧公开版本保持可用。" : "替换文件已核验，正文位置和说明保持不变。请保存或发布。");
+      const committed = await invokeEdgeFunction<{ previewUrl?: string; posterUrl?: string; storageBucket?: string; storagePath?: string; posterStoragePath?: string; mimeType?: string; sizeBytes?: number }>("video-transcode", {
+        action: "commit-replacement",
+        contentId,
+        mediaId: row.id,
+        posterPath: storedPoster?.path || "",
+        videoCodec: preparedVideo?.codec || "",
+        durationMs: preparedVideo?.durationMs || 0
+      }, "commit-media-replacement");
+      onReplaceInBody(mediaRowToEditorMedia({ ...data, storage_bucket: committed.storageBucket, storage_path: committed.storagePath, poster_storage_path: committed.posterStoragePath, mime_type: committed.mimeType, size_bytes: committed.sizeBytes, video_codec: preparedVideo?.codec || null, duration_ms: preparedVideo?.durationMs || null, previewUrl: committed.previewUrl, posterPreviewUrl: committed.posterUrl } as MediaRow));
+      stored = null;
+      storedPoster = null;
+      notify(preparedVideo?.converted ? "视频已在本机转换并完成原子替换，正文位置和说明保持不变。" : "替换文件已核验，正文位置和说明保持不变。请保存或发布。");
       await refresh();
     } catch (error) {
+      if (stored) await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }).catch(() => undefined);
+      await supabase.from("content_media").update({ pending_storage_provider: null, pending_storage_bucket: null, pending_storage_path: null, pending_mime_type: null, pending_size_bytes: null, pending_width: null, pending_height: null }).eq("id", row.id);
       notify(messageOf(error, "替换失败，旧文件仍保持可用"), true);
     } finally {
       setProgress(0);
@@ -830,18 +874,21 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
   };
   const retryTranscode = async (row: MediaRow) => {
     try {
-      await invokeEdgeFunction("video-transcode", { action: "retry", contentId, mediaId: row.id }, "video-retry");
-      notify("视频已重新加入转换队列。");
-      await refresh();
+      if (!row.previewUrl) throw new Error("找不到原始视频，无法在本机修复");
+      setUploadStage(`正在读取“${String(row.title || "视频")}”的原始文件`);
+      const response = await fetch(String(row.previewUrl));
+      if (!response.ok) throw new Error(`原始视频读取失败（HTTP ${response.status}）`);
+      const source = new File([await response.blob()], `${String(row.title || "video")}.mp4`, { type: String(row.mime_type || "video/mp4") });
+      await replace(row, source);
     } catch (error) {
-      notify(messageOf(error, "视频重试失败"), true);
+      notify(messageOf(error, "视频本机修复失败"), true);
     }
   };
   const reorder = async (targetId: string) => { if (filter !== "gallery" || !dragging || dragging === targetId || !records.data) return; const rows = [...records.data.items]; const from = rows.findIndex((row) => row.id === dragging); const to = rows.findIndex((row) => row.id === targetId); const [moved] = rows.splice(from, 1); rows.splice(to, 0, moved); setDragging(null); client.setQueryData(mediaKey, { ...records.data, items: rows }); try { const items = rows.map((row, index) => ({ id: row.id, sortOrder: ((page - 1) * mediaPageSize + index + 1) * 10 })); const { error } = await supabase.rpc("reorder_content_media", { p_content_id: contentId, p_items: items }); if (error) throw error; notify("媒体顺序已保存。"); } catch (error) { notify(messageOf(error, "排序失败"), true); await refresh(); } };
   if (records.isLoading) return <AdminLoading label="正在读取媒体" />;
   const total = records.data?.total || 0; const pages = Math.max(1, Math.ceil(total / mediaPageSize));
   const legacyOnPage = records.data?.items.filter((row) => mediaProvider(row).key === "supabase" && Boolean(row.storage_path)).length || 0;
-  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><CosUploadProbe contentId={contentId} profile={profile} onMessage={notify} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>常见视频会自动检查；浏览器不兼容的编码将由服务器转换为 H.264/AAC</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
+  return <div className="media-workspace"><AdminToast message={message} error={errorState} onClose={() => setMessage("")} /><CosUploadProbe contentId={contentId} profile={profile} onMessage={notify} /><label className="drop-zone"><Upload /><strong>批量上传图片、视频或附件</strong><span>不兼容视频会在当前电脑转换为 H.264/AAC，再上传腾讯云 COS；不使用轻量服务器</span><b>选择本地文件</b><input className="visually-hidden-file" type="file" multiple accept="image/*,video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm,.pdf,.zip,.docx,.txt" disabled={!canEdit(profile.role) || Boolean(controller.current)} onChange={(event) => { const files = [...(event.target.files || [])]; if (files.length) upload(files); event.target.value = ""; }} /></label>{progress > 0 && <div className="upload-progress"><span style={{ width: `${progress}%` }} /><strong>{uploadStage || `${progress}%`}</strong></div>}
     {legacyOnPage > 0 && <div className="media-source-banner warning"><Database /><span><strong>当前页有 {legacyOnPage} 个旧 Supabase 文件</strong><small>这些文件不会经过腾讯云加速。Word 正文请重新导入，普通媒体请重新上传。</small></span></div>}
     <div className="media-filter-tabs">{(["gallery", "document", "video", "attachments"] as MediaFilter[]).map((key) => <button type="button" className={filter === key ? "active" : ""} key={key} onClick={() => { setFilter(key); setPage(1); }}>{({ gallery: "图库", document: "正文图片", video: "视频", attachments: "附件" } as Record<MediaFilter, string>)[key]}</button>)}</div>
     {filter !== "attachments" ? <div className={filter === "video" ? "media-video-list" : "media-library-grid"}>{records.data?.items.map((row) => <MediaCard key={row.id} row={row} editable={canEdit(profile.role)} draggable={filter === "gallery" && canEdit(profile.role)} dragging={dragging === row.id} onDrag={() => setDragging(row.id)} onDrop={() => reorder(row.id)} onInsert={() => insertIntoBody(row)} onReplace={(file) => replace(row, file)} onRetry={() => retryTranscode(row)} onSaved={refresh} onRemove={() => remove("content_media", row)} onGenerateVariants={() => generateVariants(row)} variantBusy={variantBusyId === row.id} onMessage={notify} />)}{!records.data?.items.length && <AdminEmpty icon={<ImagePlus />} title="当前分类暂无媒体" detail="可从上方选择本地文件上传。" />}</div>
@@ -856,11 +903,10 @@ function MediaCard({ row, editable, draggable, dragging, onDrag, onDrop, onInser
   const save = async () => { const { error } = await supabase.from("content_media").update({ title: title.trim(), note: note.trim(), hierarchy_path: path.split("/").map((part) => part.trim()).filter(Boolean), alt_text: title.trim() }).eq("id", row.id); if (error) onMessage(error.message, true); else { onMessage("媒体信息已保存。"); onSaved(); } };
   const hasPlayableFallback = Boolean(row.pending_storage_path && row.storage_path && row.pending_storage_path !== row.storage_path && row.previewUrl);
   const playerMedia = { src: String(row.previewUrl || ""), title, mimeType: String(row.mime_type || ""), posterUrl: String(row.posterPreviewUrl || row.poster_url || "") || undefined, processingStatus: (hasPlayableFallback ? "ready" : String(row.processing_status || "ready")) as "ready" | "processing" | "failed", videoProvider: row.video_provider === "tencent_vod" ? "tencent_vod" as const : undefined, providerFileId: row.provider_file_id ? String(row.provider_file_id) : undefined, providerAppId: row.provider_app_id ? String(row.provider_app_id) : undefined };
-  const transcodeJob = row.transcodeJob && typeof row.transcodeJob === "object" ? row.transcodeJob as Record<string, unknown> : null;
   const needsVariants = row.kind === "image" && (!Array.isArray(row.image_variants) || row.image_variants.length === 0);
-  const jobFailed = String(transcodeJob?.status || "") === "failed";
-  const statusText = jobFailed && hasPlayableFallback ? "替换失败，旧版本可用" : String(row.processing_status || "ready") === "ready" ? "可用" : String(row.processing_status) === "processing" ? `处理中 ${Number(transcodeJob?.progress || 0)}%` : "处理失败";
-  return <article className={`media-card${row.kind === "video" ? " video" : ""}${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} /></div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><div className="media-card-status"><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span><span>{statusText}</span></div><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="媒体名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="媒体标注或说明" />{row.kind === "video" && <small>{String(row.video_codec || "编码待检测")} · {formatBytes(Number(row.size_bytes || 0))}{transcodeJob?.error_message ? ` · ${String(transcodeJob.error_message)}` : ""}</small>}</div>{editable && <div className="media-card-actions"><input ref={replaceRef} className="sr-only" type="file" accept={row.kind === "video" ? "video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" : "image/*"} onChange={(event) => { const file = event.target.files?.[0]; if (file) onReplace(file); event.target.value = ""; }} /><button className="media-action-labeled" title="插入正文" disabled={String(row.processing_status || "ready") !== "ready"} onClick={onInsert}><Plus />插入正文</button><button className="media-action-labeled" title="替换文件" onClick={() => replaceRef.current?.click()}><RefreshCcw />替换</button>{jobFailed && <button className="media-action-labeled" title="重试视频转换" onClick={onRetry}><RefreshCcw />重试</button>}{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <ImagePlus />}</button>}<button title="保存信息" onClick={save}><Save /></button><button className="danger" title="永久删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
+  const needsLocalRepair = row.kind === "video" && (String(row.processing_status || "ready") !== "ready" || String(row.video_codec || "") === "browser-incompatible");
+  const statusText = needsLocalRepair ? "等待本机兼容修复" : hasPlayableFallback ? "旧版本可用" : "可用";
+  return <article className={`media-card${row.kind === "video" ? " video" : ""}${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} /></div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><div className="media-card-status"><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span><span>{statusText}</span></div><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="媒体名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="媒体标注或说明" />{row.kind === "video" && <small>{String(row.video_codec || "编码待检测")} · {formatBytes(Number(row.size_bytes || 0))}</small>}</div>{editable && <div className="media-card-actions"><input ref={replaceRef} className="sr-only" type="file" accept={row.kind === "video" ? "video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" : "image/*"} onChange={(event) => { const file = event.target.files?.[0]; if (file) onReplace(file); event.target.value = ""; }} /><button className="media-action-labeled" title="插入正文" disabled={String(row.processing_status || "ready") !== "ready"} onClick={onInsert}><Plus />插入正文</button><button className="media-action-labeled" title="替换文件" onClick={() => replaceRef.current?.click()}><RefreshCcw />替换</button>{needsLocalRepair && <button className="media-action-labeled" title="在当前电脑转换并修复视频" onClick={onRetry}><RefreshCcw />本机修复</button>}{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <ImagePlus />}</button>}<button title="保存信息" onClick={save}><Save /></button><button className="danger" title="永久删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
 }
 
 export function CategoriesPage({ profile }: { profile: Profile }) {

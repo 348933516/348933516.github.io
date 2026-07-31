@@ -4,41 +4,31 @@ import { describe, expect, it } from "vitest";
 
 const migration = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260731120000_inline_media_video_transcoding.sql"), "utf8");
 const edgeFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/video-transcode/index.ts"), "utf8");
-const worker = fs.readFileSync(path.resolve(process.cwd(), "workers/video-transcode/worker.py"), "utf8");
+const mediaAdmin = fs.readFileSync(path.resolve(process.cwd(), "app/src/pages/admin/ContentAdmin.tsx"), "utf8");
+const browserTranscode = fs.readFileSync(path.resolve(process.cwd(), "app/src/lib/browserVideoTranscode.ts"), "utf8");
 const publication = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/publish-content/index.ts"), "utf8");
 
-describe("outbound video transcode pipeline", () => {
-  it("uses an atomic leased queue with one active job per media item", () => {
+describe("browser video transcode pipeline", () => {
+  it("keeps the old queue schema harmless for already-created jobs", () => {
     expect(migration).toContain("for update skip locked");
     expect(migration).toContain("video_transcode_jobs_active_media_idx");
-    expect(migration).toContain("lease_expires_at");
-    expect(edgeFunction).toContain('action === "heartbeat"');
   });
 
-  it("never stores permanent cloud credentials in the worker", () => {
-    expect(worker).toContain("x-video-worker-token");
-    expect(worker).toContain("VIDEO_TRANSCODE_ENDPOINT");
-    expect(worker).not.toContain("SERVICE_ROLE");
-    expect(worker).not.toContain("SECRET_KEY");
-    expect(worker).toContain('"-c:v", "libx264"');
-    expect(worker).toContain('"yuv420p"');
-    expect(worker).toContain('"+faststart"');
-    expect(worker).toContain('heartbeat(job_id, "claimed", 0)');
-    expect(worker).toContain('heartbeat(job_id, "uploading", 96)');
-    expect(worker).toContain("clean_error(error)");
-    expect(worker).toContain('"[url]"');
+  it("transcodes incompatible files in the administrator browser", () => {
+    expect(browserTranscode).toContain('"-c:v", "libx264"');
+    expect(browserTranscode).toContain('"-pix_fmt", "yuv420p"');
+    expect(browserTranscode).toContain('"-movflags", "+faststart"');
+    expect(mediaAdmin).toContain("prepareBrowserVideo(file");
+    expect(mediaAdmin).not.toContain('action: "enqueue"');
+    expect(mediaAdmin).toContain("不使用轻量服务器");
   });
 
-  it("blocks publication while a video is unfinished and replaces no-store metadata", () => {
+  it("keeps published replacement atomic and caches video and poster objects", () => {
+    expect(edgeFunction).toContain("pendingPosterPath");
+    expect(edgeFunction).toContain("posterStoragePath");
     expect(publication).toContain("VIDEO_PROCESSING_PENDING");
     expect(publication).toContain("public, max-age=2592000, immutable");
     expect(publication).toContain("public, max-age=31536000, immutable");
     expect(publication).toContain("hasPublishedFallback");
-  });
-
-  it("keeps completion idempotent and preserves an old playable replacement", () => {
-    expect(edgeFunction).toContain('job.status === "completed" && action === "complete"');
-    expect(edgeFunction).toContain("hasPlayableFallback ? \"ready\" : \"failed\"");
-    expect(edgeFunction).toContain("Media was deleted before transcoding completed");
   });
 });

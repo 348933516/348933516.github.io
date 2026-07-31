@@ -26,7 +26,6 @@ jobs:
       TENCENT_COS_SECRET_ID: ${{ secrets.TENCENT_COS_SECRET_ID }}
       TENCENT_COS_SECRET_KEY: ${{ secrets.TENCENT_COS_SECRET_KEY }}
       TENCENT_COS_UIN: ${{ secrets.TENCENT_COS_UIN }}
-      VIDEO_WORKER_TOKEN: ${{ secrets.VIDEO_WORKER_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,9 +60,6 @@ jobs:
               TENCENT_COS_PRIVATE_BUCKET="maplestorynk-private-1331200863" \
               TENCENT_MEDIA_BASE_URL="https://media.maplestorynk.online" \
               --project-ref "$PROJECT_REF"
-          fi
-          if [ -n "$VIDEO_WORKER_TOKEN" ]; then
-            pnpm dlx supabase@latest secrets set VIDEO_WORKER_TOKEN="$VIDEO_WORKER_TOKEN" --project-ref "$PROJECT_REF"
           fi
       - name: Deploy changed functions
         run: |
