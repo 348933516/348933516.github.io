@@ -14,6 +14,8 @@ const version = "0.12.10-r1";
 const cacheControl = "public, max-age=31536000, immutable";
 const uploadTimeoutMs = 120_000;
 const maxUploadAttempts = 2;
+const multipartThreshold = 5 * 1024 * 1024;
+const multipartPartSize = 4 * 1024 * 1024;
 
 if (!secretId || !secretKey) {
   throw new Error("Tencent COS credentials are required to deploy the browser video runtime");
@@ -50,26 +52,66 @@ for (const asset of assets) {
 }
 
 async function putObject(key, body, headers) {
+  if (body.byteLength > multipartThreshold) {
+    await putMultipartObject(key, body, headers);
+    return;
+  }
+  await requestWithRetry("PUT", key, body, headers);
+}
+
+async function putMultipartObject(key, body, headers) {
+  const initiated = await requestWithRetry("POST", key, Buffer.alloc(0), headers, { uploads: "" });
+  const uploadId = extractXmlTag(initiated.body, "UploadId");
+  if (!uploadId) throw new Error("COS multipart upload did not return an upload ID");
+
+  const completedParts = [];
+  try {
+    const partCount = Math.ceil(body.byteLength / multipartPartSize);
+    for (let index = 0; index < partCount; index += 1) {
+      const partNumber = index + 1;
+      const part = body.subarray(index * multipartPartSize, Math.min(body.byteLength, (index + 1) * multipartPartSize));
+      const uploaded = await requestWithRetry("PUT", key, part, {}, {
+        partNumber: String(partNumber),
+        uploadId
+      });
+      const etag = String(uploaded.headers.etag || "");
+      if (!etag) throw new Error(`COS multipart upload part ${partNumber} did not return an ETag`);
+      completedParts.push({ partNumber, etag });
+      console.log(`Uploaded ${key} part ${partNumber}/${partCount} (${part.byteLength} bytes)`);
+    }
+
+    const completionBody = Buffer.from([
+      "<CompleteMultipartUpload>",
+      ...completedParts.map(({ partNumber, etag }) => `<Part><PartNumber>${partNumber}</PartNumber><ETag>${escapeXml(etag)}</ETag></Part>`),
+      "</CompleteMultipartUpload>"
+    ].join(""));
+    await requestWithRetry("POST", key, completionBody, { "content-type": "application/xml" }, { uploadId });
+  } catch (error) {
+    await requestObjectOnce("DELETE", key, Buffer.alloc(0), {}, { uploadId }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function requestWithRetry(method, key, body, headers, query = {}) {
   let lastError;
   for (let attempt = 1; attempt <= maxUploadAttempts; attempt += 1) {
     try {
-      await putObjectOnce(key, body, headers);
-      return;
+      return await requestObjectOnce(method, key, body, headers, query);
     } catch (error) {
       lastError = error;
       if (attempt < maxUploadAttempts) {
-        console.warn(`COS runtime upload attempt ${attempt} failed; retrying ${key}`);
+        console.warn(`COS runtime ${method} attempt ${attempt} failed; retrying ${key}`);
       }
     }
   }
   throw lastError;
 }
 
-function putObjectOnce(key, body, headers) {
-  const signed = authorize("PUT", key, headers);
+function requestObjectOnce(method, key, body, headers, query = {}) {
+  const signed = authorize(method, key, headers, query);
   return new Promise((resolve, reject) => {
     const request = https.request({
-      method: "PUT",
+      method,
       hostname: signed.host,
       path: signed.path,
       headers: {
@@ -81,13 +123,13 @@ function putObjectOnce(key, body, headers) {
       const responseChunks = [];
       response.on("data", (chunk) => responseChunks.push(chunk));
       response.on("end", () => {
+        const responseBody = Buffer.concat(responseChunks).toString("utf8");
         if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
-          resolve();
+          resolve({ statusCode: response.statusCode, headers: response.headers, body: responseBody });
           return;
         }
         const requestId = response.headers["x-cos-request-id"] || "unavailable";
-        const responseBody = Buffer.concat(responseChunks).toString("utf8").slice(0, 500);
-        reject(new Error(`COS runtime upload failed with HTTP ${response.statusCode || 0}, request ID ${requestId}: ${responseBody}`));
+        reject(new Error(`COS runtime ${method} failed with HTTP ${response.statusCode || 0}, request ID ${requestId}: ${responseBody.slice(0, 500)}`));
       });
     });
     request.setTimeout(uploadTimeoutMs, () => {
@@ -98,7 +140,7 @@ function putObjectOnce(key, body, headers) {
   });
 }
 
-function authorize(method, key, extraHeaders) {
+function authorize(method, key, extraHeaders, query = {}) {
   const start = Math.floor(Date.now() / 1000) - 30;
   const keyTime = `${start};${start + 900}`;
   const host = `${bucket}.cos.${region}.myqcloud.com`;
@@ -108,15 +150,33 @@ function authorize(method, key, extraHeaders) {
     .map((name) => `${encodeURIComponent(name)}=${encodeURIComponent(String(headers[name]).trim())}`)
     .join("&");
   const requestPath = `/${key.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
-  const httpString = `${method.toLowerCase()}\n${requestPath}\n\n${canonicalHeaders}\n`;
+  const queryEntries = Object.entries(query)
+    .map(([name, value]) => ({ name, canonicalName: name.toLowerCase(), value: String(value) }))
+    .sort((left, right) => left.canonicalName.localeCompare(right.canonicalName));
+  const canonicalQuery = queryEntries
+    .map(({ canonicalName, value }) => `${encodeURIComponent(canonicalName)}=${encodeURIComponent(value)}`)
+    .join("&");
+  const requestQuery = queryEntries
+    .map(({ name, value }) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+    .join("&");
+  const queryNames = queryEntries.map(({ canonicalName }) => canonicalName).join(";");
+  const httpString = `${method.toLowerCase()}\n${requestPath}\n${canonicalQuery}\n${canonicalHeaders}\n`;
   const stringToSign = `sha1\n${keyTime}\n${sha1(httpString)}\n`;
   const signKey = hmacSha1(secretKey, keyTime);
   const signature = hmacSha1(signKey, stringToSign);
   return {
     host,
-    path: requestPath,
-    authorization: `q-sign-algorithm=sha1&q-ak=${secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=${headerNames.join(";")}&q-url-param-list=&q-signature=${signature}`
+    path: requestQuery ? `${requestPath}?${requestQuery}` : requestPath,
+    authorization: `q-sign-algorithm=sha1&q-ak=${secretId}&q-sign-time=${keyTime}&q-key-time=${keyTime}&q-header-list=${headerNames.join(";")}&q-url-param-list=${queryNames}&q-signature=${signature}`
   };
+}
+
+function extractXmlTag(xml, tagName) {
+  return xml.match(new RegExp(`<${tagName}>([^<]+)</${tagName}>`))?.[1] || "";
+}
+
+function escapeXml(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function sha1(value) {

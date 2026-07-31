@@ -44,6 +44,11 @@ describe("browser video transcode", () => {
     expect(deployScript).toContain('"content-length": String(body.byteLength)');
     expect(deployScript).toContain("request.setTimeout(uploadTimeoutMs");
     expect(deployScript).toContain("maxUploadAttempts = 2");
+    expect(deployScript).toContain("putMultipartObject");
+    expect(deployScript).toContain("multipartPartSize = 4 * 1024 * 1024");
+    expect(deployScript).toContain("CompleteMultipartUpload");
+    expect(deployScript).toContain("partNumber: String(partNumber)");
+    expect(deployScript).toContain('requestObjectOnce("DELETE"');
     expect(deployScript).not.toContain("await fetch(");
     expect(workflow).toContain("node scripts/deploy-cos-runtime.mjs");
   });
