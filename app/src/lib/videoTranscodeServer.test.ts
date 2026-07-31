@@ -32,6 +32,11 @@ describe("browser video transcode pipeline", () => {
     expect(mediaAdmin).toContain('|| !videoCodec || videoCodec === "browser-incompatible"');
   });
 
+  it("reports browser preparation failures instead of dropping rejected promises", () => {
+    expect(mediaAdmin).toContain('source: "browser-video-replacement"');
+    expect(mediaAdmin.indexOf("try {", mediaAdmin.indexOf("const replace = async"))).toBeLessThan(mediaAdmin.indexOf("prepareBrowserVideo(file", mediaAdmin.indexOf("const replace = async")));
+  });
+
   it("keeps published replacement atomic and caches video and poster objects", () => {
     expect(edgeFunction).toContain("pendingPosterPath");
     expect(edgeFunction).toContain("posterStoragePath");

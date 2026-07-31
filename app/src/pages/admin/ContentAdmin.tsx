@@ -811,21 +811,21 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
     if (row.pending_storage_bucket && row.pending_storage_path) void removeStoredObjects({ provider: String(row.pending_storage_provider || "tencent_cos"), bucket: String(row.pending_storage_bucket), paths: [String(row.pending_storage_path)], contentId });
   };
   const replace = async (row: MediaRow, file: File) => {
-    const type = validateUpload(file);
-    if (row.kind === "video" && !type.video) return notify("请选择视频文件进行替换。", true);
-    if (row.kind === "image" && !type.image) return notify("请选择图片文件进行替换。", true);
-    const preparedVideo = type.video ? await prepareBrowserVideo(file, (value) => {
-      setUploadStage(`${browserVideoStageText(value)}“${String(row.title || file.name)}”`);
-      setProgress(Math.round(value.percent * 0.6));
-    }) : null;
-    const prepared = type.image ? await imageToWebp(file) : preparedVideo?.video || file;
-    const path = cosStorageEnabled
-      ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
-      : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-    setUploadStage(`正在验证并替换“${String(row.title || file.name)}”`);
     let stored: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
     let storedPoster: Awaited<ReturnType<typeof uploadManagedFile>> | null = null;
     try {
+      const type = validateUpload(file);
+      if (row.kind === "video" && !type.video) throw new Error("请选择视频文件进行替换。");
+      if (row.kind === "image" && !type.image) throw new Error("请选择图片文件进行替换。");
+      const preparedVideo = type.video ? await prepareBrowserVideo(file, (value) => {
+        setUploadStage(`${browserVideoStageText(value)}“${String(row.title || file.name)}”`);
+        setProgress(Math.round(value.percent * 0.6));
+      }) : null;
+      const prepared = type.image ? await imageToWebp(file) : preparedVideo?.video || file;
+      const path = cosStorageEnabled
+        ? `drafts/${contentId}/media/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`
+        : `${profile.id}/${contentId}/${randomId()}-${prepared.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+      setUploadStage(`正在验证并替换“${String(row.title || file.name)}”`);
       stored = await uploadManagedFile({ file: prepared, path, purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(preparedVideo ? 60 + Math.round(value.percent * 0.3) : value.percent) });
       if (preparedVideo) {
         storedPoster = await uploadManagedFile({ file: preparedVideo.poster, path: videoPosterPath(path), purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(90 + Math.round(value.percent * 0.1)) });
@@ -861,6 +861,7 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
     } catch (error) {
       if (stored) await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }).catch(() => undefined);
       await supabase.from("content_media").update({ pending_storage_provider: null, pending_storage_bucket: null, pending_storage_path: null, pending_mime_type: null, pending_size_bytes: null, pending_width: null, pending_height: null }).eq("id", row.id);
+      void reportRuntimeLog({ source: "browser-video-replacement", message: messageOf(error, "视频本机处理或替换失败"), error, context: { contentId, mediaId: row.id, fileSize: file.size, mimeType: file.type, provider: cosStorageEnabled ? "tencent_cos" : "supabase" } });
       notify(messageOf(error, "替换失败，旧文件仍保持可用"), true);
     } finally {
       setProgress(0);
