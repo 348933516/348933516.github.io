@@ -859,7 +859,9 @@ export function ContentMediaManager({ contentId, profile, autoPublish = false, p
       notify(preparedVideo?.converted ? "视频已在本机转换并完成原子替换，正文位置和说明保持不变。" : "替换文件已核验，正文位置和说明保持不变。请保存或发布。");
       await refresh();
     } catch (error) {
-      if (stored) await removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }).catch(() => undefined);
+      if (stored) void removeStoredObjects({ provider: stored.provider, bucket: stored.bucket, paths: [stored.path, storedPoster?.path].filter(Boolean).map(String), contentId }).catch((cleanupError) => {
+        void reportRuntimeLog({ source: "browser-video-cleanup", message: messageOf(cleanupError, "Failed to clean up a rejected video replacement"), error: cleanupError, context: { contentId, mediaId: row.id, provider: stored?.provider } });
+      });
       await supabase.from("content_media").update({ pending_storage_provider: null, pending_storage_bucket: null, pending_storage_path: null, pending_mime_type: null, pending_size_bytes: null, pending_width: null, pending_height: null }).eq("id", row.id);
       void reportRuntimeLog({ source: "browser-video-replacement", message: messageOf(error, "视频本机处理或替换失败"), error, context: { contentId, mediaId: row.id, fileSize: file.size, mimeType: file.type, provider: cosStorageEnabled ? "tencent_cos" : "supabase" } });
       notify(messageOf(error, "替换失败，旧文件仍保持可用"), true);

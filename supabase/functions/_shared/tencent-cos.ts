@@ -143,7 +143,7 @@ export async function headCosObject(bucket: string, key: string, operation = "He
   };
 }
 
-export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string, options?: { cacheControl?: string; sourceContentType?: string }) {
+export async function copyCosObject(sourceBucket: string, sourceKey: string, destinationBucket: string, destinationKey: string, options?: { cacheControl?: string; sourceContentType?: string; verifyDestination?: boolean }) {
   const sourceContentType = options?.sourceContentType || (await headCosObject(sourceBucket, sourceKey, "HeadSourceObject")).contentType;
   const copySource = `/${sourceBucket}/${encodeKey(sourceKey)}`;
   const metadataHeaders = options?.cacheControl
@@ -156,6 +156,9 @@ export async function copyCosObject(sourceBucket: string, sourceKey: string, des
     operation: "CopyObject",
     headers: { "x-cos-copy-source": copySource, ...metadataHeaders }
   });
+  if (options?.verifyDestination === false) {
+    return { etag: "", sizeBytes: 0, contentType: sourceContentType };
+  }
   return headCosObject(destinationBucket, destinationKey);
 }
 

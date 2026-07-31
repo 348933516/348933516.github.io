@@ -1,5 +1,5 @@
 import { corsHeaders, edgeHandler, json, requireRole } from "../_shared/auth.ts";
-import { copyCosObject, cosConfiguration, CosRequestError, deleteCosObject, headCosObject, signedCosObjectUrl } from "../_shared/tencent-cos.ts";
+import { copyCosObject, cosConfiguration, CosRequestError, deleteCosObject, signedCosObjectUrl } from "../_shared/tencent-cos.ts";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -57,14 +57,12 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
     try {
     const configuration = cosConfiguration();
     if (media.pending_storage_provider !== "tencent_cos" || media.pending_storage_bucket !== configuration.privateBucket || !media.pending_storage_path) return json({ error: "No verified replacement is pending" }, 409);
-    stage = "verify-video";
-    const pending = await headCosObject(media.pending_storage_bucket, media.pending_storage_path);
-    if (pending.sizeBytes <= 0 || pending.sizeBytes !== Number(media.pending_size_bytes || 0)) return json({ error: "Replacement object verification failed" }, 422);
+    if (!String(media.pending_storage_path).startsWith(`drafts/${contentId}/`)) return json({ error: "Invalid replacement object path" }, 400);
+    const pendingSizeBytes = Number(media.pending_size_bytes || 0);
+    const pendingContentType = String(media.pending_mime_type || "");
+    if (pendingSizeBytes <= 0 || (media.kind === "video" && !pendingContentType.startsWith("video/"))) return json({ error: "Replacement object metadata is invalid" }, 422);
     const pendingPosterPath = String(body.posterPath || "");
     if (pendingPosterPath && (!pendingPosterPath.startsWith(`drafts/${contentId}/`) || pendingPosterPath === media.pending_storage_path)) return json({ error: "Invalid replacement poster path" }, 400);
-    stage = "verify-poster";
-    const pendingPoster = pendingPosterPath ? await headCosObject(configuration.privateBucket, pendingPosterPath) : null;
-    if (pendingPoster && (pendingPoster.sizeBytes <= 0 || !pendingPoster.contentType.startsWith("image/"))) return json({ error: "Replacement poster verification failed" }, 422);
     const published = content.status === "published";
     const destinationBucket = published ? configuration.publicBucket : media.pending_storage_bucket;
     const destinationPath = published
@@ -81,14 +79,16 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
         stage = "copy-video";
         await copyCosObject(media.pending_storage_bucket, media.pending_storage_path, destinationBucket, destinationPath, {
           cacheControl: media.kind === "video" ? "public, max-age=2592000, immutable" : "public, max-age=31536000, immutable",
-          sourceContentType: pending.contentType
+          sourceContentType: pendingContentType,
+          verifyDestination: false
         });
         copiedPaths.push(destinationPath);
         if (pendingPosterPath && destinationPosterPath) {
           stage = "copy-poster";
           await copyCosObject(configuration.privateBucket, pendingPosterPath, destinationBucket, destinationPosterPath, {
             cacheControl: "public, max-age=31536000, immutable",
-            sourceContentType: pendingPoster?.contentType || "image/webp"
+            sourceContentType: "image/webp",
+            verifyDestination: false
           });
           copiedPaths.push(destinationPosterPath);
         }
@@ -119,8 +119,8 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
       original_storage_path: null,
       display_storage_path: null,
       image_variants: [],
-      mime_type: media.pending_mime_type || pending.contentType,
-      size_bytes: pending.sizeBytes,
+      mime_type: pendingContentType,
+      size_bytes: pendingSizeBytes,
       width: media.pending_width || media.width,
       height: media.pending_height || media.height,
       processing_status: "ready",
@@ -156,7 +156,7 @@ async function handleAdmin(request: Request, body: Record<string, unknown>) {
         ? posterUrl
         : await signedCosObjectUrl(destinationBucket, destinationPosterPath)
       : null;
-    return json({ ok: true, previewUrl, posterUrl: posterPreviewUrl, storageBucket: destinationBucket, storagePath: destinationPath, posterStoragePath: destinationPosterPath, mimeType: media.pending_mime_type || pending.contentType, sizeBytes: pending.sizeBytes });
+    return json({ ok: true, previewUrl, posterUrl: posterPreviewUrl, storageBucket: destinationBucket, storagePath: destinationPath, posterStoragePath: destinationPosterPath, mimeType: pendingContentType, sizeBytes: pendingSizeBytes });
     } catch (error) {
       return replacementFailure(stage, error);
     }

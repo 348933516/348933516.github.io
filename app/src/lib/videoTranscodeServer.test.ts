@@ -50,7 +50,6 @@ describe("browser video transcode pipeline", () => {
 
   it("returns safe stage-specific COS diagnostics for replacement failures", () => {
     expect(edgeFunction).toContain("replacementFailure(stage, error)");
-    expect(edgeFunction).toContain('stage = "verify-video"');
     expect(edgeFunction).toContain('stage = "copy-video"');
     expect(edgeFunction).toContain('stage = "copy-poster"');
     expect(edgeFunction).toContain('code: "VIDEO_REPLACEMENT_COS_FAILED"');
@@ -62,8 +61,20 @@ describe("browser video transcode pipeline", () => {
     expect(cosStorage).toContain('input.method === "HEAD" ? 20_000');
     expect(cosStorage).toContain("const attempts = 3");
     expect(cosStorage).toContain("sourceContentType?: string");
-    expect(edgeFunction).toContain("sourceContentType: pending.contentType");
-    expect(edgeFunction).toContain('sourceContentType: pendingPoster?.contentType || "image/webp"');
+    expect(cosStorage).toContain("verifyDestination?: boolean");
+    expect(edgeFunction).toContain("sourceContentType: pendingContentType");
+    expect(edgeFunction).toContain("verifyDestination: false");
+    expect(edgeFunction).not.toContain("headCosObject(media.pending_storage_bucket");
+  });
+
+  it("does not block the administrator while failed private objects are cleaned up", () => {
+    const replacementBlock = mediaAdmin.slice(
+      mediaAdmin.indexOf("const replace = async"),
+      mediaAdmin.indexOf("const insertIntoBody")
+    );
+    expect(replacementBlock).toContain("if (stored) void removeStoredObjects");
+    expect(replacementBlock).toContain('source: "browser-video-cleanup"');
+    expect(replacementBlock).not.toContain("if (stored) await removeStoredObjects");
   });
 
   it("refreshes inline players after atomic replacement without marking the body dirty", () => {
