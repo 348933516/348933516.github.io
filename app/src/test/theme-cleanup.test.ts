@@ -42,6 +42,16 @@ describe("bundled theme cleanup", () => {
     expect(adminCss).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
+  it("keeps media controls inside narrow cards and exposes a compact cover picker", () => {
+    const adminCss = fs.readFileSync(path.resolve(sourceRoot, "styles/admin.css"), "utf8");
+    expect(adminCss).toContain(".content-cover-control { min-width: 0;");
+    expect(adminCss).toContain(".media-video-list { min-width: 0;");
+    expect(adminCss).toContain("container-type: inline-size;");
+    expect(adminCss).toContain("@container (max-width: 760px)");
+    expect(adminCss).toContain(".media-card-action-primary, .media-card-action-utility { display: flex;");
+    expect(adminCss).toContain("flex-wrap: wrap;");
+  });
+
   it("shows complete carousel artwork in a stable widescreen frame", () => {
     const css = fs.readFileSync(path.resolve(sourceRoot, "styles.css"), "utf8");
     expect(css).toMatch(/\.hero-carousel-frame \{[^}]*aspect-ratio: 16 \/ 9;/);
