@@ -83,6 +83,7 @@ export interface ContentMedia {
   storageProvider?: "supabase" | "tencent_cos";
   storageBucket?: string;
   storagePath?: string;
+  mediaRole?: "content" | "cover";
 }
 
 export interface Attachment {
@@ -132,6 +133,8 @@ export interface ContentItem {
   pendingMediaCount?: number;
   outlineEnabled?: boolean;
   outlineSettings?: OutlineSettings;
+  coverUrl?: string;
+  coverMediaId?: string;
 }
 
 export interface PublicData {
@@ -172,4 +175,5 @@ export interface ContentDraft {
   tags: string[];
   outlineEnabled?: boolean;
   outlineSettings?: OutlineSettings;
+  coverMediaId?: string;
 }
