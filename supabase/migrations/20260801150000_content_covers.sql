@@ -277,7 +277,8 @@ $$;
 revoke all on function public.get_public_home() from public;
 grant execute on function public.get_public_home() to anon, authenticated;
 
-create or replace view public.admin_content_list
+drop view if exists public.admin_content_list;
+create view public.admin_content_list
 with (security_invoker = true) as
 select content.id, content.slug, content.category_id, category.slug as category_slug, category.name as category_name,
   content.title, content.summary, content.status, content.is_featured, content.sort_order, content.version, content.created_by,

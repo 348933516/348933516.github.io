@@ -242,6 +242,7 @@ describe("Supabase security migration", () => {
     expect(contentCovers).toContain("published_cover_media_id = published_content.cover_media_id");
     expect(contentCovers).toContain("coalesce(media.media_role, 'content') = 'content'");
     expect(contentCovers).toContain("cleanup_unreferenced_cover_media");
+    expect(contentCovers).toContain("drop view if exists public.admin_content_list");
     expect(saveContentFunction).toContain('.eq("content_id", existing.id).eq("kind", "image")');
     expect(publishContentFunction).toContain("cover_original_storage_path");
   });
