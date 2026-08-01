@@ -15,6 +15,8 @@ type StoredItem = {
   original_mime_type?: string | null;
   kind?: string | null;
   processing_status?: string | null;
+  media_role?: string | null;
+  cover_original_storage_path?: string | null;
 };
 
 type ObjectCopy = {
@@ -88,7 +90,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     return json(functionError("VERSION_CONFLICT", "Content was changed by another administrator", "validate-version"), 409);
   }
 
-  const mediaResult = await client.from("content_media").select("id, kind, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants, mime_type, original_mime_type, processing_status").eq("content_id", contentId);
+  const mediaResult = await client.from("content_media").select("id, kind, media_role, storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, cover_original_storage_path, image_variants, mime_type, original_mime_type, processing_status").eq("content_id", contentId);
   if (mediaResult.error) {
     return json(functionError("PUBLICATION_MEDIA_QUERY_FAILED", "Unable to read media awaiting publication", "load-media"), 500);
   }
