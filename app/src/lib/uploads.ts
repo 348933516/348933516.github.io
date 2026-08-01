@@ -128,6 +128,42 @@ export async function imageToWebpVariant(file: File, maxSide = 1600, quality = 0
   }
 }
 
+export function squareCropGeometry(width: number, height: number, targetSize: number) {
+  const side = Math.max(1, Math.min(width, height));
+  return {
+    sourceX: Math.max(0, Math.round((width - side) / 2)),
+    sourceY: Math.max(0, Math.round((height - side) / 2)),
+    sourceSize: side,
+    outputSize: Math.max(1, Math.min(Math.round(targetSize), side))
+  };
+}
+
+export async function imageToSquareWebpVariants(file: File, sizes = [480, 960], quality = 0.92) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") throw new Error("封面必须是静态图片");
+  const bitmap = await createImageBitmap(file);
+  try {
+    const uniqueSizes = [...new Set(sizes.map((size) => Math.max(1, Math.round(size))))].sort((a, b) => a - b);
+    return await Promise.all(uniqueSizes.map(async (targetSize) => {
+      const crop = squareCropGeometry(bitmap.width, bitmap.height, targetSize);
+      const canvas = document.createElement("canvas");
+      canvas.width = crop.outputSize;
+      canvas.height = crop.outputSize;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas is unavailable");
+      context.drawImage(bitmap, crop.sourceX, crop.sourceY, crop.sourceSize, crop.sourceSize, 0, 0, crop.outputSize, crop.outputSize);
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("封面转换失败")), "image/webp", quality));
+      return {
+        file: new File([blob], file.name.replace(/\.[^.]+$/, `-${targetSize}.webp`), { type: "image/webp" }),
+        width: crop.outputSize,
+        height: crop.outputSize,
+        targetSize
+      };
+    }));
+  } finally {
+    bitmap.close();
+  }
+}
+
 export async function uploadWithProgress(file: File, path: string, onProgress: (progress: UploadProgress) => void, signal?: AbortSignal, bucket = privateMediaBucket, upsert = false) {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;

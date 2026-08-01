@@ -2,7 +2,7 @@ import { edgeHandler, json, requireRole } from "../_shared/auth.ts";
 import { deleteCosObject } from "../_shared/tencent-cos.ts";
 
 type DeleteItem = { id: string; version: number };
-type StoredRow = { storage_provider?: string | null; storage_bucket: string | null; storage_path: string | null; original_storage_path?: string | null; display_storage_path?: string | null; poster_storage_path?: string | null; image_variants?: Array<{ path?: string }> | null };
+type StoredRow = { storage_provider?: string | null; storage_bucket: string | null; storage_path: string | null; original_storage_path?: string | null; display_storage_path?: string | null; poster_storage_path?: string | null; cover_original_storage_path?: string | null; image_variants?: Array<{ path?: string }> | null };
 
 function normalizeItems(value: unknown): DeleteItem[] {
   if (!Array.isArray(value)) return [];
@@ -42,7 +42,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     }
 
     const [mediaResult, attachmentResult] = await Promise.all([
-      client.from("content_media").select("storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, image_variants").eq("content_id", item.id),
+      client.from("content_media").select("storage_provider, storage_bucket, storage_path, original_storage_path, display_storage_path, poster_storage_path, cover_original_storage_path, image_variants").eq("content_id", item.id),
       client.from("attachments").select("storage_provider, storage_bucket, storage_path").eq("content_id", item.id)
     ]);
     if (mediaResult.error || attachmentResult.error) {
@@ -59,6 +59,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
       const current = storageByBucket.get(key) || { provider, bucket: row.storage_bucket, paths: [] };
       current.paths.push(...paths);
       storageByBucket.set(key, current);
+      if (row.cover_original_storage_path) {
+        const privateBucket = provider === "tencent_cos" ? "maplestorynk-private-1331200863" : "maplestorynk-private";
+        const privateKey = `${provider}:${privateBucket}`;
+        const privateObjects = storageByBucket.get(privateKey) || { provider, bucket: privateBucket, paths: [] };
+        privateObjects.paths.push(row.cover_original_storage_path);
+        storageByBucket.set(privateKey, privateObjects);
+      }
     }
 
     const { error: deleteError } = await client.from("contents").delete().eq("id", item.id).eq("version", item.version);

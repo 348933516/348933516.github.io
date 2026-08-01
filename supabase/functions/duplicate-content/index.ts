@@ -9,6 +9,7 @@ type StoredRow = {
   external_url: string | null;
   original_storage_path?: string | null;
   display_storage_path?: string | null;
+  cover_original_storage_path?: string | null;
   image_variants?: Array<Record<string, unknown>> | null;
   source_import_id?: string | null;
   [key: string]: unknown;
@@ -57,6 +58,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
   if (duplicateError || !duplicate) return json({ error: duplicateError?.message ?? "Unable to create duplicate" }, 400);
 
   const uploadedPaths: Array<{ provider: string; bucket: string; path: string }> = [];
+  const mediaIdMap = new Map<string, string>();
   let duplicatedBodyHtml = String(source.body_html || "");
   try {
     const [mediaResult, attachmentResult, tagResult] = await Promise.all([
@@ -70,7 +72,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     const copyStoredRows = async (table: "content_media" | "attachments", rows: StoredRow[]) => {
       const records: Record<string, unknown>[] = [];
-      const copyPath = async (row: StoredRow, path: string, publishImmediately: boolean) => {
+      const copyPath = async (row: StoredRow, path: string, publishImmediately: boolean, sourceBucket = row.storage_bucket as string) => {
         const filename = path.split("/").pop()?.replace(/[^a-zA-Z0-9._-]/g, "-") || "file";
         const provider = row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase";
         const configuration = provider === "tencent_cos" ? cosConfiguration() : null;
@@ -83,9 +85,9 @@ Deno.serve((request) => edgeHandler(request, async () => {
             : `drafts/${duplicate.id}/copies/${crypto.randomUUID()}-${filename}`
           : `${user.id}/${duplicate.id}/${publishImmediately ? "embedded" : "copies"}/${crypto.randomUUID()}-${filename}`;
         if (provider === "tencent_cos") {
-          await copyCosObject(row.storage_bucket as string, path, destinationBucket, destination);
+          await copyCosObject(sourceBucket, path, destinationBucket, destination);
         } else {
-          const { data: file, error } = await client.storage.from(row.storage_bucket as string).download(path);
+          const { data: file, error } = await client.storage.from(sourceBucket).download(path);
           if (error || !file) throw new Error(error?.message ?? "Unable to copy stored file");
           const { error: uploadError } = await client.storage.from(destinationBucket).upload(destination, file, { contentType: file.type || "application/octet-stream", upsert: false });
           if (uploadError) throw new Error(uploadError.message);
@@ -95,6 +97,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
       };
       for (const row of rows) {
         const newId = crypto.randomUUID();
+        if (table === "content_media") mediaIdMap.set(row.id, newId);
         const embedded = table === "content_media" && (Boolean(row.source_import_id) || duplicatedBodyHtml.includes(row.id));
         const copiedPaths = new Map<string, { path: string; bucket: string }>();
         const copyOnce = async (path?: string | null) => {
@@ -113,6 +116,12 @@ Deno.serve((request) => edgeHandler(request, async () => {
         if (table === "content_media" && row.storage_bucket) {
           copied.original_storage_path = (await copyOnce(row.original_storage_path))?.path || null;
           copied.display_storage_path = (await copyOnce(row.display_storage_path))?.path || null;
+          if (row.cover_original_storage_path) {
+            const privateSourceBucket = row.storage_provider === "tencent_cos"
+              ? cosConfiguration().privateBucket
+              : "maplestorynk-private";
+            copied.cover_original_storage_path = (await copyPath(row, row.cover_original_storage_path, false, privateSourceBucket)).path;
+          }
           copied.image_variants = [];
           for (const variant of Array.isArray(row.image_variants) ? row.image_variants : []) {
             const variantPath = String(variant.path || "");
@@ -132,8 +141,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
 
     await copyStoredRows("content_media", mediaResult.data ?? []);
     await copyStoredRows("attachments", attachmentResult.data ?? []);
-    if (duplicatedBodyHtml !== duplicate.body_html) {
-      const { error } = await client.from("contents").update({ body_html: duplicatedBodyHtml, updated_by: user.id }).eq("id", duplicate.id);
+    const duplicateCoverId = source.cover_media_id ? mediaIdMap.get(String(source.cover_media_id)) || null : null;
+    if (duplicatedBodyHtml !== duplicate.body_html || duplicateCoverId) {
+      const { error } = await client.from("contents").update({
+        body_html: duplicatedBodyHtml,
+        cover_media_id: duplicateCoverId,
+        updated_by: user.id
+      }).eq("id", duplicate.id);
       if (error) throw new Error(error.message);
     }
     if (tagResult.data?.length) {

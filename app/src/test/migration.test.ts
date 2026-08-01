@@ -28,6 +28,8 @@ const publishContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supa
 const duplicateContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/duplicate-content/index.ts"), "utf8");
 const publicMediaBoundary = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260730113000_public_media_boundary_and_cover_fallback.sql"), "utf8");
 const publicationStatusReturnType = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260731100000_fix_publication_status_return_type.sql"), "utf8");
+const contentCovers = fs.readFileSync(path.resolve(process.cwd(), "supabase/migrations/20260801150000_content_covers.sql"), "utf8");
+const deleteContentFunction = fs.readFileSync(path.resolve(process.cwd(), "supabase/functions/delete-content/index.ts"), "utf8");
 
 describe("Supabase security migration", () => {
   it("uses real role profiles and published-only public content", () => {
@@ -231,5 +233,24 @@ describe("Supabase security migration", () => {
     expect(duplicateContentFunction).toContain("duplicatedBodyHtml.replaceAll(row.id, newId)");
     expect(duplicateContentFunction).toContain("copied.image_variants");
     expect(duplicateContentFunction).toContain("publishImmediately");
+  });
+
+  it("keeps dedicated covers separate and publishes them through an atomic pointer", () => {
+    expect(contentCovers).toContain("media_role text not null default 'content'");
+    expect(contentCovers).toContain("cover_media_id uuid references public.content_media(id) on delete set null");
+    expect(contentCovers).toContain("published_cover_media_id uuid references public.content_media(id) on delete set null");
+    expect(contentCovers).toContain("published_cover_media_id = published_content.cover_media_id");
+    expect(contentCovers).toContain("coalesce(media.media_role, 'content') = 'content'");
+    expect(contentCovers).toContain("cleanup_unreferenced_cover_media");
+    expect(saveContentFunction).toContain('.eq("content_id", existing.id).eq("kind", "image")');
+    expect(publishContentFunction).toContain("cover_original_storage_path");
+  });
+
+  it("remaps copied covers and cleans private originals on permanent deletion", () => {
+    expect(duplicateContentFunction).toContain("const mediaIdMap = new Map<string, string>()");
+    expect(duplicateContentFunction).toContain("cover_media_id: duplicateCoverId");
+    expect(duplicateContentFunction).toContain("copied.cover_original_storage_path");
+    expect(deleteContentFunction).toContain("cover_original_storage_path");
+    expect(deleteContentFunction).toContain('provider === "tencent_cos" ? "maplestorynk-private-1331200863"');
   });
 });

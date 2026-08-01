@@ -29,7 +29,7 @@ import { defaultOutlineSettings } from "../../lib/outline";
 import { sanitizeHtml, slugify } from "../../lib/sanitize";
 import { supabase } from "../../lib/supabase";
 import { removeStoredObjects } from "../../lib/storage";
-import { imageDimensions, imageToWebp, imageToWebpVariant, normalizedVideoMimeType, uploadManagedFile, validateUpload } from "../../lib/uploads";
+import { imageDimensions, imageToSquareWebpVariants, imageToWebp, imageToWebpVariant, normalizedVideoMimeType, uploadManagedFile, validateUpload } from "../../lib/uploads";
 import type { Category, ContentDraft, ContentItem, ContentMedia, ContentStatus, Profile } from "../../types";
 import {
   AdminEmpty, AdminLoading, AdminPageHeader, AdminToast, canEdit, canEditItem, canPublish, formatBytes,
@@ -90,7 +90,7 @@ function CompactContentList({ items }: { items: ContentItem[] }) {
 }
 
 function ContentThumb({ item }: { item: ContentItem }) {
-  const source = item.media.find((media) => media.kind === "image")?.src;
+  const source = item.coverUrl || item.media.find((media) => media.kind === "image")?.src;
   return <span className="content-thumb">{source ? <img src={source} alt="" /> : <FileImage />}</span>;
 }
 
@@ -177,6 +177,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
   const categories = useAdminCategories();
   const [draft, setDraft] = useState<ContentDraft | null>(null); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [messageError, setMessageError] = useState(false); const [tab, setTab] = useState<"body" | "media" | "preview">("body"); const [importUrl, setImportUrl] = useState(""); const [importing, setImporting] = useState(false); const [importProgress, setImportProgress] = useState(0); const [pendingImport, setPendingImport] = useState<{ preview: ImportPreview; file?: File } | null>(null); const [selectedSheets, setSelectedSheets] = useState<string[]>([]); const [importMode, setImportMode] = useState<"append" | "replace">("append"); const [importBackup, setImportBackup] = useState<ContentDraft | null>(null); const [recovery, setRecovery] = useState<ContentDraft | null>(null); const [importStage, setImportStage] = useState<EditorImportStage>("idle"); const [importJobId, setImportJobId] = useState(""); const [importFailure, setImportFailure] = useState(""); const [registeredImages, setRegisteredImages] = useState(0); const [currentImage, setCurrentImage] = useState(0); const [importRetries, setImportRetries] = useState(0); const [importComplete, setImportComplete] = useState<{ imageCount: number; jobId: string } | null>(null); const [editorSafeMode, setEditorSafeMode] = useState(false); const loadedVersion = useRef<number | null>(null); const draftRef = useRef<ContentDraft | null>(null); const activeDocumentImport = useRef<{ id: string; assets: DocumentImportAsset[] } | null>(null); const importStageRef = useRef<EditorImportStage>("idle"); const registeredImagesRef = useRef(0); const currentImageRef = useRef(0); const importRetriesRef = useRef(0); const importProgressRenderRef = useRef(0); const editorRef = useRef<RichEditorHandle | null>(null);
   const [editorDeferred, setEditorDeferred] = useState(false);
+  const [coverPreview, setCoverPreview] = useState("");
   const embeddedMediaIds = useMemo(() => [...referencedMediaIds(draft?.bodyHtml || "")], [draft?.bodyHtml]);
   const embeddedMedia = useQuery({ queryKey: ["admin-embedded-media", id, embeddedMediaIds.join(",")], queryFn: () => loadAdminEmbeddedMedia(id, embeddedMediaIds), enabled: Boolean(id && tab !== "media" && embeddedMediaIds.length), staleTime: 30_000 });
   const changeImportStage = (stage: EditorImportStage) => { importStageRef.current = stage; setImportStage(stage); };
@@ -192,9 +193,10 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     if (!content.data || loadedVersion.current === content.data.version) return;
     const item = content.data;
     loadedVersion.current = item.version;
-    const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags, outlineEnabled: item.outlineEnabled, outlineSettings: item.outlineSettings };
+    const initial: ContentDraft = { id: item.id, slug: item.slug, categoryId: item.categoryId, title: item.title, summary: item.summary, bodyHtml: item.bodyHtml, bodyJson: item.bodyJson, bodyText: item.bodyText, sourceRecord: item.sourceRecord, status: item.status, featured: item.featured, sortOrder: item.sortOrder, version: item.version, tags: item.tags, outlineEnabled: item.outlineEnabled, outlineSettings: item.outlineSettings, coverMediaId: item.coverMediaId };
     draftRef.current = initial;
     setDraft(initial);
+    setCoverPreview(item.coverUrl || "");
     setDirty(false);
     setRecovery(null);
     setEditorDeferred((item.bodyHtml.match(/<figure\b/gi)?.length || 0) > 50);
@@ -511,7 +513,7 @@ export function ContentEditorPage({ profile }: { profile: Profile }) {
     <div className="workspace-body"><main className="workspace-main"><div hidden={tab !== "body"}><section className="import-strip"><label><FileText /><span>导入 Word / Excel / TXT / Markdown</span><input type="file" accept=".docx,.xlsx,.xls,.txt,.md,.html" disabled={importing} onChange={(event) => { const file = event.target.files?.[0]; if (file) importFile(file); event.target.value = ""; }} /></label><div><Link2 /><input value={importUrl} onChange={(event) => setImportUrl(event.target.value)} placeholder="粘贴网页链接" /><button disabled={importing} type="button" onClick={importPage}>{importing ? "读取中" : "读取"}</button></div></section>{pendingImport && <ImportConfirmation preview={pendingImport.preview} selectedSheets={selectedSheets} onSelectedSheets={setSelectedSheets} mode={importMode} onMode={setImportMode} progress={importProgress} busy={importing} stage={importStage} jobId={importJobId} failure={importFailure} registeredImages={registeredImages} currentImage={currentImage} retries={importRetries} onConfirm={confirmImport} onCancel={discardPendingImport} />}{importBackup && <div className="import-undo-banner"><span>已将导入内容放入编辑器，尚未保存到云端。</span><button type="button" onClick={() => { setDraft(importBackup); setDirty(true); setImportBackup(null); notify("已恢复导入前正文。"); }}>撤销本次导入</button><button type="button" className="icon-only" aria-label="关闭撤销提示" onClick={() => setImportBackup(null)}><X /></button></div>}{importComplete ? <section className="import-complete-summary"><Check /><h2>文档与 {importComplete.imageCount} 张原图已安全保存</h2><p>为避免一次加载全部原图，专业编辑器暂未打开。可以先阅读预览，或在需要修改时继续编辑。</p><small>导入任务：{importComplete.jobId}</small><div><button className="button primary" type="button" onClick={openPreview}><Eye />阅读预览</button><button className="button quiet" type="button" onClick={() => setImportComplete(null)}><FilePenLine />继续编辑</button></div></section> : editorDeferred ? <section className="import-complete-summary"><FileText /><h2>长文已就绪，编辑器暂未挂载</h2><p>正文包含大量媒体。可以先阅读预览，需要修改时再打开专业编辑器。</p><div><button className="button primary" type="button" onClick={openPreview}><Eye />阅读预览</button><button className="button quiet" type="button" onClick={() => setEditorDeferred(false)}><FilePenLine />继续编辑</button></div></section> : editorSafeMode ? <section className="editor-safe-mode"><h2>编辑器安全模式</h2><p>正文以只读方式显示，保存的数据没有丢失。</p><button className="button" type="button" onClick={() => setEditorSafeMode(false)}>重新打开编辑器</button><RichContent html={draft.bodyHtml} media={embeddedMedia.data || []} outlineSettings={draft.outlineSettings} /></section> : <AppErrorBoundary scope="rich-editor" resetKey={`${id}:${draft.version}:${editorSafeMode}`} onSafeMode={() => setEditorSafeMode(true)}><Suspense fallback={<AdminLoading label="正在加载专业编辑器" />}><RichEditor ref={editorRef} value={draft.bodyHtml} media={embeddedMedia.data || []} outlineSettings={draft.outlineSettings} onOutlineSettingsChange={(outlineSettings) => update({ outlineSettings })} onDirty={() => setDirty(true)} onSnapshot={saveRecoverySnapshot} onSafeMode={() => setEditorSafeMode(true)} onUploadImages={uploadInlineImages} onUploadMedia={uploadInlineMedia} /></Suspense></AppErrorBoundary>}</div>
       {tab === "media" && <ContentMediaManager contentId={id} profile={profile} autoPublish={content.data.status === "published" && canPublish(profile.role)} publishVersion={draft.version} onInsert={(media) => { setImportComplete(null); setTab("body"); window.requestAnimationFrame(() => { editorRef.current?.insertMedia(media); setDirty(true); notify(`“${media.title}”已插入正文。请保存或发布。`); }); }} onRemoveFromBody={async (mediaId) => { editorRef.current?.removeMedia(mediaId); const snapshot = editorRef.current?.serialize(); const current = draftRef.current; if (!current) throw new Error("正文尚未加载，媒体没有删除"); const nextHtml = snapshot?.html || removeMediaFigureHtml(current.bodyHtml, mediaId); const nextText = snapshot?.text || new DOMParser().parseFromString(nextHtml, "text/html").body.textContent || ""; const saved = await save({ ...current, bodyHtml: nextHtml, bodyText: nextText, bodyJson: snapshot?.json || {} }); if (!saved) throw new Error("正文位置保存失败，媒体尚未删除"); }} onReplaceInBody={(media) => editorRef.current?.replaceMedia(media)} onChanged={async () => { await content.refetch(); client.invalidateQueries({ queryKey: ["admin-embedded-media", id] }); invalidateContentLists(); }} />}
       {tab === "preview" && <DraftPreview draft={draft} item={content.data} media={embeddedMedia.data || []} />}</main>
-      <aside className="workspace-inspector"><div className="inspector-heading"><h2>资料属性</h2></div><label>标题<input value={draft.title} onChange={(event) => update({ title: event.target.value })} /></label><label>简介<textarea value={draft.summary} onChange={(event) => update({ summary: event.target.value })} placeholder="用于列表和搜索结果" /></label><label>分类<select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="inspector-grid"><label>排序<input type="number" value={draft.sortOrder} onChange={(event) => update({ sortOrder: Number(event.target.value) })} /></label><label>路径<input value={draft.slug} onChange={(event) => update({ slug: slugify(event.target.value) })} /></label></div><label>标签<input value={draft.tags.join(", ")} onChange={(event) => update({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 20) })} placeholder="BOSS图, 城镇图" /></label><label>来源记录<textarea value={draft.sourceRecord} onChange={(event) => update({ sourceRecord: event.target.value })} placeholder="仅后台可见" /></label>{canPublish(profile.role) && <><label className="checkbox"><input type="checkbox" checked={draft.outlineEnabled} onChange={(event) => update({ outlineEnabled: event.target.checked })} />公开页面显示大纲</label><label className="checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => update({ featured: event.target.checked })} />首页精选</label></>}</aside></div>
+      <aside className="workspace-inspector"><div className="inspector-heading"><h2>资料属性</h2></div><ContentCoverControl contentId={id} title={draft.title} profile={profile} coverMediaId={draft.coverMediaId} coverUrl={coverPreview} onChange={(coverMediaId, coverUrl) => { setCoverPreview(coverUrl || ""); update({ coverMediaId }); }} onMessage={notify} /><label>标题<input value={draft.title} onChange={(event) => update({ title: event.target.value })} /></label><label>简介<textarea value={draft.summary} onChange={(event) => update({ summary: event.target.value })} placeholder="用于列表和搜索结果" /></label><label>分类<select value={draft.categoryId} onChange={(event) => update({ categoryId: event.target.value })}>{categories.data?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="inspector-grid"><label>排序<input type="number" value={draft.sortOrder} onChange={(event) => update({ sortOrder: Number(event.target.value) })} /></label><label>路径<input value={draft.slug} onChange={(event) => update({ slug: slugify(event.target.value) })} /></label></div><label>标签<input value={draft.tags.join(", ")} onChange={(event) => update({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 20) })} placeholder="BOSS图, 城镇图" /></label><label>来源记录<textarea value={draft.sourceRecord} onChange={(event) => update({ sourceRecord: event.target.value })} placeholder="仅后台可见" /></label>{canPublish(profile.role) && <><label className="checkbox"><input type="checkbox" checked={draft.outlineEnabled} onChange={(event) => update({ outlineEnabled: event.target.checked })} />公开页面显示大纲</label><label className="checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => update({ featured: event.target.checked })} />首页精选</label></>}</aside></div>
   </div>;
 }
 
@@ -542,6 +544,87 @@ type MediaRow = Record<string, unknown> & { id: string; storage_bucket: string |
 type MediaFilter = "gallery" | "document" | "video" | "attachments";
 const mediaPageSize = 30;
 
+async function resolveAdminMediaPreview(row: MediaRow, contentId: string) {
+  if (row.external_url) return String(row.external_url);
+  if (!row.storage_path || !row.storage_bucket) return "";
+  if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPublicBucket) return publicAssetUrl(row.storage_path, "tencent_cos");
+  if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket) {
+    const signed = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: cosPrivateBucket, path: row.storage_path, contentId }, "signed-url");
+    return String(signed.url || "");
+  }
+  if (row.storage_bucket === publicMediaBucket) return publicAssetUrl(row.storage_path);
+  if (row.storage_bucket === privateMediaBucket) {
+    const signed = await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600);
+    if (signed.error) throw signed.error;
+    return signed.data.signedUrl;
+  }
+  return "";
+}
+
+async function loadCoverImageRecords(contentId: string, page: number): Promise<{ items: MediaRow[]; total: number }> {
+  const from = (page - 1) * mediaPageSize;
+  const result = await supabase.from("content_media").select("*", { count: "exact" })
+    .eq("content_id", contentId).eq("kind", "image").eq("media_role", "content")
+    .order("sort_order").range(from, from + mediaPageSize - 1);
+  if (result.error) throw result.error;
+  const items = await Promise.all((result.data || []).map(async (row) => ({ ...row, previewUrl: await resolveAdminMediaPreview(row as MediaRow, contentId) } as MediaRow)));
+  return { items, total: result.count || 0 };
+}
+
+function ContentCoverControl({ contentId, title, profile, coverMediaId, coverUrl, onChange, onMessage }: { contentId: string; title: string; profile: Profile; coverMediaId?: string; coverUrl?: string; onChange(mediaId?: string, url?: string): void; onMessage(value: string, error?: boolean): void }) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const localPreviewRef = useRef("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const images = useQuery({ queryKey: ["content-cover-images", contentId, page], queryFn: () => loadCoverImageRecords(contentId, page), enabled: open, staleTime: 30_000 });
+  useEffect(() => () => { if (localPreviewRef.current) URL.revokeObjectURL(localPreviewRef.current); }, []);
+  const select = (row: MediaRow) => {
+    if (localPreviewRef.current) { URL.revokeObjectURL(localPreviewRef.current); localPreviewRef.current = ""; }
+    onChange(row.id, String(row.previewUrl || ""));
+    setOpen(false);
+  };
+  const upload = async (file: File) => {
+    const stored: Array<Awaited<ReturnType<typeof uploadManagedFile>>> = [];
+    setUploading(true); setProgress(1);
+    try {
+      if (!validateUpload(file).image || file.type === "image/gif") throw new Error("请选择 JPG、PNG 或 WebP 静态图片");
+      const variants = await imageToSquareWebpVariants(file, [480, 960], 0.92);
+      const largest = variants[variants.length - 1];
+      const root = `drafts/${contentId}/covers/${randomId()}`;
+      const originalName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const original = await uploadManagedFile({ file, path: `${root}/original-${originalName}`, purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(Math.max(2, Math.round(value.percent * 0.2))) });
+      stored.push(original);
+      const uploadedVariants = [] as Array<{ targetSize: number; width: number; height: number; file: File; stored: Awaited<ReturnType<typeof uploadManagedFile>> }>;
+      for (const [index, variant] of variants.entries()) {
+        const uploaded = await uploadManagedFile({ file: variant.file, path: `${root}/cover-${variant.targetSize}.webp`, purpose: "content-media", contentId, visibility: "private", onProgress: (value) => setProgress(20 + Math.round(((index + value.percent / 100) / variants.length) * 75)) });
+        stored.push(uploaded); uploadedVariants.push({ ...variant, stored: uploaded });
+      }
+      const main = uploadedVariants[uploadedVariants.length - 1];
+      const result = await supabase.from("content_media").insert({
+        content_id: contentId, kind: "image", media_role: "cover", title: `${title || "资料"}封面`, alt_text: `${title || "资料"}封面`,
+        storage_provider: main.stored.provider, storage_bucket: main.stored.bucket, storage_path: main.stored.path,
+        cover_original_storage_path: original.path, original_mime_type: file.type || "application/octet-stream", original_size_bytes: file.size,
+        mime_type: "image/webp", size_bytes: main.file.size, width: main.width, height: main.height, sort_order: 0,
+        placement_status: "unplaced", processing_status: "ready", created_by: profile.id,
+        image_variants: uploadedVariants.map((variant) => ({ key: `${variant.targetSize}w`, path: variant.stored.path, width: variant.width, height: variant.height, mimeType: "image/webp", sizeBytes: variant.file.size }))
+      }).select("id").single();
+      if (result.error || !result.data) throw result.error || new Error("封面登记失败");
+      if (localPreviewRef.current) URL.revokeObjectURL(localPreviewRef.current);
+      localPreviewRef.current = URL.createObjectURL(largest.file);
+      onChange(result.data.id, localPreviewRef.current);
+      setOpen(false); setProgress(100); onMessage("新封面已准备好，请保存或发布资料。");
+    } catch (error) {
+      if (stored.length) await removeStoredObjects({ provider: stored[0].provider, bucket: stored[0].bucket, paths: stored.map((item) => item.path), contentId }).catch(() => undefined);
+      onMessage(messageOf(error, "封面上传失败"), true);
+    } finally { setUploading(false); setProgress(0); }
+  };
+  const total = images.data?.total || 0;
+  const pages = Math.max(1, Math.ceil(total / mediaPageSize));
+  return <section className="content-cover-control"><div className="content-cover-heading"><span>资料封面</span><small>首页、分类与相关资料卡片</small></div><div className="content-cover-preview">{coverUrl ? <img src={coverUrl} alt={`${title || "资料"}封面`} /> : <span><FileImage /><b>自动使用正文首图</b></span>}</div>{progress > 0 && <div className="content-cover-progress"><span style={{ width: `${progress}%` }} /></div>}<div className="content-cover-actions"><input ref={inputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} /><button type="button" disabled={uploading} onClick={() => inputRef.current?.click()}><Upload />{uploading ? "处理中" : "上传封面"}</button><button type="button" disabled={uploading} onClick={() => setOpen((value) => !value)}><ImagePlus />从资料选择</button>{coverMediaId && <button className="danger" type="button" disabled={uploading} title="移除指定封面" onClick={() => { onChange(undefined, undefined); setOpen(false); }}><Trash2 /></button>}</div>{open && <div className="content-cover-picker"><div className="content-cover-picker-head"><strong>选择资料图片</strong><button className="icon-only" type="button" title="关闭" onClick={() => setOpen(false)}><X /></button></div>{images.isLoading ? <AdminLoading label="正在读取图片" /> : images.error ? <div className="form-message">{messageOf(images.error, "图片读取失败")}</div> : <div className="content-cover-grid">{images.data?.items.map((row) => <button type="button" className={row.id === coverMediaId ? "active" : ""} key={row.id} title={String(row.title || "选择此图片")} onClick={() => select(row)}>{row.previewUrl ? <img src={row.previewUrl} alt={String(row.alt_text || row.title || "资料图片")} loading="lazy" /> : <FileImage />}<span>{String(row.title || "未命名图片")}</span></button>)}{!images.data?.items.length && <AdminEmpty title="没有可选图片" detail="可先上传一张独立封面。" />}</div>}{pages > 1 && <div className="content-cover-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></button><span>{page} / {pages}</span><button type="button" disabled={page >= pages} onClick={() => setPage((value) => value + 1)}><ChevronRight /></button></div>}</div>}</section>;
+}
+
 function mediaProvider(row: MediaRow) {
   if (row.storage_provider === "tencent_cos") return { key: "cos", label: "腾讯 COS" };
   if (row.video_provider === "tencent_vod") return { key: "external", label: "腾讯 VOD" };
@@ -570,26 +653,15 @@ async function loadMediaRecords(contentId: string, page: number, filter: MediaFi
     if (result.error) throw result.error;
     return { items: (result.data || []) as MediaRow[], total: result.count || 0 };
   }
-  let request = supabase.from("content_media").select("*", { count: "exact" }).eq("content_id", contentId);
+  let request = supabase.from("content_media").select("*", { count: "exact" }).eq("content_id", contentId).eq("media_role", "content");
   if (filter === "document") request = request.eq("kind", "image").not("source_import_id", "is", null);
   if (filter === "gallery") request = request.eq("kind", "image").is("source_import_id", null);
   if (filter === "video") request = request.eq("kind", "video");
   const media = await request.order("sort_order").range(from, from + mediaPageSize - 1);
   if (media.error) throw media.error;
   const withUrls = await Promise.all((media.data || []).map(async (row) => {
-    let previewUrl = row.external_url || "";
+    let previewUrl = await resolveAdminMediaPreview(row as MediaRow, contentId);
     let posterPreviewUrl = row.poster_url || "";
-    if (row.storage_bucket === publicMediaBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path);
-    if (row.storage_bucket === privateMediaBucket && row.storage_path) {
-      const signed = await supabase.storage.from(privateMediaBucket).createSignedUrl(row.storage_path, 3600);
-      if (signed.error) throw signed.error;
-      previewUrl = signed.data.signedUrl;
-    }
-    if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPublicBucket && row.storage_path) previewUrl = publicAssetUrl(row.storage_path, "tencent_cos");
-    if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket && row.storage_path) {
-      const signed = await invokeEdgeFunction<{ url?: string }>("cos-storage", { action: "signed-url", bucket: cosPrivateBucket, path: row.storage_path, contentId }, "signed-url");
-      previewUrl = String(signed.url || "");
-    }
     if (!posterPreviewUrl && row.poster_storage_path) {
       if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPublicBucket) posterPreviewUrl = publicAssetUrl(row.poster_storage_path, "tencent_cos");
       else if (row.storage_provider === "tencent_cos" && row.storage_bucket === cosPrivateBucket) {
@@ -920,7 +992,7 @@ function MediaCard({ row, editable, draggable, dragging, onDrag, onDrop, onInser
   const videoCodec = String(row.video_codec || "").trim();
   const needsLocalRepair = row.kind === "video" && (String(row.processing_status || "ready") !== "ready" || !videoCodec || videoCodec === "browser-incompatible");
   const statusText = needsLocalRepair ? "等待本机兼容修复" : hasPlayableFallback ? "旧版本可用" : "可用";
-  return <article className={`media-card${row.kind === "video" ? " video" : ""}${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} /></div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><div className="media-card-status"><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span><span>{statusText}</span></div><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="媒体名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="媒体标注或说明" />{row.kind === "video" && <small>{String(row.video_codec || "编码待检测")} · {formatBytes(Number(row.size_bytes || 0))}</small>}</div>{editable && <div className="media-card-actions"><input ref={replaceRef} className="sr-only" type="file" accept={row.kind === "video" ? "video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" : "image/*"} onChange={(event) => { const file = event.target.files?.[0]; if (file) onReplace(file); event.target.value = ""; }} /><button className="media-action-labeled" title="插入正文" disabled={String(row.processing_status || "ready") !== "ready"} onClick={onInsert}><Plus />插入正文</button><button className="media-action-labeled" title="替换文件" onClick={() => replaceRef.current?.click()}><RefreshCcw />替换</button>{needsLocalRepair && <button className="media-action-labeled" title="在当前电脑转换并修复视频" onClick={onRetry}><RefreshCcw />本机修复</button>}{needsVariants && <button title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <ImagePlus />}</button>}<button title="保存信息" onClick={save}><Save /></button><button className="danger" title="永久删除" onClick={onRemove}><Trash2 /></button></div>}</article>;
+  return <article className={`media-card${row.kind === "video" ? " video" : ""}${dragging ? " dragging" : ""}`} draggable={draggable} onDragStart={draggable ? onDrag : undefined} onDragOver={draggable ? (event) => event.preventDefault() : undefined} onDrop={draggable ? onDrop : undefined}><div className="media-card-preview">{row.kind === "video" ? <div className="media-video-shell"><VideoPlayer media={playerMedia} /></div> : row.previewUrl ? <img src={row.previewUrl} alt={title} loading="lazy" decoding="async" /> : <FileImage />}</div><div className="media-card-fields"><div className="media-card-status"><span className={`media-provider-badge ${provider.key}`}>{provider.label}</span><span>{statusText}</span></div><input disabled={!editable} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="媒体名称" /><input disabled={!editable} value={path} onChange={(event) => setPath(event.target.value)} placeholder="一级 / 二级 / 三级" /><textarea disabled={!editable} value={note} onChange={(event) => setNote(event.target.value)} placeholder="媒体标注或说明" />{row.kind === "video" && <small>{String(row.video_codec || "编码待检测")} · {formatBytes(Number(row.size_bytes || 0))}</small>}</div>{editable && <div className="media-card-actions"><input ref={replaceRef} className="sr-only" type="file" accept={row.kind === "video" ? "video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm" : "image/*"} onChange={(event) => { const file = event.target.files?.[0]; if (file) onReplace(file); event.target.value = ""; }} /><div className="media-card-action-primary"><button className="media-action-labeled" title="插入正文" disabled={String(row.processing_status || "ready") !== "ready"} onClick={onInsert}><Plus />插入正文</button><button className="media-action-labeled" title="替换文件" onClick={() => replaceRef.current?.click()}><RefreshCcw />替换</button></div><div className="media-card-action-utility">{needsLocalRepair && <button className="media-action-labeled" title="在当前电脑转换并修复视频" onClick={onRetry}><RefreshCcw />本机修复</button>}{needsVariants && <button aria-label="生成响应式预览" title="生成响应式预览" disabled={variantBusy} onClick={onGenerateVariants}>{variantBusy ? <LoaderCircle className="spin" /> : <ImagePlus />}</button>}<button aria-label="保存媒体信息" title="保存信息" onClick={save}><Save /></button><button className="danger" aria-label="永久删除媒体" title="永久删除" onClick={onRemove}><Trash2 /></button></div></div>}</article>;
 }
 
 export function CategoriesPage({ profile }: { profile: Profile }) {

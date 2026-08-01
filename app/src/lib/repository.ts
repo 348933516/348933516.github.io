@@ -115,7 +115,8 @@ function mapMedia(row: Record<string, unknown>): ContentMedia {
     sourceImportId: row.source_import_id ? String(row.source_import_id) : undefined,
     storageProvider: row.storage_provider === "tencent_cos" ? "tencent_cos" : "supabase",
     storageBucket: row.storage_bucket ? String(row.storage_bucket) : undefined,
-    storagePath: row.storage_path ? String(row.storage_path) : undefined
+    storagePath: row.storage_path ? String(row.storage_path) : undefined,
+    mediaRole: row.media_role === "cover" ? "cover" : "content"
   };
 }
 
@@ -206,9 +207,13 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
   if (tagsResult.error) throw tagsResult.error;
 
   const mediaByContent = new Map<string, ContentMedia[]>();
+  const mediaById = new Map<string, ContentMedia>();
   for (const row of mediaResult.data || []) {
+    const mapped = mapMedia(row);
+    mediaById.set(row.id, mapped);
+    if (mapped.mediaRole === "cover") continue;
     const list = mediaByContent.get(row.content_id) || [];
-    list.push(mapMedia(row));
+    list.push(mapped);
     mediaByContent.set(row.content_id, list);
   }
   const tagsByContent = new Map<string, string[]>();
@@ -248,6 +253,8 @@ async function loadStructuredPublicData(): Promise<PublicData | null> {
     attachments: [],
     outlineEnabled: Boolean(row.outline_enabled),
     outlineSettings: normalizeOutlineSettings(row.outline_settings),
+    coverMediaId: row.cover_media_id || undefined,
+    coverUrl: mediaById.get(String(row.cover_media_id || ""))?.src || mediaByContent.get(row.id)?.find((media) => media.kind === "image")?.src,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -360,10 +367,11 @@ export function readPublicHomeCache(): PublicData | undefined {
 
 function mapPublicSummary(row: Record<string, unknown>): ContentItem {
   const coverPath = String(row.cover_path || "");
-  const media = coverPath ? [{
+  const coverUrl = row.cover_external_url ? safeUrl(String(row.cover_external_url)) : storedAssetUrl(coverPath, String(row.cover_provider || "supabase"));
+  const media = coverUrl ? [{
     id: `cover-${String(row.id)}`,
     kind: "image" as const,
-    src: storedAssetUrl(coverPath, String(row.cover_provider || "supabase")),
+    src: coverUrl,
     title: String(row.title || ""),
     note: "",
     path: [],
@@ -377,6 +385,8 @@ function mapPublicSummary(row: Record<string, unknown>): ContentItem {
     status: "published", featured: Boolean(row.is_featured), sortOrder: Number(row.sort_order || 100), version: Number(row.version || 1),
     tags: [], media, attachments: [], createdAt: String(row.created_at || ""), updatedAt: String(row.updated_at || ""),
     outlineEnabled: Boolean(row.outline_enabled), outlineSettings: normalizeOutlineSettings(row.outline_settings),
+    coverUrl: coverUrl || undefined,
+    coverMediaId: row.cover_media_id ? String(row.cover_media_id) : undefined,
     publishedAt: row.published_at ? String(row.published_at) : undefined,
     mediaCount: row.media_count === null || row.media_count === undefined ? media.length : Number(row.media_count)
   };
@@ -544,6 +554,8 @@ async function mapAdminContentListRows(rows: Array<Record<string, unknown>>) {
       pendingMediaCount: Number(row.pending_media_count || 0),
       outlineEnabled: Boolean(row.outline_enabled),
       outlineSettings: normalizeOutlineSettings(row.outline_settings),
+      coverUrl: cover || undefined,
+      coverMediaId: row.cover_media_id ? String(row.cover_media_id) : undefined,
       createdBy: row.created_by ? String(row.created_by) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -600,8 +612,8 @@ export async function loadAdminContentPage(input: { page: number; pageSize?: num
 
 export async function loadAdminContent(id: string): Promise<ContentItem> {
   const [contentResult, mediaResult, attachmentResult, tagResult] = await Promise.all([
-    supabase.from("contents").select("*, categories!inner(id, slug, name)").eq("id", id).single(),
-    supabase.from("content_media").select("id, storage_provider, storage_bucket, storage_path, external_url").eq("content_id", id),
+    supabase.from("contents").select("*, categories!inner(id, slug, name, image_path, image_provider)").eq("id", id).single(),
+    supabase.from("content_media").select("id, kind, media_role, sort_order, storage_provider, storage_bucket, storage_path, external_url").eq("content_id", id).order("sort_order"),
     supabase.from("attachments").select("id, storage_provider, storage_bucket, storage_path, external_url").eq("content_id", id),
     supabase.from("content_tags").select("tags(name)").eq("content_id", id)
   ]);
@@ -610,7 +622,12 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
   if (attachmentResult.error) throw attachmentResult.error;
   if (tagResult.error) throw tagResult.error;
   const row = contentResult.data;
-  const category = row.categories as { id: string; slug: string; name: string };
+  const category = row.categories as { id: string; slug: string; name: string; image_path?: string | null; image_provider?: string | null };
+  const selectedCover = (mediaResult.data || []).find((media) => media.id === row.cover_media_id && media.kind === "image");
+  const fallbackCover = selectedCover || (mediaResult.data || []).find((media) => media.kind === "image" && media.media_role !== "cover");
+  const coverUrl = fallbackCover
+    ? await adminStorageUrl(fallbackCover.storage_bucket, fallbackCover.storage_path, fallbackCover.external_url, fallbackCover.storage_provider, id)
+    : storedAssetUrl(category.image_path || "", category.image_provider || "supabase");
   return {
     id: row.id,
     slug: row.slug,
@@ -633,7 +650,7 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
     }),
     media: [],
     attachments: [],
-    mediaCount: mediaResult.data?.length || 0,
+    mediaCount: mediaResult.data?.filter((media) => media.media_role !== "cover").length || 0,
     attachmentCount: attachmentResult.data?.length || 0,
     pendingMediaCount: [...(mediaResult.data || []), ...(attachmentResult.data || [])].filter((stored) => !isPublishedStorageRecord({
       provider: stored.storage_provider,
@@ -643,6 +660,8 @@ export async function loadAdminContent(id: string): Promise<ContentItem> {
     })).length,
     outlineEnabled: Boolean(row.outline_enabled),
     outlineSettings: normalizeOutlineSettings(row.outline_settings),
+    coverUrl: coverUrl || undefined,
+    coverMediaId: row.cover_media_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
@@ -654,6 +673,7 @@ export async function loadAdminStandaloneMedia(contentId: string): Promise<Conte
   const { data, error } = await supabase.from("content_media")
     .select("*")
     .eq("content_id", contentId)
+    .eq("media_role", "content")
     .is("source_import_id", null)
     .order("sort_order");
   if (error) throw error;

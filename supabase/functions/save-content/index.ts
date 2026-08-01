@@ -165,6 +165,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
     return json({ error: "Uploaders can only edit their own drafts" }, 403);
   }
 
+  const coverMediaId = body.coverMediaId ? String(body.coverMediaId) : null;
+  if (coverMediaId) {
+    if (!existing) return json({ error: "Save the content before adding a cover" }, 400);
+    const cover = await client.from("content_media").select("id").eq("id", coverMediaId).eq("content_id", existing.id).eq("kind", "image").maybeSingle();
+    if (cover.error || !cover.data) return json({ error: "Cover image does not belong to this content" }, 400);
+  }
+
   let status = String(body.status ?? "draft");
   if (!allowedStatuses.includes(status)) status = "draft";
   if (profile.role === "uploader") status = "draft";
@@ -186,6 +193,7 @@ Deno.serve((request) => edgeHandler(request, async () => {
     sort_order: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 100,
     outline_enabled: Boolean(body.outlineEnabled),
     outline_settings: cleanOutlineSettings(body.outlineSettings, cleanedBody),
+    cover_media_id: coverMediaId,
     updated_by: user.id
   };
 
@@ -195,8 +203,13 @@ Deno.serve((request) => edgeHandler(request, async () => {
     try { await syncTags(client, data.id, body.tags); return json(data); }
     catch (tagError) { console.error(tagError); return json({ ...data, tagWarning: "正文已保存，但标签暂时无法同步" }); }
   }
+  const previousCoverId = existing.cover_media_id ? String(existing.cover_media_id) : null;
   const { data, error } = await client.from("contents").update(payload).eq("id", existing.id).eq("version", expectedVersion).select("*").maybeSingle();
   if (error || !data) return json({ error: error?.message ?? "Content version changed", code: "VERSION_CONFLICT" }, 409);
+  if (previousCoverId && previousCoverId !== coverMediaId) {
+    const cleanup = await client.rpc("cleanup_unreferenced_cover_media", { p_content_id: existing.id, p_media_id: previousCoverId });
+    if (cleanup.error) console.error("Unable to queue unused cover cleanup", cleanup.error.message);
+  }
   try { await syncTags(client, data.id, body.tags); return json(data); }
   catch (tagError) { console.error(tagError); return json({ ...data, tagWarning: "正文已保存，但标签暂时无法同步" }); }
 }));
