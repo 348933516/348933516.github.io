@@ -16,7 +16,7 @@ function formatDate(value?: string) {
 }
 
 function cover(item: ContentItem) {
-  return item.media.find((media) => media.kind === "image")?.src || "";
+  return item.coverUrl || item.media.find((media) => media.kind === "image")?.src || "";
 }
 
 function ContentCard({ item, compactMeta = false }: { item: ContentItem; compactMeta?: boolean }) {
